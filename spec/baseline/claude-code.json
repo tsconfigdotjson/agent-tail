@@ -1,0 +1,490 @@
+{
+ "attachment_types": [
+  "agent_listing_delta",
+  "auto_mode",
+  "command_permissions",
+  "compact_file_reference",
+  "credential_org",
+  "date",
+  "deferred_tools_delta",
+  "deferred_tools_record",
+  "edited_text_file",
+  "environment",
+  "file",
+  "hook_cancelled",
+  "instructions",
+  "mcp_instructions_delta",
+  "model",
+  "nested_memory",
+  "prompt_snapshot",
+  "queued_command",
+  "read_truncation_notice",
+  "remote_session_change",
+  "session_context",
+  "silent_turn_reminder",
+  "skill_listing",
+  "task_reminder",
+  "thinking_drop",
+  "total_tokens_reminder"
+ ],
+ "content_types": {
+  "api-request-blob": [
+   "image",
+   "text",
+   "thinking",
+   "tool_addition",
+   "tool_result",
+   "tool_use"
+  ],
+  "assistant": [
+   "text",
+   "thinking",
+   "tool_use"
+  ],
+  "tool_result.content": [
+   "document",
+   "image",
+   "text",
+   "tool_reference"
+  ],
+  "user": [
+   "image",
+   "text",
+   "tool_result"
+  ]
+ },
+ "enums": {
+  "assistant.error": [
+   "server_error",
+   "authentication_failed"
+  ],
+  "compactMetadata.trigger": [
+   "auto"
+  ],
+  "entrypoint": [
+   "cli",
+   "sdk-cli"
+  ],
+  "message.stop_reason": [
+   "tool_use",
+   "end_turn",
+   "stop_sequence",
+   "refusal",
+   null
+  ],
+  "meta.agentType": [
+   "general-purpose",
+   "Explore",
+   "fork"
+  ],
+  "mode": [
+   "normal"
+  ],
+  "origin.kind": [
+   "human",
+   "task-notification",
+   "coordinator"
+  ],
+  "permissionDecision.decision": [
+   "accept",
+   "reject"
+  ],
+  "permissionDecision.reasonType": [
+   "mode",
+   "classifier",
+   "rule",
+   "safetyCheck"
+  ],
+  "permissionDecision.source": [
+   "config",
+   "user_temporary",
+   "user_reject"
+  ],
+  "permissionMode": [
+   "bypassPermissions",
+   "default"
+  ],
+  "promptSource": [
+   "typed",
+   "system",
+   "queued",
+   "sdk"
+  ],
+  "queue-operation.operation": [
+   "enqueue",
+   "dequeue",
+   "remove"
+  ],
+  "sessions.status": [
+   "busy"
+  ],
+  "system.level": [
+   "suggestion",
+   "notice",
+   "info",
+   "warning"
+  ],
+  "task-notification <status>": [
+   "completed",
+   "failed",
+   "stopped"
+  ],
+  "toolDenialKind": [
+   "user-rejected",
+   "permission-rule",
+   "interrupted",
+   "automode-blocked"
+  ],
+  "toolUseResult.status": [
+   "async_launched",
+   "forked",
+   "auth_url"
+  ]
+ },
+ "field_paths": {
+  "Agent toolUseResult": [
+   "agentId",
+   "canContinueAgent",
+   "canReadOutputFile",
+   "description",
+   "isAsync",
+   "outputFile",
+   "prompt",
+   "resolvedModel",
+   "status"
+  ],
+  "ai-title": [
+   "aiTitle",
+   "sessionId"
+  ],
+  "api-request": [
+   "id",
+   "base",
+   "keep",
+   "params.max_tokens",
+   "params.model",
+   "querySource",
+   "requestDigest",
+   "shapeHash",
+   "timestamp",
+   "version",
+   "agentId",
+   "sessionId"
+  ],
+  "assistant": [
+   "message.id",
+   "message.model",
+   "message.role",
+   "message.type",
+   "message.stop_reason",
+   "message.stop_sequence",
+   "message.stop_details",
+   "message.usage",
+   "message.content[]",
+   "message.container",
+   "message.context_management",
+   "message.diagnostics",
+   "requestId",
+   "requestRef",
+   "requestedModel",
+   "apiBlockIndex",
+   "effort",
+   "perTurnEffort",
+   "advisorModel",
+   "thinkingDurationMs",
+   "thinkingDisplay",
+   "error",
+   "isApiErrorMessage",
+   "isAbortedMidStream",
+   "truncatedAfterOutput",
+   "attributionAgent",
+   "attributionMcpServer",
+   "attributionMcpTool",
+   "attributionSkill"
+  ],
+  "cost-state": [
+   "totalCostUSD",
+   "totalDuration",
+   "totalAPIDuration",
+   "totalAPIDurationWithoutRetries",
+   "totalToolDuration",
+   "totalLinesAdded",
+   "totalLinesRemoved",
+   "hasUnknownModelCost",
+   "startTime",
+   "sessionId"
+  ],
+  "envelope": [
+   "uuid",
+   "parentUuid",
+   "timestamp",
+   "sessionId",
+   "session_id",
+   "cwd",
+   "gitBranch",
+   "version",
+   "entrypoint",
+   "userType",
+   "isSidechain",
+   "slug",
+   "agentId",
+   "sessionKind"
+  ],
+  "fork-context-ref": [
+   "agentId",
+   "contextLength",
+   "parentLastUuid",
+   "parentSessionId"
+  ],
+  "last-prompt": [
+   "lastPrompt",
+   "leafUuid",
+   "explicit",
+   "sessionId"
+  ],
+  "mode": [
+   "mode",
+   "sessionId"
+  ],
+  "permission-mode": [
+   "permissionMode",
+   "sessionId"
+  ],
+  "queue-operation": [
+   "operation",
+   "reason",
+   "content",
+   "commandUuid",
+   "deliveryId",
+   "timestamp",
+   "sessionId"
+  ],
+  "sessions/<pid>.json": [
+   "pid",
+   "sessionId",
+   "cwd",
+   "startedAt",
+   "procStart",
+   "version",
+   "peerProtocol",
+   "peerFeatures",
+   "kind",
+   "entrypoint",
+   "pidDomain",
+   "messagingSocketPath",
+   "name",
+   "nameSource",
+   "status",
+   "updatedAt",
+   "statusUpdatedAt"
+  ],
+  "subagent meta.json": [
+   "agentType",
+   "description",
+   "finished",
+   "isFork",
+   "launchedWithDefaults",
+   "model",
+   "name",
+   "parentAgentId",
+   "requestNonInteractive",
+   "requestShape",
+   "revivedAt",
+   "spawnDepth",
+   "stoppedByUser",
+   "toolUseId",
+   "worktreeCleanlyRemoved"
+  ],
+  "system/compact_boundary": [
+   "compactMetadata.trigger",
+   "compactMetadata.preTokens",
+   "compactMetadata.postTokens",
+   "compactMetadata.durationMs",
+   "compactMetadata.cumulativeDroppedTokens",
+   "logicalParentUuid",
+   "content",
+   "level"
+  ],
+  "system/local_command": [
+   "commandRun.command",
+   "commandRun.args",
+   "content",
+   "level"
+  ],
+  "system/scheduled_task_fire": [
+   "cron",
+   "cronKind",
+   "taskKind",
+   "taskId",
+   "prompt",
+   "content"
+  ],
+  "system/stop_hook_summary": [
+   "hookCount",
+   "hasOutput",
+   "preventedContinuation",
+   "stopReason",
+   "toolUseID",
+   "level"
+  ],
+  "system/turn_duration": [
+   "durationMs",
+   "messageCount",
+   "pendingBackgroundAgentCount",
+   "isMeta"
+  ],
+  "thinking": [
+   "type",
+   "thinking",
+   "signature"
+  ],
+  "tool_result": [
+   "type",
+   "tool_use_id",
+   "content",
+   "is_error"
+  ],
+  "tool_use": [
+   "type",
+   "id",
+   "name",
+   "input",
+   "caller.type"
+  ],
+  "user": [
+   "message.role",
+   "message.content",
+   "toolUseResult",
+   "sourceToolAssistantUUID",
+   "sourceToolUseID",
+   "permissionDecision.decision",
+   "permissionDecision.source",
+   "permissionDecision.reasonType",
+   "permissionDecision.reasonCode",
+   "permissionDecision.grantScope",
+   "permissionMode",
+   "promptSource",
+   "promptId",
+   "origin.kind",
+   "origin.producer",
+   "origin.runId",
+   "interruptedMessageId",
+   "refusedMessageId",
+   "toolDenialKind",
+   "isMeta",
+   "isCompactSummary",
+   "isVisibleInTranscriptOnly",
+   "queuePriority",
+   "queueSkipAttachments",
+   "queueSkipSlashCommands",
+   "queueTranscriptOnly",
+   "sandboxed",
+   "classifierBoundary",
+   "scheduledFireId",
+   "scheduledTaskId"
+  ]
+ },
+ "harness": "claude-code",
+ "host": "mac",
+ "markers": [
+  "[Request interrupted by user]",
+  "[Request interrupted by user for tool use]",
+  "The user doesn't want to proceed with this tool use",
+  "<tool_use_error>",
+  "<task-notification>"
+ ],
+ "record_types": {
+  "main": [
+   "agent-name",
+   "ai-title",
+   "api-request",
+   "api-request-blob",
+   "api-request-shape",
+   "artifact-autoreact-ledger",
+   "artifact-comment-monitor",
+   "assistant",
+   "atis-latch",
+   "attachment",
+   "bridge-session",
+   "cost-state",
+   "file-history-delta",
+   "file-history-snapshot",
+   "frame-link",
+   "last-prompt",
+   "mode",
+   "permission-mode",
+   "pr-link",
+   "queue-operation",
+   "system",
+   "user"
+  ],
+  "subagent": [
+   "api-request",
+   "api-request-blob",
+   "api-request-shape",
+   "assistant",
+   "attachment",
+   "fork-context-ref",
+   "user"
+  ]
+ },
+ "surveyed": "2026-10-23",
+ "system_subtypes": [
+  "agents_killed",
+  "away_summary",
+  "bridge_status",
+  "compact_boundary",
+  "informational",
+  "local_command",
+  "scheduled_task_fire",
+  "stop_hook_summary",
+  "turn_duration"
+ ],
+ "tool_names_seen": [
+  "Agent",
+  "Artifact",
+  "AskUserQuestion",
+  "Bash",
+  "Edit",
+  "ListAgents",
+  "Monitor",
+  "PushNotification",
+  "Read",
+  "ScheduleWakeup",
+  "SendFeedback",
+  "SendMessage",
+  "Skill",
+  "TaskStop",
+  "ToolSearch",
+  "WebFetch",
+  "WebSearch",
+  "Write",
+  "mcp__*"
+ ],
+ "versions": [
+  "2.1.281",
+  "2.1.283",
+  "2.1.284",
+  "2.1.285",
+  "2.1.286",
+  "2.1.287",
+  "2.1.289",
+  "2.1.290",
+  "2.1.291",
+  "2.1.292",
+  "2.1.293",
+  "2.1.294",
+  "2.1.295",
+  "2.1.296",
+  "2.1.299",
+  "2.1.300",
+  "2.1.301",
+  "2.1.302",
+  "2.1.303",
+  "2.1.304",
+  "2.1.305",
+  "2.1.306",
+  "2.1.308",
+  "2.1.309"
+ ]
+}

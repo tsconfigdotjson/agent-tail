@@ -1,0 +1,182 @@
+{
+ "content_types": {
+  "response_item/message": [
+   "input_text",
+   "output_text"
+  ]
+ },
+ "enums": {
+  "approval_policy": [
+   "on-request"
+  ],
+  "custom_tool_call.status": [
+   "completed"
+  ],
+  "message.role": [
+   "developer",
+   "user",
+   "assistant"
+  ],
+  "model_provider": [
+   "openai"
+  ],
+  "sandbox_policy.type": [
+   "workspace-write"
+  ],
+  "source": [
+   "vscode"
+  ]
+ },
+ "field_paths": {
+  "envelope": [
+   "timestamp",
+   "type",
+   "payload"
+  ],
+  "event_msg/agent_message": [
+   "message",
+   "phase",
+   "memory_citation"
+  ],
+  "event_msg/task_complete": [
+   "turn_id",
+   "last_agent_message"
+  ],
+  "event_msg/task_started": [
+   "turn_id",
+   "model_context_window",
+   "collaboration_mode_kind"
+  ],
+  "event_msg/token_count": [
+   "info.total_token_usage",
+   "info.last_token_usage",
+   "info.model_context_window",
+   "rate_limits.primary",
+   "rate_limits.secondary",
+   "rate_limits.credits",
+   "rate_limits.limit_id",
+   "rate_limits.limit_name",
+   "rate_limits.plan_type"
+  ],
+  "event_msg/user_message": [
+   "message",
+   "images",
+   "local_images",
+   "text_elements"
+  ],
+  "response_item/custom_tool_call": [
+   "name",
+   "input",
+   "status",
+   "call_id"
+  ],
+  "response_item/custom_tool_call_output": [
+   "call_id",
+   "output"
+  ],
+  "response_item/function_call": [
+   "name",
+   "arguments",
+   "call_id"
+  ],
+  "response_item/function_call_output": [
+   "call_id",
+   "output"
+  ],
+  "response_item/message": [
+   "role",
+   "content[]",
+   "phase"
+  ],
+  "response_item/reasoning": [
+   "summary",
+   "content",
+   "encrypted_content"
+  ],
+  "session_index.jsonl": [
+   "id",
+   "thread_name",
+   "updated_at"
+  ],
+  "session_meta": [
+   "id",
+   "timestamp",
+   "cwd",
+   "originator",
+   "cli_version",
+   "source",
+   "model_provider",
+   "base_instructions",
+   "dynamic_tools",
+   "git.branch",
+   "git.commit_hash",
+   "git.repository_url"
+  ],
+  "token_usage": [
+   "input_tokens",
+   "cached_input_tokens",
+   "output_tokens",
+   "reasoning_output_tokens",
+   "total_tokens"
+  ],
+  "turn_context": [
+   "turn_id",
+   "cwd",
+   "approval_policy",
+   "sandbox_policy.type",
+   "sandbox_policy.network_access",
+   "sandbox_policy.writable_roots",
+   "sandbox_policy.exclude_tmpdir_env_var",
+   "sandbox_policy.exclude_slash_tmp",
+   "model",
+   "effort",
+   "summary",
+   "personality",
+   "collaboration_mode.mode",
+   "collaboration_mode.settings",
+   "current_date",
+   "timezone",
+   "realtime_active",
+   "truncation_policy",
+   "developer_instructions"
+  ]
+ },
+ "files": {
+  ".jsonl": 1,
+  ".jsonl.zst": 0
+ },
+ "harness": "codex",
+ "host": "mac (vibe-os unreachable)",
+ "record_types": {
+  "event_msg": [
+   "agent_message",
+   "task_complete",
+   "task_started",
+   "token_count",
+   "user_message"
+  ],
+  "response_item": [
+   "custom_tool_call",
+   "custom_tool_call_output",
+   "function_call",
+   "function_call_output",
+   "message",
+   "reasoning"
+  ],
+  "session_meta": [
+   null
+  ],
+  "turn_context": [
+   null
+  ]
+ },
+ "surveyed": "2026-10-23",
+ "tool_names_seen": [
+  "exec_command",
+  "write_stdin",
+  "apply_patch"
+ ],
+ "versions": [
+  "0.118.0-alpha.2"
+ ]
+}

@@ -1,0 +1,213 @@
+{
+ "block_fields": {
+  "text": [
+   "type",
+   "text"
+  ],
+  "tool_use": [
+   "type",
+   "name",
+   "input"
+  ]
+ },
+ "content_types": {
+  "assistant": [
+   "text",
+   "tool_use"
+  ],
+  "user": [
+   "text"
+  ]
+ },
+ "enums": {
+  "turn_ended.error": [
+   "User aborted request",
+   "user_stopped_generation",
+   "new_message_submitted"
+  ],
+  "turn_ended.status": [
+   "success",
+   "error"
+  ]
+ },
+ "harness": "cursor",
+ "host": "mac",
+ "layout": [
+  "<project>/agent-transcripts/<id>/<id>.jsonl",
+  "<project>/agent-transcripts/<id>/subagents/<id>.jsonl"
+ ],
+ "record_shapes": [
+  [
+   "message",
+   "role"
+  ],
+  [
+   "status",
+   "type"
+  ],
+  [
+   "error",
+   "status",
+   "type"
+  ]
+ ],
+ "record_types": [
+  "turn_ended"
+ ],
+ "roles": [
+  "assistant",
+  "user"
+ ],
+ "state_vscdb": {
+  "bubble_status_like_fields": [
+   "type",
+   "capabilityType",
+   "toolFormerData",
+   "toolResults",
+   "startedAtMs",
+   "completedAtMs",
+   "turnDurationMs",
+   "subagentSpawnTaskToolCallId",
+   "thinking",
+   "thinkingDurationMs"
+  ],
+  "composerData_enums": {
+   "forceMode": [
+    "edit",
+    "chat"
+   ],
+   "status": [
+    "none",
+    "aborted",
+    "completed"
+   ],
+   "unifiedMode": [
+    "agent",
+    "chat"
+   ]
+  },
+  "composerData_fields": [
+   "_v",
+   "activeCustomMode",
+   "activeTabsShouldBeReactive",
+   "addedFiles",
+   "agentBackend",
+   "allAttachedFileCodeChunksUris",
+   "applied",
+   "applyAgentBackendTypeRestrictions",
+   "blobEncryptionKey",
+   "browserChipManuallyDisabled",
+   "browserChipManuallyEnabled",
+   "canvasPillCollapsed",
+   "capabilities",
+   "capabilityContexts",
+   "chatGenerationUUID",
+   "codeBlockData",
+   "committedCustomMode",
+   "composerId",
+   "context",
+   "contextTokenLimit",
+   "contextTokensUsed",
+   "contextUsagePercent",
+   "conversationCheckpointLastUpdatedAt",
+   "conversationMap",
+   "conversationState",
+   "createdAt",
+   "debugModeSuggestionUsed",
+   "draftTarget",
+   "editingBubbleId",
+   "filesChangedCount",
+   "forceMode",
+   "fullConversationHeadersOnly",
+   "generatingBubbleIds",
+   "gitHubPromptDismissed",
+   "hasChangedContext",
+   "hasLoaded",
+   "hasUnreadMessages",
+   "isAgentic",
+   "isApplyingWorktree",
+   "isBestOfNParent",
+   "isBestOfNSubcomposer",
+   "isContinuationInProgress",
+   "isCreatingWorktree",
+   "isDraft",
+   "isFileListExpanded",
+   "isNAL",
+   "isProject",
+   "isQueueExpanded",
+   "isReadingLongFile",
+   "isSpec",
+   "isSpecSubagentDone",
+   "isUndoingWorktree",
+   "lastReadAtMs",
+   "lastUpdatedAt",
+   "latestChatGenerationUUID",
+   "modelConfig",
+   "name",
+   "newlyCreatedFiles",
+   "newlyCreatedFolders",
+   "originalFileStates",
+   "pendingCreateWorktree",
+   "pendingExitedCustomMode",
+   "planModeSuggestionUsed",
+   "promptTokenBreakdown",
+   "queueItems",
+   "removedFiles",
+   "restrictAgentModeSwitching",
+   "richText",
+   "speculativeSummarizationEncryptionKey",
+   "status",
+   "stopHookLoopCount",
+   "subComposerIds",
+   "subagentComposerIds",
+   "subagentInfo",
+   "subtitle",
+   "text",
+   "todos",
+   "totalLinesAdded",
+   "totalLinesRemoved",
+   "trackedGitRepos",
+   "unifiedMode",
+   "usageData",
+   "workspaceIdentifier",
+   "worktreeStartedReadOnly"
+  ],
+  "cursorDiskKV_prefixes": [
+   "agentKv:",
+   "bubbleId:",
+   "checkpointId:",
+   "ofsContent:",
+   "codeBlockPartialInlineDiffFates:",
+   "composerData:",
+   "composerRootWriterDiagnostic:",
+   "inlineDiff:",
+   "composer.content.",
+   "composer.autoAccept.",
+   "composer.composerHeaders.migratedToTable"
+  ],
+  "tables": [
+   "ItemTable",
+   "cursorDiskKV",
+   "composerHeaders"
+  ]
+ },
+ "surveyed": "2026-10-23",
+ "tool_names_seen": [
+  "AwaitShell",
+  "CallDynamicTool",
+  "GetDynamicTools",
+  "Glob",
+  "Grep",
+  "Read",
+  "ReadLints",
+  "Shell",
+  "StrReplace",
+  "UpdateCurrentStep",
+  "Write"
+ ],
+ "user_wrapper_tags": [
+  "timestamp",
+  "user_query"
+ ],
+ "versions": []
+}
