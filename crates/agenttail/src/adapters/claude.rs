@@ -1,0 +1,289 @@
+//! Claude Code: `~/.claude/projects/<project>/<session id>.jsonl`, one JSON entry per line
+//! ("user" / "assistant" messages, plus "ai-title", "cost-state" and bookkeeping we skip).
+
+use super::Adapter;
+use crate::harness::Layout;
+use crate::session::{Last, Session, command, file_name, first_line, tool};
+use crate::state::ActivityLine;
+use serde_json::Value;
+
+/// Tools that stop and ask the user something.
+const ASKS_USER: [&str; 2] = ["AskUserQuestion", "ExitPlanMode"];
+
+pub(crate) const LAYOUT: Layout = Layout {
+    root: ".claude/projects",
+    // <project>/<session id>.jsonl; subagents' transcripts, further down, belong to their session.
+    max_depth: Some(2),
+    sessions_in: None,
+    helpers_in: None,
+    day_folders: false,
+};
+
+pub(crate) struct ClaudeCode;
+
+impl Adapter for ClaudeCode {
+    fn apply(&self, s: &mut Session, e: &Value) {
+        if let Some(cwd) = e["cwd"].as_str() {
+            s.set_cwd(cwd);
+        }
+        if let Some(b) = e["gitBranch"].as_str().filter(|b| !b.is_empty()) {
+            s.branch = b.into();
+        }
+        match e["type"].as_str() {
+            Some("ai-title") => s.title = e["aiTitle"].as_str().unwrap_or_default().into(),
+            Some("cost-state") => {
+                // Written as a string or a number depending on version.
+                let c = &e["totalCostUSD"];
+                if let Some(cost) = c.as_f64().or_else(|| c.as_str()?.parse().ok()) {
+                    s.cost = Some(cost);
+                }
+            }
+            Some("user") if e["isSidechain"] != true => user(s, e),
+            Some("assistant") if e["isSidechain"] != true => assistant(s, e),
+            _ => {}
+        }
+    }
+}
+
+fn interrupted(s: &str) -> bool {
+    s.starts_with("[Request interrupted")
+}
+
+fn user(s: &mut Session, e: &Value) {
+    let t = s.time_of(e);
+    let content = &e["message"]["content"];
+    if let Some(text) = content.as_str() {
+        if interrupted(text) {
+            s.set(Last::EndTurn, t);
+        } else if e["isMeta"] != true && !text.starts_with('<') {
+            s.prompt(text, t);
+        }
+    } else if let Some(items) = content.as_array() {
+        let texts = || items.iter().filter(|c| c["type"] == "text").filter_map(|c| c["text"].as_str());
+        if items.iter().any(|c| c["type"] == "tool_result") {
+            s.set(Last::ToolResult, t);
+        } else if texts().any(interrupted) {
+            s.set(Last::EndTurn, t);
+        } else if e["isMeta"] != true {
+            // A prompt in blocks: text with a pasted image, say.
+            if let Some(text) = texts().find(|t| !t.starts_with('<')) {
+                s.prompt(text, t);
+            } else if items.iter().any(|c| c["type"] == "image") {
+                s.prompt("", t);
+            }
+        }
+    }
+}
+
+fn assistant(s: &mut Session, e: &Value) {
+    let t = s.time_of(e);
+    let msg = &e["message"];
+    // One API message can span several transcript entries; count its usage once.
+    let id = msg["id"].as_str().unwrap_or_default().to_string();
+    if s.seen.insert(id) {
+        s.out_tokens += msg["usage"]["output_tokens"].as_u64().unwrap_or(0);
+    }
+    for c in msg["content"].as_array().into_iter().flatten() {
+        if c["type"] == "tool_use" {
+            let name = c["name"].as_str().unwrap_or_default();
+            s.tool_call(ASKS_USER.contains(&name), Some(describe_tool(name, &c["input"])), t);
+        }
+    }
+    if msg["stop_reason"] == "end_turn" {
+        s.set(Last::EndTurn, t);
+    }
+}
+
+fn describe_tool(name: &str, input: &Value) -> ActivityLine {
+    if name == "Bash" {
+        return command(input["command"].as_str().unwrap_or_default());
+    }
+    for key in ["file_path", "path", "pattern", "url", "query", "description", "prompt"] {
+        if let Some(v) = input[key].as_str().filter(|v| !v.is_empty()) {
+            let v = if key.ends_with("path") { file_name(v) } else { first_line(v).to_string() };
+            return tool(name, v);
+        }
+    }
+    ActivityLine::Tool { name: name.into(), detail: None }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::StatusClass as Status;
+    use crate::harness::Harness;
+    use crate::testutil::{at, fixture, jsonl, log, replay, status};
+    use serde_json::json;
+
+    const STALL_AFTER: f64 = 20.0;
+
+    fn session(events: &[Value]) -> Session {
+        replay(Harness::ClaudeCode, events)
+    }
+
+    fn prompt(text: &str, ago: f64) -> Value {
+        json!({"type": "user", "timestamp": at(ago), "cwd": "/work/proj", "gitBranch": "main",
+               "message": {"role": "user", "content": text}})
+    }
+
+    fn tool_use(name: &str, input: Value, ago: f64, id: &str) -> Value {
+        json!({"type": "assistant", "timestamp": at(ago),
+               "message": {"id": id, "stop_reason": "tool_use", "usage": {"output_tokens": 10},
+                           "content": [{"type": "tool_use", "name": name, "input": input}]}})
+    }
+
+    fn tool_result(ago: f64) -> Value {
+        json!({"type": "user", "timestamp": at(ago),
+               "message": {"content": [{"type": "tool_result", "content": "ok"}]}})
+    }
+
+    fn end_turn(ago: f64, id: &str) -> Value {
+        json!({"type": "assistant", "timestamp": at(ago),
+               "message": {"id": id, "stop_reason": "end_turn", "usage": {"output_tokens": 5},
+                           "content": [{"type": "text", "text": "all done"}]}})
+    }
+
+    #[test]
+    fn follows_a_turn_from_prompt_to_done() {
+        let mut s = session(&[prompt("\n   fix the build\nand then the tests", 5.0)]);
+        assert_eq!(status(&s), (Status::Working, "thinking"));
+        assert_eq!(log(&s), ["› fix the build"]);
+        assert_eq!((s.project.as_str(), s.branch.as_str()), ("proj", "main"));
+
+        s.apply(&tool_use("Bash", json!({"command": "cargo test\n--release"}), 3.0, "m1"));
+        assert_eq!(status(&s), (Status::Working, "working"));
+        assert_eq!(log(&s).last().unwrap(), "$ cargo test");
+
+        s.apply(&tool_result(2.0));
+        assert_eq!(status(&s), (Status::Working, "thinking"));
+
+        s.apply(&end_turn(1.0, "m2"));
+        assert_eq!(status(&s), (Status::Done, "done"));
+    }
+
+    #[test]
+    fn a_tool_call_without_result_looks_like_an_approval_prompt() {
+        let s = session(&[tool_use("Bash", json!({"command": "rm -rf build"}), STALL_AFTER + 10.0, "m1")]);
+        assert_eq!(status(&s), (Status::NeedsYou, "may need approval"));
+    }
+
+    #[test]
+    fn questions_and_plans_wait_for_the_user() {
+        for tool in ASKS_USER {
+            let s = session(&[tool_use(tool, json!({}), 1.0, "m1")]);
+            assert_eq!(status(&s), (Status::NeedsYou, "needs your answer"), "{tool}");
+        }
+    }
+
+    #[test]
+    fn interruptions_end_the_turn() {
+        let plain = json!({"type": "user", "timestamp": at(1.0),
+                           "message": {"content": "[Request interrupted by user]"}});
+        let listed = json!({"type": "user", "timestamp": at(1.0),
+                            "message": {"content": [{"type": "text", "text": "[Request interrupted by user for tool use]"}]}});
+        for e in [plain, listed] {
+            let s = session(&[tool_use("Bash", json!({}), 2.0, "m1"), e]);
+            assert_eq!(status(&s), (Status::Done, "done"));
+            assert_eq!(s.log.len(), 1, "an interruption isn't a prompt");
+        }
+    }
+
+    #[test]
+    fn reads_prompts_in_blocks() {
+        let blocks = json!({"type": "user", "timestamp": at(1.0), "message": {"content": [
+            {"type": "text", "text": "why is this red?\nsee image"}, {"type": "image", "source": {}}]}});
+        let s = session(&[end_turn(2.0, "m1"), blocks]);
+        assert_eq!((status(&s), log(&s)), ((Status::Working, "thinking"), vec!["› why is this red?".to_string()]));
+        let image =
+            json!({"type": "user", "timestamp": at(1.0), "message": {"content": [{"type": "image", "source": {}}]}});
+        let s = session(&[end_turn(2.0, "m1"), image]);
+        assert_eq!((status(&s).0, s.log.len()), (Status::Working, 0), "an image alone is a prompt too");
+        let meta = json!({"type": "user", "isMeta": true, "timestamp": at(1.0), "message": {"content": [{"type": "text", "text": "skill body"}]}});
+        assert!(session(&[meta]).log.is_empty());
+    }
+
+    #[test]
+    fn ignores_meta_command_and_sidechain_entries() {
+        let meta = json!({"type": "user", "isMeta": true, "timestamp": at(1.0), "message": {"content": "caveat"}});
+        let command = prompt("<command-name>/clear</command-name>", 1.0);
+        let mut side = tool_use("Bash", json!({"command": "ls"}), 1.0, "m9");
+        side["isSidechain"] = json!(true);
+        let s = session(&[meta, command, side]);
+        assert!(s.last == Last::Nothing && s.log.is_empty() && s.out_tokens == 0);
+    }
+
+    #[test]
+    fn counts_tokens_once_per_api_message() {
+        // One API message is split across several transcript entries with the same id.
+        let s = session(&[
+            tool_use("Read", json!({}), 3.0, "m1"),
+            tool_use("Grep", json!({}), 3.0, "m1"),
+            end_turn(1.0, "m2"),
+        ]);
+        assert_eq!(s.out_tokens, 15);
+    }
+
+    #[test]
+    fn reads_cost_as_string_or_number() {
+        let mut s = session(&[json!({"type": "cost-state", "totalCostUSD": "1.25"})]);
+        assert_eq!(s.cost, Some(1.25));
+        s.apply(&json!({"type": "cost-state", "totalCostUSD": 2.5}));
+        assert_eq!(s.cost, Some(2.5));
+        s.apply(&json!({"type": "cost-state", "totalCostUSD": "n/a"}));
+        assert_eq!(s.cost, Some(2.5), "unparseable cost keeps the last good value");
+        assert_eq!(session(&[]).cost, None, "none recorded: none, not zero");
+    }
+
+    #[test]
+    fn takes_the_generated_title() {
+        let s = session(&[json!({"type": "ai-title", "aiTitle": "Fix flaky tests"})]);
+        assert_eq!(s.title, "Fix flaky tests");
+    }
+
+    #[test]
+    fn describes_tools_briefly() {
+        let d = |name, input| describe_tool(name, &input).to_string();
+        assert_eq!(d("Read", json!({"file_path": "/a/b/main.rs"})), "Read main.rs");
+        assert_eq!(d("Glob", json!({"path": "/a/src/"})), "Glob src");
+        assert_eq!(d("Grep", json!({"pattern": "TODO\nmore"})), "Grep TODO");
+        assert_eq!(d("WebSearch", json!({"query": "dlna flags"})), "WebSearch dlna flags");
+        assert_eq!(d("Bash", json!({})), "$ ");
+        assert_eq!(d("Mystery", json!({"other": 1})), "Mystery");
+    }
+
+    #[test]
+    fn entries_without_a_time_are_dated_by_the_write() {
+        let mut s = session(&[]);
+        s.mtime = crate::testutil::NOW - 5.0;
+        s.apply(&json!({"type": "user", "message": {"content": "go"}}));
+        assert_eq!(s.last_at, s.mtime);
+    }
+
+    /// A real Claude Code 2.1 session (scrubbed: prompts, tool inputs and outputs replaced,
+    /// structure and bookkeeping entries kept): a prompt, Bash / Read / Write calls, a
+    /// generated title and a cost entry.
+    const RECORDED: &str = include_str!("../../../../fixtures/legacy/claude-code-2.1.jsonl");
+
+    #[test]
+    fn reads_a_recorded_session() {
+        let events = fixture(RECORDED, 2.0);
+        let s = session(&events);
+        assert_eq!((s.project.as_str(), s.branch.as_str()), ("demo-app", "feature/fixtures"));
+        assert_eq!(s.title, "Add a plan file and run the tests");
+        assert!(s.cost.unwrap() > 0.0, "cost-state is read");
+        assert!(s.out_tokens > 0);
+        assert_eq!(status(&s), (Status::Done, "done"));
+        let (bash, write) = ("$ cargo test --lib", "Write plan.md");
+        assert_eq!(log(&s), [write, bash, bash, write, bash], "the last five of its eight tool calls");
+
+        // Stopped right after its first tool call, the session is running that tool.
+        let first_tool = events.iter().position(|e| e["message"]["content"][0]["type"] == "tool_use").unwrap();
+        let s = session(&fixture(&jsonl(&events[..=first_tool]), 1.0));
+        assert_eq!(status(&s), (Status::Working, "working"));
+        assert_eq!(log(&s), ["› Prompt 1: add a plan file", "Read main.rs"]);
+        // With more lines kept, more of the eight.
+        let mut s = Session::new(Harness::ClaudeCode, 20);
+        events.iter().for_each(|e| s.apply(e));
+        assert_eq!(s.log.len(), 9, "the prompt and eight tool calls");
+    }
+}

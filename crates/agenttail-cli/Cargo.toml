@@ -1,0 +1,16 @@
+[package]
+name = "agenttail-cli"
+description = "agenttail on the command line: list and watch coding-agent sessions."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "agenttail"
+path = "src/main.rs"
+
+[dependencies]
+agenttail = { workspace = true, features = ["fs"] }
+serde_json.workspace = true

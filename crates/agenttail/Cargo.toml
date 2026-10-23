@@ -1,0 +1,28 @@
+[package]
+name = "agenttail"
+description = "What every coding agent on this machine is doing right now, read from its session transcripts."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+default = ["fs"]
+# Finding and tailing transcripts on this machine's disk (`Tracker`). Without it the crate
+# is sans-IO: bytes in, state out.
+fs = []
+
+[dependencies]
+memchr.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+proptest = "1.6"
+tempfile = "3.27.0"
+
+[[bench]]
+name = "first_read"
+harness = false
+required-features = ["fs"]

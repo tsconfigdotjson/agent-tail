@@ -1,0 +1,18 @@
+[workspace]
+resolver = "3"
+members = ["crates/agenttail", "crates/agenttail-cli"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+# Let chains (`if let … && …`) need 1.88.
+rust-version = "1.88"
+repository = "https://github.com/tsconfigdotjson/agenttail"
+publish = false
+# No `license` yet: undecided (QUESTIONS.md).
+
+[workspace.dependencies]
+agenttail = { path = "crates/agenttail" }
+memchr = "2.8.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
