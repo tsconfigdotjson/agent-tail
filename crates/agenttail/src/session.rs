@@ -6,7 +6,7 @@ use crate::reducer::ReducerOptions;
 use crate::state::{Activity, ActivityLine, Certainty, Diagnostics, PermissionMode, Reason, SessionMeta, SessionState};
 use crate::time::{Timestamp, parse_rfc3339};
 use serde_json::Value;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
 /// The last thing that happened in a session, which (with its age) decides the activity.
@@ -57,6 +57,9 @@ pub(crate) struct Session {
     pub(crate) last_at: f64,
     /// Ids an adapter has already counted (e.g. API messages split over several entries).
     pub(crate) seen: HashSet<String>,
+    /// Codex tool calls still waiting for their `call_id` output, and whether each asks the
+    /// user something. Parallel calls stay pending until the last one comes back.
+    pub(crate) pending_tools: HashMap<String, bool>,
     /// When the transcript was last written: the time of entries that carry none.
     pub(crate) mtime: f64,
     /// When a helper's transcript (a Cursor subagent's) was last written.
@@ -82,6 +85,7 @@ impl Session {
             last: Last::Nothing,
             last_at: 0.0,
             seen: HashSet::new(),
+            pending_tools: HashMap::new(),
             mtime: 0.0,
             helper_mtime: 0.0,
         }
@@ -166,6 +170,10 @@ impl Session {
         if last != Last::Errored {
             self.error = None;
         }
+        // A new turn (or its end) discards any calls left over from the last one.
+        if matches!(last, Last::Prompt | Last::EndTurn | Last::Interrupted | Last::Errored) {
+            self.pending_tools.clear();
+        }
     }
 
     /// The turn ended with an error the harness recorded.
@@ -228,6 +236,29 @@ impl Session {
         if let Some(line) = line {
             self.push_log(line);
         }
+    }
+
+    /// The model called a tool with an id. Callers that get ids (Codex) match results by
+    /// id, so parallel calls stay pending until every one has output.
+    pub(crate) fn tool_call_id(&mut self, call_id: &str, asks_user: bool, line: Option<ActivityLine>, t: f64) {
+        self.pending_tools.insert(call_id.into(), asks_user);
+        let any_question = self.pending_tools.values().any(|&asks| asks);
+        self.set(if any_question { Last::Question } else { Last::ToolUse }, t);
+        if let Some(line) = line {
+            self.push_log(line);
+        }
+    }
+
+    /// A tool result arrived for `call_id`. With other calls still pending, the session is
+    /// still running a tool; the last result makes it `Thinking` again.
+    pub(crate) fn tool_result_id(&mut self, call_id: &str, t: f64) {
+        self.pending_tools.remove(call_id);
+        if self.pending_tools.is_empty() {
+            self.set(Last::ToolResult, t);
+            return;
+        }
+        let any_question = self.pending_tools.values().any(|&asks| asks);
+        self.set(if any_question { Last::Question } else { Last::ToolUse }, t);
     }
 }
 
