@@ -1,0 +1,42 @@
+{
+  "name": "compact_manual",
+  "description": "Remember a token, summarize when asked, then answer the follow-up. first_match: the follow-up is checked before the summary, and the summary before the original prompt, because later requests still contain the earlier user text.",
+  "dispatch": "first_match",
+  "steps": [
+    {
+      "expect": { "user_contains": "what token did I ask" },
+      "reply": {
+        "content": [{ "type": "text", "text": "The token is COMPACT-TOKEN-ALPHA." }],
+        "usage": { "input_tokens": 40, "output_tokens": 12 },
+        "fault": { "type": "slow_first_token", "delay_ms": 800 }
+      }
+    },
+    {
+      "expect": {
+        "user_contains": "detailed summary of the conversation",
+        "not_user_contains": "what token did I ask"
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "text",
+            "text": "SUMMARY-MARKER-BETA. The user asked to remember COMPACT-TOKEN-ALPHA."
+          }
+        ],
+        "usage": { "input_tokens": 80, "output_tokens": 40 }
+      }
+    },
+    {
+      "expect": {
+        "user_contains": "COMPACT-TOKEN-ALPHA",
+        "not_user_contains": "detailed summary of the conversation",
+        "has_tool_result": false
+      },
+      "reply": {
+        "content": [{ "type": "text", "text": "Noted COMPACT-TOKEN-ALPHA." }],
+        "usage": { "input_tokens": 20, "output_tokens": 8 },
+        "fault": { "type": "slow_first_token", "delay_ms": 1000 }
+      }
+    }
+  ]
+}

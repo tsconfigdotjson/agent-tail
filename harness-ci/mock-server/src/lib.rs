@@ -212,7 +212,7 @@ async fn anthropic_messages(State(state): State<Arc<MockState>>, body: Bytes) ->
     };
     if is_title_request(&body) {
         state.log_simple("POST", "/v1/messages?source=title");
-        return title_response(&body);
+        return title_response(&body, state.scenario.title.as_deref());
     }
     let (index, step) = match state.take_step(Api::Anthropic, "/v1/messages", &body) {
         Ok(found) => found,
@@ -228,7 +228,8 @@ async fn anthropic_messages(State(state): State<Arc<MockState>>, body: Bytes) ->
         }
         _ => {}
     }
-    let model = state.scenario.model(&step, "claude-sonnet-4-5");
+    let requested = body.get("model").and_then(Value::as_str).unwrap_or("claude-sonnet-4-5");
+    let model = state.scenario.model(&step, requested);
     let stop_reason = state.scenario.stop_reason(&step);
     if stream {
         let events = anthropic::stream_events(index, &model, &step.reply, &stop_reason);
@@ -249,12 +250,17 @@ fn is_title_request(body: &Value) -> bool {
     })
 }
 
-fn title_response(body: &Value) -> Response {
+fn title_text(_body: &Value, override_title: Option<&str>) -> String {
+    let title = override_title.unwrap_or("Mock session title");
+    json!({"title": title}).to_string()
+}
+
+fn title_response(body: &Value, override_title: Option<&str>) -> Response {
     let reply = Step {
         expect: Default::default(),
         reply: scenario::Reply {
             model: None,
-            content: vec![scenario::Block::Text { text: "Mock session title".into() }],
+            content: vec![scenario::Block::Text { text: title_text(body, override_title) }],
             stop_reason: None,
             usage: Default::default(),
             fault: None,
@@ -272,7 +278,7 @@ fn title_response(body: &Value) -> Response {
 
 async fn count_tokens(State(state): State<Arc<MockState>>, body: Bytes) -> Response {
     state.log_simple("POST", "/v1/messages/count_tokens");
-    let input_tokens = body.len().div_ceil(4).max(1);
+    let input_tokens = state.scenario.count_tokens.unwrap_or_else(|| body.len().div_ceil(4).max(1) as u64);
     Json(json!({"input_tokens": input_tokens})).into_response()
 }
 
@@ -359,7 +365,14 @@ mod tests {
     use tower::ServiceExt;
 
     fn state(steps: Vec<Step>) -> Arc<MockState> {
-        MockState::new(Scenario { name: "test".into(), description: None, dispatch: Dispatch::Sequential, steps })
+        MockState::new(Scenario {
+            name: "test".into(),
+            description: None,
+            dispatch: Dispatch::Sequential,
+            title: None,
+            count_tokens: None,
+            steps,
+        })
     }
 
     fn text_step(text: &str) -> Step {
@@ -508,6 +521,8 @@ mod tests {
             name: "bg".into(),
             description: None,
             dispatch: Dispatch::FirstMatch,
+            title: None,
+            count_tokens: None,
             steps: vec![continuation, child, initial],
         };
         let app = router(MockState::new(scenario));
@@ -595,5 +610,121 @@ mod tests {
         assert_eq!(status, StatusCode::OK, "{body}");
         assert!(body.contains("has started"), "{body}");
         assert_eq!(state.remaining(), 3);
+    }
+
+    #[tokio::test]
+    async fn an_anthropic_reply_echoes_the_request_model() {
+        let app = router(state(vec![text_step("hello")]));
+        let (status, body) = post(
+            app,
+            "/v1/messages",
+            json!({"stream": false, "model": "claude-haiku-4-5", "messages": [{"role": "user", "content": "hi"}]}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("claude-haiku-4-5"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn a_non_ascii_prompt_gets_an_emoji_title_unless_overridden() {
+        let app = router(state(vec![text_step("hello")]));
+        let title = json!({
+            "stream": false,
+            "system": [{"type": "text", "text": "You are naming a coding session so the user can pick it out."}],
+            "messages": [{"role": "user", "content": "こんにちは"}],
+        });
+        let (status, body) = post(app.clone(), "/v1/messages", title).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("Mock session title"), "{body}");
+        assert!(body.contains(r#"\"title\""#), "{body}");
+        let (status, body) =
+            post(app, "/v1/messages", json!({"stream": false, "messages": [{"role": "user", "content": "hi"}]})).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("hello"), "{body}");
+
+        let scenario = Scenario {
+            name: "titled".into(),
+            description: None,
+            dispatch: Dispatch::Sequential,
+            title: Some("絵文字タイトル 🎉".into()),
+            count_tokens: None,
+            steps: vec![text_step("hello")],
+        };
+        let app = router(MockState::new(scenario));
+        let (status, body) = post(
+            app,
+            "/v1/messages",
+            json!({
+                "stream": false,
+                "system": [{"type": "text", "text": "naming a coding session"}],
+                "messages": [{"role": "user", "content": "ascii"}],
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("絵文字タイトル 🎉"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn count_tokens_uses_the_scenario_override() {
+        let scenario = Scenario {
+            name: "counted".into(),
+            description: None,
+            dispatch: Dispatch::Sequential,
+            title: None,
+            count_tokens: Some(20_000),
+            steps: vec![text_step("hello")],
+        };
+        let app = router(MockState::new(scenario));
+        let (status, body) = post(app, "/v1/messages/count_tokens", json!({"messages": []})).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("20000"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn the_compact_manual_scenario_answers_summary_before_the_follow_up() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scenarios/compact_manual.json");
+        let scenario = Scenario::from_path(&path).expect("compact manual");
+        assert_eq!(scenario.dispatch, Dispatch::FirstMatch);
+        let state = MockState::new(scenario);
+        let app = router(state.clone());
+        let (status, body) = post(
+            app.clone(),
+            "/v1/messages",
+            json!({"stream": false, "messages": [{"role": "user", "content": "remember COMPACT-TOKEN-ALPHA"}]}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("Noted COMPACT-TOKEN-ALPHA"), "{body}");
+        let (status, body) = post(
+            app.clone(),
+            "/v1/messages",
+            json!({
+                "stream": false,
+                "messages": [
+                    {"role": "user", "content": "remember COMPACT-TOKEN-ALPHA"},
+                    {"role": "user", "content": "Your task is to create a detailed summary of the conversation so far"}
+                ]
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("SUMMARY-MARKER-BETA"), "{body}");
+        let (status, body) = post(
+            app,
+            "/v1/messages",
+            json!({
+                "stream": false,
+                "messages": [
+                    {"role": "user", "content": "remember COMPACT-TOKEN-ALPHA"},
+                    {"role": "user", "content": "SUMMARY-MARKER-BETA. The user asked to remember COMPACT-TOKEN-ALPHA."},
+                    {"role": "user", "content": "what token did I ask you to remember?"}
+                ]
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("The token is COMPACT-TOKEN-ALPHA"), "{body}");
+        assert_eq!(state.remaining(), 0);
     }
 }

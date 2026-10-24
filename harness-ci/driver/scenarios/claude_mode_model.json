@@ -1,0 +1,22 @@
+{
+  "name": "claude_mode_model",
+  "description": "Without --bare, Shift+Tab on the idle after the first answer cycles default to acceptEdits, then /model haiku. Enter confirms that dialog (the registry says waiting for dialog open while the screen stays idle; Esc keeps the previous model), then one follow-up is typed. The mock echoes the request model.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/mode_model.json",
+  "command": ["claude", "--model", "claude-sonnet-4-5"],
+  "prompt": "remember MODE-TOKEN-ZETA",
+  "keys": [
+    { "on": "idle", "send": "\u001b[Z", "after_ms": 600, "occurrence": 1 },
+    { "on": "idle", "send": "/model haiku\r", "after_ms": 1800, "occurrence": 1 },
+    { "on": "idle", "send": "\r", "after_ms": 5000, "occurrence": 1 },
+    { "on": "idle", "send": "which model is answering\r", "after_ms": 9000, "occurrence": 1 }
+  ],
+  "run_for_ms": 32000,
+  "expected_activity": [
+    { "activity": "done", "certainty": "firm", "when": "end", "screen": "idle" }
+  ],
+  "expect_observations": {
+    "model_switch": true,
+    "permission_modes": ["default", "acceptEdits"]
+  }
+}

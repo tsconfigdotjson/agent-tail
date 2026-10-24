@@ -1,0 +1,25 @@
+{
+  "name": "claude_continue",
+  "description": "Remember a word, exit gracefully, then claude --continue in the same home. The second turn stays in the same session file. --continue does not write continued-in.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/resume_word.json",
+  "exit": "graceful",
+  "phases": [
+    {
+      "prompt": "remember the word RESUME-WORD-GAMMA",
+      "run_for_ms": 14000
+    },
+    {
+      "command": ["claude", "--bare", "--model", "claude-sonnet-4-5", "--continue"],
+      "prompt": "what word did I ask you to remember?",
+      "run_for_ms": 18000
+    }
+  ],
+  "expected_activity": [
+    { "activity": "done", "certainty": "firm", "when": "end" }
+  ],
+  "expect_observations": {
+    "continued_in": false,
+    "same_file_resume": true
+  }
+}

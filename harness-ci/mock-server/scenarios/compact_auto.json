@@ -1,0 +1,99 @@
+{
+  "name": "compact_auto",
+  "description": "Three Bash results of 110000 Z bytes stay under the 128000-byte inline cap and together cross the 100000-token auto-compact window. The summary step is first because that request also contains the tool output. CLAUDE_AUTOCOMPACT_PCT_OVERRIDE did not lower the threshold on Claude Code 2.1.310.",
+  "dispatch": "first_match",
+  "steps": [
+    {
+      "expect": { "user_contains": "detailed summary of the conversation" },
+      "reply": {
+        "content": [
+          {
+            "type": "text",
+            "text": "AUTO-SUMMARY-EPSILON. The user asked to remember FILL-TOKEN-DELTA."
+          }
+        ],
+        "usage": { "input_tokens": 100, "output_tokens": 40 }
+      }
+    },
+    {
+      "expect": { "user_contains": "AUTO-SUMMARY-EPSILON" },
+      "reply": {
+        "content": [{ "type": "text", "text": "The fill token is FILL-TOKEN-DELTA." }],
+        "usage": { "input_tokens": 30, "output_tokens": 12 },
+        "fault": { "type": "slow_first_token", "delay_ms": 800 }
+      }
+    },
+    {
+      "expect": {
+        "tool_result_contains": "ZZZZ",
+        "not_user_contains": "detailed summary of the conversation"
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "head -c 110000 /dev/zero | tr '\\0' 'Z'",
+              "description": "Print more Z"
+            }
+          }
+        ],
+        "usage": { "input_tokens": 40, "output_tokens": 20 },
+        "fault": { "type": "slow_first_token", "delay_ms": 600 }
+      }
+    },
+    {
+      "expect": {
+        "tool_result_contains": "ZZZZ",
+        "not_user_contains": "detailed summary of the conversation"
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "head -c 110000 /dev/zero | tr '\\0' 'Z'",
+              "description": "Print more Z"
+            }
+          }
+        ],
+        "usage": { "input_tokens": 40, "output_tokens": 20 },
+        "fault": { "type": "slow_first_token", "delay_ms": 600 }
+      }
+    },
+    {
+      "expect": {
+        "tool_result_contains": "ZZZZ",
+        "not_user_contains": "detailed summary of the conversation"
+      },
+      "reply": {
+        "content": [{ "type": "text", "text": "The fill token is FILL-TOKEN-DELTA." }],
+        "usage": { "input_tokens": 40, "output_tokens": 12 },
+        "fault": { "type": "slow_first_token", "delay_ms": 600 }
+      }
+    },
+    {
+      "expect": {
+        "user_contains": "FILL-TOKEN-DELTA",
+        "not_user_contains": "detailed summary of the conversation",
+        "has_tool_result": false
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "head -c 110000 /dev/zero | tr '\\0' 'Z'",
+              "description": "Print a long run of Z"
+            }
+          }
+        ],
+        "usage": { "input_tokens": 20000, "output_tokens": 20 },
+        "fault": { "type": "slow_first_token", "delay_ms": 800 }
+      }
+    }
+  ]
+}

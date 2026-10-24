@@ -1,9 +1,13 @@
 use crate::screen::ScreenState;
-use agenttail::{Activity, Certainty, PermissionMode, Reason, ReducerOptions, SessionState, Timestamp};
+use agenttail::{
+    Activity, Certainty, ChunkCtx, Harness, ParseMode, PermissionMode, Reason, ReducerOptions, SessionReducer,
+    SessionState, Timestamp,
+};
 use serde::de::Error as DeError;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::path::Path;
 use std::time::Duration;
 
 pub const WRITE_LATENCY: Duration = Duration::from_millis(1_000);
@@ -145,8 +149,13 @@ pub struct ScoreRequest<'a> {
     pub remaining_mock_steps: usize,
     pub transcript: Option<String>,
     pub min_screen_ms: &'a BTreeMap<String, u64>,
-    pub transcript_jsonl: Option<&'a str>,
+    pub transcripts: &'a [TranscriptDump],
     pub helpers: &'a [ObservedHelper],
+    pub registry: &'a [RegistrySample],
+    pub registry_fields: &'a [String],
+    pub registry_files_after_exit: Option<usize>,
+    pub expect_registry: Option<&'a RegistryExpect>,
+    pub expect_observations: Option<&'a ObserveExpect>,
 }
 
 pub fn library_point(state: &SessionState) -> LibraryPoint {
@@ -180,7 +189,7 @@ pub fn score(request: &ScoreRequest<'_>) -> Score {
         mock_requests: request.mock_requests,
         remaining_mock_steps: request.remaining_mock_steps,
         transcript: request.transcript.clone(),
-        observations: observe_run(request.transcript_jsonl, request.helpers),
+        observations: observe_run(request),
     };
     let mut failures = BTreeSet::new();
     for sample in request.samples {
@@ -224,6 +233,9 @@ fn hard_failures(request: &ScoreRequest<'_>, stall_ms: u64, write_ms: u64, failu
         failures.insert(message);
     }
     for message in short_screens(request.samples, request.min_screen_ms) {
+        failures.insert(message);
+    }
+    for message in unmet_observations(request) {
         failures.insert(message);
     }
 }
@@ -553,6 +565,20 @@ pub struct Observations {
     pub api_errors: Vec<ApiErrorNote>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<BackgroundNote>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub compactions: Vec<CompactionNote>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub continuations: Vec<ContinuationNote>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resumes: Vec<ResumeNote>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub models: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<TextNote>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lean: Option<LeanNote>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sessions: Option<SessionsNote>,
 }
 
 impl Observations {
@@ -563,7 +589,130 @@ impl Observations {
             && self.interrupts.is_empty()
             && self.api_errors.is_empty()
             && self.background.is_none()
+            && self.compactions.is_empty()
+            && self.continuations.is_empty()
+            && self.resumes.is_empty()
+            && self.models.is_empty()
+            && self.text.is_none()
+            && self.lean.is_none()
+            && self.sessions.is_none()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CompactionNote {
+    pub file: String,
+    pub trigger: Option<String>,
+    pub pre_tokens: Option<u64>,
+    pub post_tokens: Option<u64>,
+    pub summary_follows: bool,
+    pub continued_after: bool,
+    pub session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ContinuationNote {
+    pub session_id: Option<String>,
+    pub continued_in_session_id: Option<String>,
+    pub target_file_present: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ResumeNote {
+    pub session_id: String,
+    pub files: usize,
+    pub user_prompts: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TextNote {
+    pub prompt: bool,
+    pub title: bool,
+    pub path: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LeanNote {
+    pub max_line_bytes: u64,
+    pub max_tool_result_bytes: u64,
+    pub lean_activity: String,
+    pub full_activity: String,
+    pub agree: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SessionsNote {
+    pub runs: Vec<StatusRun>,
+    pub statuses: Vec<String>,
+    pub waiting_for: Vec<String>,
+    pub during_screen: BTreeMap<String, Vec<String>>,
+    pub fields: Vec<String>,
+    pub removed_on_exit: Option<bool>,
+    pub files_after_exit: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct StatusRun {
+    pub status: String,
+    pub waiting_for: Option<String>,
+    pub screen: String,
+    pub samples: usize,
+    pub first_elapsed_ms: u64,
+    pub last_elapsed_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RegistrySample {
+    pub elapsed_ms: u64,
+    pub screen: String,
+    pub pid: Option<u64>,
+    pub session_id: Option<String>,
+    pub status: Option<String>,
+    pub waiting_for: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RegistryExpect {
+    #[serde(default)]
+    pub statuses: Vec<String>,
+    #[serde(default)]
+    pub waiting_for: Option<String>,
+    #[serde(default)]
+    pub waiting_during_screen: Option<String>,
+    #[serde(default)]
+    pub removed_on_exit: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ObserveExpect {
+    #[serde(default)]
+    pub compaction_triggers: Vec<String>,
+    #[serde(default)]
+    pub compaction_same_file: Option<bool>,
+    #[serde(default)]
+    pub continued_in: Option<bool>,
+    #[serde(default)]
+    pub same_file_resume: Option<bool>,
+    #[serde(default)]
+    pub model_switch: Option<bool>,
+    #[serde(default)]
+    pub permission_modes: Vec<String>,
+    #[serde(default)]
+    pub non_ascii_prompt: Option<bool>,
+    #[serde(default)]
+    pub non_ascii_title: Option<bool>,
+    #[serde(default)]
+    pub non_ascii_path: Option<bool>,
+    #[serde(default)]
+    pub lean_agrees: Option<bool>,
+    #[serde(default)]
+    pub min_tool_result_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TranscriptDump {
+    pub name: String,
+    pub jsonl: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -631,11 +780,33 @@ pub struct ToolRejection {
 
 #[cfg(test)]
 fn observe_transcript(jsonl: &str) -> Observations {
-    observe_run(Some(jsonl), &[])
+    let dumps = [TranscriptDump { name: "session.jsonl".into(), jsonl: jsonl.to_string() }];
+    let request = ScoreRequest {
+        scenario: "observe",
+        description: None,
+        harness: "claude_code",
+        no_approval: false,
+        expected: &[],
+        samples: &[],
+        mock_requests: 0,
+        remaining_mock_steps: 0,
+        transcript: None,
+        min_screen_ms: &BTreeMap::new(),
+        transcripts: &dumps,
+        helpers: &[],
+        registry: &[],
+        registry_fields: &[],
+        registry_files_after_exit: None,
+        expect_registry: None,
+        expect_observations: None,
+    };
+    observe_run(&request)
 }
 
-fn observe_run(jsonl: Option<&str>, helpers: &[ObservedHelper]) -> Observations {
-    let records = jsonl.map(jsonl_records).unwrap_or_default();
+fn observe_run(request: &ScoreRequest<'_>) -> Observations {
+    let files: Vec<(String, Vec<Value>)> =
+        request.transcripts.iter().map(|dump| (dump.name.clone(), jsonl_records(&dump.jsonl))).collect();
+    let records: Vec<Value> = files.iter().flat_map(|(_, records)| records.clone()).collect();
     let tools = tool_names(&records);
     let mut observations = Observations::default();
     for record in &records {
@@ -655,8 +826,358 @@ fn observe_run(jsonl: Option<&str>, helpers: &[ObservedHelper]) -> Observations 
     }
     observations.interrupts = interrupt_notes(&records);
     observations.api_errors = api_error_notes(&records);
-    observations.background = background_note(&records, helpers);
+    observations.background = background_note(&records, request.helpers);
+    observations.compactions = compaction_notes(&files);
+    observations.continuations = continuation_notes(&files);
+    observations.resumes = resume_notes(&files);
+    let models = distinct_models(&records);
+    if models.len() >= 2 {
+        observations.models = models;
+    }
+    observations.text = text_note(&records);
+    observations.lean = lean_note(request.transcripts);
+    observations.sessions = sessions_note(request);
     observations
+}
+
+fn compaction_notes(files: &[(String, Vec<Value>)]) -> Vec<CompactionNote> {
+    let mut notes = Vec::new();
+    for (name, records) in files {
+        for (index, record) in records.iter().enumerate() {
+            if record.get("type").and_then(Value::as_str) != Some("system")
+                || record.get("subtype").and_then(Value::as_str) != Some("compact_boundary")
+            {
+                continue;
+            }
+            let meta = record.get("compactMetadata");
+            let after = &records[index + 1..];
+            let summary_at = after.iter().position(|next| next.get("isCompactSummary") == Some(&Value::Bool(true)));
+            notes.push(CompactionNote {
+                file: name.clone(),
+                trigger: meta.and_then(|value| value.get("trigger")).and_then(Value::as_str).map(str::to_string),
+                pre_tokens: meta.and_then(|value| value.get("preTokens")).and_then(Value::as_u64),
+                post_tokens: meta.and_then(|value| value.get("postTokens")).and_then(Value::as_u64),
+                summary_follows: summary_at.is_some_and(|at| at < 4),
+                continued_after: summary_at.is_some_and(|at| {
+                    after.iter().skip(at + 1).any(|next| {
+                        next.get("type").and_then(Value::as_str) == Some("assistant") || is_user_prompt(next)
+                    })
+                }),
+                session_id: record.get("sessionId").and_then(Value::as_str).map(str::to_string),
+            });
+        }
+    }
+    notes
+}
+
+fn continuation_notes(files: &[(String, Vec<Value>)]) -> Vec<ContinuationNote> {
+    let mut notes = Vec::new();
+    for (index, (_, records)) in files.iter().enumerate() {
+        for record in records {
+            if record.get("type").and_then(Value::as_str) != Some("continued-in") {
+                continue;
+            }
+            let target = record.get("continuedInSessionId").and_then(Value::as_str).map(str::to_string);
+            let target_file_present = target.as_ref().is_some_and(|id| {
+                files.iter().enumerate().any(|(other, (_, other_records))| {
+                    other != index
+                        && other_records.iter().any(|next| next.get("sessionId").and_then(Value::as_str) == Some(id))
+                })
+            });
+            notes.push(ContinuationNote {
+                session_id: record.get("sessionId").and_then(Value::as_str).map(str::to_string),
+                continued_in_session_id: target,
+                target_file_present,
+            });
+        }
+    }
+    notes
+}
+
+fn resume_notes(files: &[(String, Vec<Value>)]) -> Vec<ResumeNote> {
+    let mut grouped: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    for (_, records) in files {
+        let mut seen = BTreeSet::new();
+        for record in records {
+            let Some(id) = record.get("sessionId").and_then(Value::as_str) else { continue };
+            if seen.insert(id.to_string()) {
+                grouped.entry(id.to_string()).or_insert((0, 0)).0 += 1;
+            }
+            if is_user_prompt(record) {
+                grouped.entry(id.to_string()).or_insert((0, 0)).1 += 1;
+            }
+        }
+    }
+    grouped
+        .into_iter()
+        .filter(|(_, (file_count, prompts))| *file_count >= 2 || *prompts >= 2)
+        .map(|(session_id, (files, user_prompts))| ResumeNote { session_id, files, user_prompts })
+        .collect()
+}
+
+fn distinct_models(records: &[Value]) -> Vec<String> {
+    let mut models = Vec::new();
+    for record in records {
+        if record.get("type").and_then(Value::as_str) != Some("assistant") {
+            continue;
+        }
+        let Some(model) = record.get("message").and_then(|message| message.get("model")).and_then(Value::as_str) else {
+            continue;
+        };
+        if model.is_empty() || models.last().is_some_and(|seen| seen == model) {
+            continue;
+        }
+        models.push(model.to_string());
+    }
+    models
+}
+
+fn text_note(records: &[Value]) -> Option<TextNote> {
+    let mut prompt = false;
+    let mut title = false;
+    let mut path = false;
+    for record in records {
+        if record.get("type").and_then(Value::as_str) == Some("ai-title")
+            && record.get("aiTitle").and_then(Value::as_str).is_some_and(has_non_ascii)
+        {
+            title = true;
+        }
+        if is_user_prompt(record) && has_non_ascii(&message_text(record)) {
+            prompt = true;
+        }
+        walk_paths(record, &mut path);
+    }
+    if prompt || title || path { Some(TextNote { prompt, title, path }) } else { None }
+}
+
+fn walk_paths(value: &Value, path: &mut bool) {
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map {
+                if matches!(key.as_str(), "file_path" | "path" | "cwd") && child.as_str().is_some_and(has_non_ascii) {
+                    *path = true;
+                }
+                walk_paths(child, path);
+            }
+        }
+        Value::Array(items) => {
+            for child in items {
+                walk_paths(child, path);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn has_non_ascii(text: &str) -> bool {
+    !text.is_ascii()
+}
+
+const LEAN_LINE: usize = 16 * 1024;
+
+fn lean_note(files: &[TranscriptDump]) -> Option<LeanNote> {
+    let max_line_bytes =
+        files.iter().flat_map(|dump| dump.jsonl.lines().map(|line| line.len() as u64)).max().unwrap_or(0);
+    let max_tool_result_bytes = files
+        .iter()
+        .flat_map(|dump| jsonl_records(&dump.jsonl))
+        .flat_map(|record| tool_result_texts(&record).map(|text| text.len() as u64).collect::<Vec<_>>())
+        .max()
+        .unwrap_or(0);
+    if max_line_bytes <= LEAN_LINE as u64 && max_tool_result_bytes <= LEAN_LINE as u64 {
+        return None;
+    }
+    let mut agree = true;
+    let mut lean_activity = String::new();
+    let mut full_activity = String::new();
+    for dump in files {
+        let long = dump.jsonl.lines().any(|line| line.len() > LEAN_LINE)
+            || jsonl_records(&dump.jsonl)
+                .iter()
+                .any(|record| tool_result_texts(record).any(|text| text.len() > LEAN_LINE));
+        if !long {
+            continue;
+        }
+        let lean = activity_of(&dump.jsonl, ParseMode::Lean);
+        let full = activity_of(&dump.jsonl, ParseMode::Full);
+        agree &= lean == full;
+        lean_activity = lean;
+        full_activity = full;
+    }
+    Some(LeanNote { max_line_bytes, max_tool_result_bytes, lean_activity, full_activity, agree })
+}
+
+fn activity_of(jsonl: &str, mode: ParseMode) -> String {
+    let options = ReducerOptions { mode, ..ReducerOptions::default() };
+    let mut reducer = SessionReducer::new(Harness::ClaudeCode, options);
+    let path = Path::new("session.jsonl");
+    reducer.set_path(path);
+    let now = Timestamp::parse_rfc3339("2026-10-24T00:00:00Z").unwrap_or_else(|| Timestamp::from_secs_f64(0.0));
+    let ctx = ChunkCtx { offset: 0, mtime: now, path };
+    if reducer.feed(jsonl.as_bytes(), ctx).is_err() {
+        return "unparsed".into();
+    }
+    activity_id(reducer.state(now).activity).to_string()
+}
+
+fn sessions_note(request: &ScoreRequest<'_>) -> Option<SessionsNote> {
+    if request.registry.is_empty() && request.registry_files_after_exit.is_none() {
+        return None;
+    }
+    let mut runs: Vec<StatusRun> = Vec::new();
+    for sample in request.registry {
+        let status = sample.status.clone().unwrap_or_default();
+        if status.is_empty() {
+            continue;
+        }
+        if let Some(run) = runs.last_mut()
+            && run.status == status
+            && run.waiting_for == sample.waiting_for
+            && run.screen == sample.screen
+        {
+            run.samples += 1;
+            run.last_elapsed_ms = sample.elapsed_ms;
+            continue;
+        }
+        runs.push(StatusRun {
+            status,
+            waiting_for: sample.waiting_for.clone(),
+            screen: sample.screen.clone(),
+            samples: 1,
+            first_elapsed_ms: sample.elapsed_ms,
+            last_elapsed_ms: sample.elapsed_ms,
+        });
+    }
+    let mut statuses = Vec::new();
+    let mut waiting_for = Vec::new();
+    for run in &runs {
+        if !statuses.iter().any(|seen: &String| seen == &run.status) {
+            statuses.push(run.status.clone());
+        }
+        if let Some(waiting) = &run.waiting_for
+            && !waiting_for.iter().any(|seen: &String| seen == waiting)
+        {
+            waiting_for.push(waiting.clone());
+        }
+    }
+    let mut during_screen: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for sample in request.registry {
+        let Some(status) = sample.status.clone().filter(|status| !status.is_empty()) else { continue };
+        let entry = during_screen.entry(sample.screen.clone()).or_default();
+        if !entry.iter().any(|seen| seen == &status) {
+            entry.push(status);
+        }
+    }
+    let saw = request.registry.iter().any(|sample| sample.status.is_some());
+    let removed_on_exit = request.registry_files_after_exit.map(|left| saw && left == 0);
+    Some(SessionsNote {
+        runs,
+        statuses,
+        waiting_for,
+        during_screen,
+        fields: request.registry_fields.to_vec(),
+        removed_on_exit,
+        files_after_exit: request.registry_files_after_exit,
+    })
+}
+
+fn unmet_observations(request: &ScoreRequest<'_>) -> Vec<String> {
+    let mut failures = Vec::new();
+    if let Some(expect) = request.expect_observations {
+        let observations = observe_run(request);
+        for trigger in &expect.compaction_triggers {
+            if !observations.compactions.iter().any(|note| note.trigger.as_deref() == Some(trigger)) {
+                failures.push(format!("compaction trigger {trigger} was not recorded"));
+            }
+        }
+        if expect.compaction_same_file == Some(true)
+            && (observations.compactions.is_empty()
+                || observations.compactions.iter().any(|note| !note.summary_follows || !note.continued_after)
+                || observations.compactions.iter().map(|note| note.file.as_str()).collect::<BTreeSet<_>>().len() != 1)
+        {
+            failures.push("compaction did not continue in the same file".into());
+        }
+        if let Some(want) = expect.continued_in {
+            if want && observations.continuations.is_empty() {
+                failures.push("continued-in record was not recorded".into());
+            } else if want && !observations.continuations.iter().any(|note| note.target_file_present) {
+                failures.push("continued-in target file was not recorded".into());
+            }
+            if !want && !observations.continuations.is_empty() {
+                failures.push("continued-in record was recorded".into());
+            }
+        }
+        if expect.same_file_resume == Some(true)
+            && !observations.resumes.iter().any(|note| note.files == 1 && note.user_prompts >= 2)
+        {
+            failures.push("resume did not continue in the same file".into());
+        }
+        if expect.model_switch == Some(true) && observations.models.len() < 2 {
+            failures.push("model did not change".into());
+        }
+        for mode in &expect.permission_modes {
+            if !observations.permission_modes.iter().any(|seen| seen == mode) {
+                failures.push(format!("permission mode {mode} was not recorded"));
+            }
+        }
+        let text = observations.text.unwrap_or(TextNote { prompt: false, title: false, path: false });
+        if expect.non_ascii_prompt == Some(true) && !text.prompt {
+            failures.push("prompt was ascii".into());
+        }
+        if expect.non_ascii_title == Some(true) && !text.title {
+            failures.push("title was ascii".into());
+        }
+        if expect.non_ascii_path == Some(true) && !text.path {
+            failures.push("path was ascii".into());
+        }
+        if expect.lean_agrees == Some(true) {
+            match &observations.lean {
+                None => failures.push("tool output was not long enough to exercise lean".into()),
+                Some(note) if !note.agree => failures.push("lean and full parse disagree".into()),
+                _ => {}
+            }
+        }
+        if let Some(want) = expect.min_tool_result_bytes {
+            let got = observations.lean.as_ref().map(|note| note.max_tool_result_bytes).unwrap_or(0);
+            if got < want {
+                failures.push(format!("tool result was {got} bytes, want at least {want}"));
+            }
+        }
+    }
+    if let Some(expect) = request.expect_registry {
+        let note = sessions_note(request);
+        for status in &expect.statuses {
+            let seen = note.as_ref().is_some_and(|note| note.statuses.iter().any(|got| got == status));
+            if !seen {
+                failures.push(format!("registry status {status} was not recorded"));
+            }
+        }
+        if let Some(waiting) = &expect.waiting_for {
+            let seen = note.as_ref().is_some_and(|note| note.waiting_for.iter().any(|got| got == waiting));
+            if !seen {
+                failures.push(format!("registry waitingFor {waiting} was not recorded"));
+            }
+        }
+        if let Some(screen) = &expect.waiting_during_screen {
+            let waiting = note.as_ref().is_some_and(|note| {
+                note.during_screen.get(screen).is_some_and(|statuses| statuses.iter().any(|status| status == "waiting"))
+            });
+            if !waiting {
+                failures.push(format!("registry was not waiting during {screen}"));
+            }
+        }
+        if let Some(want) = expect.removed_on_exit {
+            let got = note.as_ref().and_then(|note| note.removed_on_exit);
+            if got != Some(want) {
+                if want {
+                    failures.push("registry file was still present after exit".into());
+                } else {
+                    failures.push("registry file was removed after exit".into());
+                }
+            }
+        }
+    }
+    failures
 }
 
 fn interrupt_notes(records: &[Value]) -> Vec<InterruptNote> {
@@ -956,7 +1477,10 @@ fn interrupt_since_assistant(before: &[Value]) -> bool {
 }
 
 fn is_user_prompt(record: &Value) -> bool {
-    if record.get("type").and_then(Value::as_str) != Some("user") || record.get("isMeta") == Some(&Value::Bool(true)) {
+    if record.get("type").and_then(Value::as_str) != Some("user")
+        || record.get("isMeta") == Some(&Value::Bool(true))
+        || record.get("isCompactSummary") == Some(&Value::Bool(true))
+    {
         return false;
     }
     if first_tool_result_id(record).is_some() {
@@ -1059,8 +1583,13 @@ mod tests {
             remaining_mock_steps: 0,
             transcript: None,
             min_screen_ms: &minimums,
-            transcript_jsonl: None,
+            transcripts: &[],
             helpers: &[],
+            registry: &[],
+            registry_fields: &[],
+            registry_files_after_exit: None,
+            expect_registry: None,
+            expect_observations: None,
         })
     }
 
@@ -1512,8 +2041,13 @@ mod tests {
             remaining_mock_steps: 0,
             transcript: None,
             min_screen_ms: &minimums,
-            transcript_jsonl: None,
+            transcripts: &[],
             helpers: &[],
+            registry: &[],
+            registry_fields: &[],
+            registry_files_after_exit: None,
+            expect_registry: None,
+            expect_observations: None,
         });
         assert!(scored.failures.is_empty(), "{:?}", scored.failures);
 
@@ -1529,8 +2063,13 @@ mod tests {
             remaining_mock_steps: 0,
             transcript: None,
             min_screen_ms: &minimums,
-            transcript_jsonl: None,
+            transcripts: &[],
             helpers: &[],
+            registry: &[],
+            registry_fields: &[],
+            registry_files_after_exit: None,
+            expect_registry: None,
+            expect_observations: None,
         });
         assert!(scored.failures.iter().any(|f| f.contains("expected at least 40000")), "{:?}", scored.failures);
 
@@ -1551,8 +2090,13 @@ mod tests {
             remaining_mock_steps: 0,
             transcript: None,
             min_screen_ms: &minimums,
-            transcript_jsonl: None,
+            transcripts: &[],
             helpers: &[],
+            registry: &[],
+            registry_fields: &[],
+            registry_files_after_exit: None,
+            expect_registry: None,
+            expect_observations: None,
         });
         assert!(scored.failures.iter().any(|f| f.contains("for 0 ms")), "{:?}", scored.failures);
     }
@@ -1640,6 +2184,7 @@ not json
         assert_eq!(observed.tool_permissions[1].denial_kind.as_deref(), Some("permission-rule"));
 
         let minimums = BTreeMap::new();
+        let dumps = [TranscriptDump { name: "session.jsonl".into(), jsonl: local_end.to_string() }];
         let scored = score(&ScoreRequest {
             scenario: "denied",
             description: None,
@@ -1651,8 +2196,13 @@ not json
             remaining_mock_steps: 0,
             transcript: None,
             min_screen_ms: &minimums,
-            transcript_jsonl: Some(local_end),
+            transcripts: &dumps,
             helpers: &[],
+            registry: &[],
+            registry_fields: &[],
+            registry_files_after_exit: None,
+            expect_registry: None,
+            expect_observations: None,
         });
         assert!(scored.observations.tool_rejections[0].ends_turn);
         let json = serde_json::to_value(&scored).unwrap();
@@ -1708,7 +2258,26 @@ not json
                 r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Agent","input":{}}]}}"#.into(),
             ),
         }];
-        let noted = observe_run(Some(rows), &helpers);
+        let dumps = [TranscriptDump { name: "session.jsonl".into(), jsonl: rows.to_string() }];
+        let noted = observe_run(&ScoreRequest {
+            scenario: "bg",
+            description: None,
+            harness: "claude_code",
+            no_approval: false,
+            expected: &[],
+            samples: &[],
+            mock_requests: 0,
+            remaining_mock_steps: 0,
+            transcript: None,
+            min_screen_ms: &BTreeMap::new(),
+            transcripts: &dumps,
+            helpers: &helpers,
+            registry: &[],
+            registry_fields: &[],
+            registry_files_after_exit: None,
+            expect_registry: None,
+            expect_observations: None,
+        });
         let background = noted.background.expect("background");
         assert_eq!(background.pending_counts, vec![1]);
         assert_eq!(background.task_statuses, vec!["completed".to_string()]);
@@ -1723,5 +2292,256 @@ not json
         assert!(helper.launched_agent);
         let string_result = r#"{"type":"user","toolUseResult":"status async_launched"}"#;
         assert_eq!(observe_transcript(string_result).background.unwrap().async_launched, vec!["unknown".to_string()]);
+    }
+
+    fn dump(name: &str, jsonl: &str) -> TranscriptDump {
+        TranscriptDump { name: name.into(), jsonl: jsonl.into() }
+    }
+
+    fn score_dumps(
+        dumps: &[TranscriptDump],
+        expect: Option<&ObserveExpect>,
+        registry: &[RegistrySample],
+        files_after: Option<usize>,
+        registry_expect: Option<&RegistryExpect>,
+    ) -> Score {
+        let minimums = BTreeMap::new();
+        score(&ScoreRequest {
+            scenario: "obs",
+            description: None,
+            harness: "claude_code",
+            no_approval: false,
+            expected: &[],
+            samples: &[],
+            mock_requests: 0,
+            remaining_mock_steps: 0,
+            transcript: None,
+            min_screen_ms: &minimums,
+            transcripts: dumps,
+            helpers: &[],
+            registry,
+            registry_fields: &[],
+            registry_files_after_exit: files_after,
+            expect_registry: registry_expect,
+            expect_observations: expect,
+        })
+    }
+
+    #[test]
+    fn compaction_continues_in_the_same_file_and_a_summary_is_not_a_later_prompt() {
+        let rows = r#"
+{"type":"user","sessionId":"s","message":{"content":"remember COMPACT-TOKEN-ALPHA"}}
+{"type":"assistant","message":{"model":"claude-sonnet-4-5","stop_reason":"end_turn","content":[{"type":"text","text":"noted"}]}}
+{"type":"system","subtype":"compact_boundary","sessionId":"s","compactMetadata":{"trigger":"manual","preTokens":1200,"postTokens":80}}
+{"type":"user","isCompactSummary":true,"sessionId":"s","message":{"content":"summary says continued-in but is not a record"}}
+{"type":"user","sessionId":"s","message":{"content":"what token"}}
+{"type":"assistant","message":{"model":"claude-sonnet-4-5","stop_reason":"end_turn","content":[{"type":"text","text":"alpha"}]}}
+"#;
+        let dumps = [dump("session.jsonl", rows)];
+        let expect = ObserveExpect {
+            compaction_triggers: vec!["manual".into()],
+            compaction_same_file: Some(true),
+            ..ObserveExpect::default()
+        };
+        let scored = score_dumps(&dumps, Some(&expect), &[], None, None);
+        assert!(scored.failures.is_empty(), "{:?}", scored.failures);
+        assert_eq!(scored.observations.compactions[0].pre_tokens, Some(1200));
+        assert!(scored.observations.compactions[0].summary_follows);
+        assert!(scored.observations.compactions[0].continued_after);
+        assert!(scored.observations.continuations.is_empty());
+        assert!(scored.observations.resumes.iter().any(|note| note.files == 1 && note.user_prompts >= 2));
+
+        let cut = rows.rsplit_once(r#"{"type":"user","sessionId":"s","message":{"content":"what token"}}"#).unwrap().0;
+        let dumps = [dump("session.jsonl", cut)];
+        let scored = score_dumps(&dumps, Some(&expect), &[], None, None);
+        assert!(scored.failures.iter().any(|failure| failure.contains("same file")), "{:?}", scored.failures);
+        let bookkeeping = format!(
+            "{cut}{{\"type\":\"system\",\"subtype\":\"turn_duration\",\"sessionId\":\"s\"}}\n{{\"type\":\"user\",\"sessionId\":\"s\",\"message\":{{\"content\":\"<local-command-stdout>Compacted</local-command-stdout>\"}}}}\n"
+        );
+        let dumps = [dump("session.jsonl", &bookkeeping)];
+        let scored = score_dumps(&dumps, Some(&expect), &[], None, None);
+        assert!(scored.failures.iter().any(|failure| failure.contains("same file")), "{:?}", scored.failures);
+    }
+
+    #[test]
+    fn continued_in_needs_the_other_file_and_resume_can_stay_in_one() {
+        let original = r#"
+{"type":"user","sessionId":"aaa","message":{"content":"remember RESUME-WORD-GAMMA"}}
+{"type":"assistant","message":{"model":"claude-sonnet-4-5","stop_reason":"end_turn","content":[{"type":"text","text":"ok"}]}}
+{"type":"continued-in","sessionId":"aaa","continuedInSessionId":"bbb"}
+"#;
+        let next = r#"{"type":"user","sessionId":"bbb","message":{"content":"what word"}}
+{"type":"assistant","message":{"model":"claude-haiku-4-5","stop_reason":"end_turn","content":[{"type":"text","text":"gamma"}]}}
+"#;
+        let dumps = [dump("aaa.jsonl", original), dump("bbb.jsonl", next)];
+        let expect = ObserveExpect { continued_in: Some(true), model_switch: Some(true), ..ObserveExpect::default() };
+        let scored = score_dumps(&dumps, Some(&expect), &[], None, None);
+        assert!(scored.failures.is_empty(), "{:?}", scored.failures);
+        assert!(scored.observations.continuations[0].target_file_present);
+        assert_eq!(scored.observations.models, vec!["claude-sonnet-4-5".to_string(), "claude-haiku-4-5".to_string()]);
+
+        let dumps = [dump("aaa.jsonl", original)];
+        let scored = score_dumps(&dumps, Some(&expect), &[], None, None);
+        assert!(scored.failures.iter().any(|failure| failure.contains("target file")), "{:?}", scored.failures);
+
+        let same = r#"
+{"type":"user","sessionId":"aaa","permissionMode":"default","message":{"content":"remember RESUME-WORD-GAMMA"}}
+{"type":"assistant","message":{"model":"claude-sonnet-4-5","stop_reason":"end_turn","content":[{"type":"text","text":"ok"}]}}
+{"type":"user","sessionId":"aaa","permissionMode":"acceptEdits","message":{"content":"what word"}}
+{"type":"assistant","message":{"model":"claude-sonnet-4-5","stop_reason":"end_turn","content":[{"type":"text","text":"gamma"}]}}
+"#;
+        let dumps = [dump("aaa.jsonl", same)];
+        let expect = ObserveExpect {
+            continued_in: Some(false),
+            same_file_resume: Some(true),
+            permission_modes: vec!["default".into(), "acceptEdits".into()],
+            model_switch: Some(false),
+            ..ObserveExpect::default()
+        };
+        let scored = score_dumps(&dumps, Some(&expect), &[], None, None);
+        assert!(scored.failures.is_empty(), "{:?}", scored.failures);
+        assert!(scored.observations.models.is_empty());
+
+        let expect = ObserveExpect { same_file_resume: Some(true), ..ObserveExpect::default() };
+        let scored = score_dumps(&dumps[..1], Some(&expect), &[], None, None);
+        assert!(scored.failures.is_empty(), "{:?}", scored.failures);
+        let split = [dump("aaa.jsonl", original), dump("bbb.jsonl", next)];
+        let scored = score_dumps(&split, Some(&expect), &[], None, None);
+        assert!(scored.failures.iter().any(|failure| failure.contains("same file")), "{:?}", scored.failures);
+    }
+
+    #[test]
+    fn non_ascii_is_recorded_on_prompts_titles_and_paths_only() {
+        let rows = r#"
+{"type":"user","message":{"content":"read notes/café-📝.txt and reply こんにちは 🎉"}}
+{"type":"ai-title","aiTitle":"絵文字タイトル 🎉"}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/tmp/work/notes/café-📝.txt"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"bonjour café"}]}}
+"#;
+        let dumps = [dump("session.jsonl", rows)];
+        let expect = ObserveExpect {
+            non_ascii_prompt: Some(true),
+            non_ascii_title: Some(true),
+            non_ascii_path: Some(true),
+            ..ObserveExpect::default()
+        };
+        let scored = score_dumps(&dumps, Some(&expect), &[], None, None);
+        assert!(scored.failures.is_empty(), "{:?}", scored.failures);
+        let tool_only = r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":"こんにちは"}]}}"#;
+        assert!(observe_transcript(tool_only).text.is_none());
+        assert!(observe_transcript(r#"{"type":"user","message":{"content":"ascii only"}}"#).text.is_none());
+    }
+
+    #[test]
+    fn a_long_tool_result_keeps_the_same_activity_when_leaned() {
+        let long = "Z".repeat(20_000);
+        let rows = format!(
+            r#"{{"type":"user","timestamp":"2026-10-24T00:00:00Z","message":{{"content":"long run"}}}}
+{{"type":"assistant","timestamp":"2026-10-24T00:00:01Z","message":{{"id":"m1","model":"claude-sonnet-4-5","stop_reason":"tool_use","content":[{{"type":"tool_use","id":"toolu_1","name":"Bash","input":{{"command":"head"}}}}]}}}}
+{{"type":"user","timestamp":"2026-10-24T00:00:02Z","message":{{"content":[{{"type":"tool_result","tool_use_id":"toolu_1","content":"{long}"}}]}}}}
+{{"type":"assistant","timestamp":"2026-10-24T00:00:03Z","message":{{"id":"m2","model":"claude-sonnet-4-5","stop_reason":"end_turn","content":[{{"type":"text","text":"done"}}]}}}}
+"#
+        );
+        let dumps = [dump("session.jsonl", &rows)];
+        let expect =
+            ObserveExpect { lean_agrees: Some(true), min_tool_result_bytes: Some(20_000), ..ObserveExpect::default() };
+        let scored = score_dumps(&dumps, Some(&expect), &[], None, None);
+        assert!(scored.failures.is_empty(), "{:?}", scored.failures);
+        let lean = scored.observations.lean.expect("lean");
+        assert!(lean.max_line_bytes > 16 * 1024);
+        assert_eq!(lean.lean_activity, "done");
+        assert_eq!(lean.full_activity, "done");
+        let short = dump("session.jsonl", r#"{"type":"user","message":{"content":"short"}}"#);
+        let scored = score_dumps(std::slice::from_ref(&short), Some(&expect), &[], None, None);
+        assert!(scored.failures.iter().any(|failure| failure.contains("not long enough")), "{:?}", scored.failures);
+    }
+
+    #[test]
+    fn the_registry_records_waiting_on_a_permission_prompt_and_removal() {
+        let samples = [
+            RegistrySample {
+                elapsed_ms: 0,
+                screen: "idle".into(),
+                pid: Some(4),
+                session_id: Some("s".into()),
+                status: Some("idle".into()),
+                waiting_for: None,
+            },
+            RegistrySample {
+                elapsed_ms: 1_000,
+                screen: "working".into(),
+                pid: Some(4),
+                session_id: Some("s".into()),
+                status: Some("busy".into()),
+                waiting_for: None,
+            },
+            RegistrySample {
+                elapsed_ms: 2_000,
+                screen: "permission_prompt".into(),
+                pid: Some(4),
+                session_id: Some("s".into()),
+                status: Some("waiting".into()),
+                waiting_for: Some("permission prompt".into()),
+            },
+            RegistrySample {
+                elapsed_ms: 2_100,
+                screen: "permission_prompt".into(),
+                pid: Some(4),
+                session_id: Some("s".into()),
+                status: Some("waiting".into()),
+                waiting_for: Some("permission prompt".into()),
+            },
+            RegistrySample {
+                elapsed_ms: 8_000,
+                screen: "idle".into(),
+                pid: Some(4),
+                session_id: Some("s".into()),
+                status: Some("idle".into()),
+                waiting_for: None,
+            },
+            RegistrySample {
+                elapsed_ms: 8_100,
+                screen: "idle".into(),
+                pid: None,
+                session_id: None,
+                status: None,
+                waiting_for: None,
+            },
+        ];
+        let expect = RegistryExpect {
+            statuses: vec!["busy".into(), "idle".into(), "waiting".into()],
+            waiting_for: Some("permission prompt".into()),
+            waiting_during_screen: Some("permission_prompt".into()),
+            removed_on_exit: Some(true),
+        };
+        let scored = score_dumps(&[], None, &samples, Some(0), Some(&expect));
+        assert!(scored.failures.is_empty(), "{:?}", scored.failures);
+        let sessions = scored.observations.sessions.expect("sessions");
+        assert_eq!(sessions.statuses, vec!["idle".to_string(), "busy".to_string(), "waiting".to_string()]);
+        assert_eq!(sessions.removed_on_exit, Some(true));
+        assert!(sessions.runs.iter().any(|run| run.status == "waiting" && run.samples == 2));
+
+        let busy = [
+            RegistrySample {
+                elapsed_ms: 2_000,
+                screen: "permission_prompt".into(),
+                pid: Some(4),
+                session_id: Some("s".into()),
+                status: Some("busy".into()),
+                waiting_for: None,
+            },
+            RegistrySample {
+                elapsed_ms: 3_000,
+                screen: "idle".into(),
+                pid: Some(4),
+                session_id: Some("s".into()),
+                status: Some("idle".into()),
+                waiting_for: None,
+            },
+        ];
+        let scored = score_dumps(&[], None, &busy, Some(1), Some(&expect));
+        assert!(scored.failures.iter().any(|failure| failure.contains("was not waiting")), "{:?}", scored.failures);
+        assert!(scored.failures.iter().any(|failure| failure.contains("still present")), "{:?}", scored.failures);
+        assert!(scored.failures.iter().any(|failure| failure.contains("waitingFor")), "{:?}", scored.failures);
     }
 }

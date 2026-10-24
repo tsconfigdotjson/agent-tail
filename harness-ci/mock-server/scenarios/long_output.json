@@ -1,0 +1,30 @@
+{
+  "name": "long_output",
+  "description": "Bash prints 30000 Z bytes. That is over the 16KiB lean cut and under Claude's inline tool-result limit.",
+  "steps": [
+    {
+      "expect": { "user_contains": "show the long run", "has_tool_result": false },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "head -c 30000 /dev/zero | tr '\\0' 'Z'",
+              "description": "Print a long run of Z"
+            }
+          }
+        ],
+        "usage": { "input_tokens": 20, "output_tokens": 20 },
+        "fault": { "type": "slow_first_token", "delay_ms": 800 }
+      }
+    },
+    {
+      "expect": { "tool_result_contains": "ZZZZ" },
+      "reply": {
+        "content": [{ "type": "text", "text": "That was a long run of Z." }],
+        "usage": { "input_tokens": 40, "output_tokens": 10 }
+      }
+    }
+  ]
+}

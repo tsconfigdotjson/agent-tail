@@ -1,0 +1,16 @@
+{
+  "name": "continued_in",
+  "description": "The same remembered token, answered again if /background starts another model call. repeat covers the forked session without a 500.",
+  "dispatch": "first_match",
+  "steps": [
+    {
+      "repeat": 4,
+      "expect": { "user_contains": "CONTINUED-TOKEN-THETA" },
+      "reply": {
+        "content": [{ "type": "text", "text": "Noted CONTINUED-TOKEN-THETA." }],
+        "usage": { "input_tokens": 12, "output_tokens": 8 },
+        "fault": { "type": "slow_first_token", "delay_ms": 800 }
+      }
+    }
+  ]
+}

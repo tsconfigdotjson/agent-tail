@@ -1,0 +1,28 @@
+{
+  "name": "mode_model",
+  "description": "A marker, then one follow-up after the mode and model keys. The reply model is the request model, so /model haiku shows up in the transcript.",
+  "dispatch": "first_match",
+  "steps": [
+    {
+      "expect": { "user_contains": "which model is answering" },
+      "reply": {
+        "content": [
+          { "type": "text", "text": "This reply follows the model switch. MODE-TOKEN-ZETA was the marker." }
+        ],
+        "usage": { "input_tokens": 30, "output_tokens": 16 },
+        "fault": { "type": "slow_first_token", "delay_ms": 800 }
+      }
+    },
+    {
+      "expect": {
+        "user_contains": "MODE-TOKEN-ZETA",
+        "not_user_contains": "which model is answering"
+      },
+      "reply": {
+        "content": [{ "type": "text", "text": "Noted MODE-TOKEN-ZETA." }],
+        "usage": { "input_tokens": 20, "output_tokens": 8 },
+        "fault": { "type": "slow_first_token", "delay_ms": 1000 }
+      }
+    }
+  ]
+}

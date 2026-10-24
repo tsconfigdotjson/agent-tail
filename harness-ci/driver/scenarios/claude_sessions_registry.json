@@ -1,0 +1,22 @@
+{
+  "name": "claude_sessions_registry",
+  "description": "Default-mode Bash permission prompt held for 6s. sessions/<pid>.json should pass through busy, idle, and waiting (waitingFor permission prompt) while that prompt is up, then a graceful exit removes the file.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/bash_approval.json",
+  "prompt": "run the command",
+  "keys": [
+    { "on": "permission_prompt", "send": "\r", "after_ms": 6000 }
+  ],
+  "min_screen_ms": { "permission_prompt": 4000 },
+  "run_for_ms": 24000,
+  "exit": "graceful",
+  "expected_activity": [
+    { "activity": "done", "certainty": "firm", "when": "end" }
+  ],
+  "expect_registry": {
+    "statuses": ["busy", "idle", "waiting"],
+    "waiting_for": "permission prompt",
+    "waiting_during_screen": "permission_prompt",
+    "removed_on_exit": true
+  }
+}

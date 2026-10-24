@@ -17,6 +17,10 @@ pub struct Scenario {
     pub description: Option<String>,
     #[serde(default)]
     pub dispatch: Dispatch,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count_tokens: Option<u64>,
     pub steps: Vec<Step>,
 }
 
@@ -238,6 +242,8 @@ mod tests {
             name: "x".into(),
             description: None,
             dispatch: Dispatch::Sequential,
+            title: None,
+            count_tokens: None,
             steps: vec![Step {
                 expect: Expect::default(),
                 reply: Reply {
