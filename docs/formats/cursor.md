@@ -39,10 +39,12 @@ shows **no spawn tool call** for it (*inference: spawned via `CallDynamicTool` o
 recorded*). `state.vscdb` bubbles carry `subagentSpawnTaskToolCallId`, and composerData has
 `subagentComposerIds`.
 
-## state.vscdb (quick look)
-Tables: `ItemTable`, `cursorDiskKV`, `composerHeaders`. `cursorDiskKV` key prefixes: `agentKv:`
-5627, `bubbleId:` 2084, `checkpointId:` 64, `ofsContent:` 55, `codeBlockPartialInlineDiffFates:`
-48, `composerData:` 27, `composerRootWriterDiagnostic:` 10, `inlineDiff:` 10, plus many
+## state.vscdb (survey and reader)
+
+Tables: `ItemTable`, `cursorDiskKV`, `composerHeaders`. `cursorDiskKV` key prefixes:
+`agentKv:` 5627, `bubbleId:` 2084, `checkpointId:` 64, `ofsContent:` 55,
+`codeBlockPartialInlineDiffFates:` 48, `composerData:` 27,
+`composerRootWriterDiagnostic:` 10, `inlineDiff:` 10, plus many
 `composer.content.<sha>` and `composer.autoAccept.*` singletons.
 
 - `composerData:<id>` has 87 top-level fields, including status-like ones: **`status`**
@@ -50,21 +52,106 @@ Tables: `ItemTable`, `cursorDiskKV`, `composerHeaders`. `cursorDiskKV` key prefi
   `queueItems`, `unifiedMode` (`agent`|`chat`), `forceMode` (`edit`|`chat`), `subagentComposerIds`,
   `todos`, `contextUsagePercent`, `name`/`subtitle` (a title source), `createdAt`, `lastUpdatedAt`.
 - `bubbleId:<composer>:<bubble>` has 87 fields, including `type` (1 = user, 2 = assistant,
-  *inference*), `capabilityType`, `toolFormerData` (tool calls; not mapped, so a likely home for
-  approval or user-decision state), `toolResults`, `thinking`, `startedAtMs`, `completedAtMs`,
-  `turnDurationMs`, `subagentSpawnTaskToolCallId`.
+  *inference*), `capabilityType`, `toolFormerData` (tool calls), `toolResults`, `thinking`,
+  `startedAtMs`, `completedAtMs`, `turnDurationMs`, `subagentSpawnTaskToolCallId`.
 - **Both:** all 12 transcript ids also exist as `composerData`. 15 composers have no
   transcript (older, or `chat`-mode, *inference*). IDE agent chats appear in **both** places.
   `state.vscdb` alone has times and a status.
 
+### Reader (B9, 2026-10-24)
+
+`agenttail`'s `sqlite` feature (on by default) copies `state.vscdb` plus `-wal` and `-shm`
+into a private temporary folder, opens the copy `mode=ro`, and deletes the folder before it
+returns. It never opens the live database; the WAL is copied because live writes land there.
+
+It reads:
+
+- `composerData:*`: `name`, `status`, `generatingBubbleIds`, `lastUpdatedAt` and
+  `createdAt`. `status: completed` is firm `Done`, `aborted` is firm `Interrupted`, and
+  `generating` (or a non-empty `generatingBubbleIds` when the status is `none`) is firm
+  `Thinking`. An unknown status changes nothing. The snapshot's `lastUpdatedAt` must be at
+  least as new as the transcript's last entry, so a throttled read can't rewind a newer
+  transcript. `name` is the Cursor title (B7); the opening prompt remains the fallback.
+- `bubbleId:*`: `toolFormerData.name`, `status`, `userDecision`, `additionalData.status`,
+  `additionalData.userDecision` and `error`. Cursor also writes `status: loading`,
+  `completed`, `error` and `cancelled`, and `userDecision: accepted`, `rejected` or
+  `pending` (public Cursor storage/export code and prior-art snapshots; the 2026-10-23
+  survey copy was idle, so it did not show a live wait).
+
+The tracker checks the three files' stamps on every poll but copies them at most every 30 s,
+and only while a Cursor session is in the window. A database that hasn't changed is not
+copied again. A first poll with no Cursor session never opens it.
+
+`generating` was not in the 2026-10-23 survey copy, which was idle. It appears in Cursor's
+stored default composer state and in third-party readers; the reader accepts it but the
+`Thinking` mapping has not been checked against a live Cursor capture yet. Stale
+`generatingBubbleIds` are ignored when the status says `completed`.
+
+### A5: the Cursor CLI cannot join the mock/PTY rig yet (2026-10-24)
+
+Tested on Linux with `cursor-agent` **2026.10.01-e373342** and a temp `HOME`, a dummy
+`CURSOR_API_KEY`, and `CURSOR_API_ENDPOINT` (also `--endpoint`) pointed at a local logging
+server. The endpoint is honoured, but it is not an Anthropic Messages or OpenAI Responses
+endpoint:
+
+1. It `POST`s `/auth/exchange_user_api_key` and expects an access/refresh token.
+2. It then speaks Cursor's own Connect/protobuf services: `aiserver.v1.DashboardService/*`,
+   `aiserver.v1.ServerConfigService/GetServerConfig`, `aiserver.v1.AiService/AvailableModels`,
+   `GetUsableModels`, `GetDefaultModelForCli`, and analytics. A hand-made token and model
+   catalogue got it to the chat step.
+3. The chat step is a streaming Cursor RPC (HTTP/2/gRPC-style), not `/v1/messages` or
+   `/v1/responses`; against an HTTP/1.1 mock it failed with `ERR_HTTP2_ERROR` /
+   `[internal] Protocol error`.
+
+So Cursor needs its backend, or a new mock that implements Cursor's auth exchange,
+protobuf model catalogue and streaming chat protocol. That is not v0.1 work. **Decision:**
+Cursor does not join the mock/PTY matrix; it ships through donated fixtures and, if a key is
+available later, a budget-capped nightly real run (`PLAN.md` §8). This box has
+`cursor-agent` but no just-created IDE `state.vscdb`, so the live approval capture is still
+deferred to Lee.
+
+### Needs Lee: the live approval wait (A5 #3)
+
+While Cursor shows a tool waiting for approval, copy the database **and its sidecars** (never
+read or open the live file), then record these before answering, after approving and after
+denying:
+
+```sh
+SNAP=$(mktemp -d)
+cp "$HOME/Library/Application Support/Cursor/User/globalStorage/state.vscdb"* "$SNAP/"
+sqlite3 "$SNAP/state.vscdb" "
+  SELECT json_extract(value,'$.status'), json_extract(value,'$.generatingBubbleIds'),
+         json_extract(value,'$.name'), json_extract(value,'$.lastUpdatedAt')
+  FROM cursorDiskKV WHERE key = 'composerData:<composer-id>';"
+sqlite3 "$SNAP/state.vscdb" "
+  SELECT key, json_extract(value,'$.toolFormerData.status'),
+         json_extract(value,'$.toolFormerData.additionalData.status'),
+         json_extract(value,'$.toolFormerData.userDecision'),
+         json_extract(value,'$.toolFormerData.additionalData.userDecision')
+  FROM cursorDiskKV
+  WHERE key >= 'bubbleId:<composer-id>:' AND key < 'bubbleId:<composer-id>;';"
+rm -rf "$SNAP"
+```
+
+The open question is whether `toolFormerData.userDecision` (or another field) is written
+**while** the prompt is up. If it is, that value is Cursor's firm approval signal and should
+replace the 20 s inference for Cursor. Until then the reader keeps the raw tool decisions but
+does not turn them into `AwaitingApproval`.
+
 ## Status signals
 - **Turn end:** `turn_ended`. Firm. `status: error` with one of the `error` strings above means
-  **Interrupted**. No real failure was seen, so Errored has no confirmed shape.
-- **Tool pending:** no results are recorded. tvdash treats later assistant text as "results are
-  in" (inference, unchanged).
-- **Approval pending, generating:** not in transcripts. Candidates are `composerData.status` and
-  `generatingBubbleIds`, and `toolFormerData` in bubbles (Phase 4 snapshot reader).
+  **Interrupted**. No real failure was seen, so Errored has no confirmed shape. With the
+  `sqlite` feature, `composerData.status` gives the same firm ends (and `generating`) even
+  when the transcript hasn't caught up.
+- **Tool pending:** no results are recorded. The adapter treats later assistant text as "results are in"
+  (inference, unchanged). `toolFormerData.status` is read from the database but is not yet
+  used to decide status.
+- **Approval pending:** not in transcripts or the idle survey copy. This is the A5 manual
+  capture above; until it is captured, Cursor keeps the shared 20 s `AwaitingApproval`
+  inference.
 - **Times:** none in transcripts except the prompt's `<timestamp>` (to the minute). Use mtime.
+  The database has millisecond `createdAt`/`lastUpdatedAt`; the reader uses those for its
+  status freshness.
 
 ## What tvdash gets wrong or misses (`src/sessions/cursor.rs`)
 - `turn_ended` with `status: error` becomes "done" (cursor.rs:66 to 71). The statuses are all user stops
@@ -73,13 +160,15 @@ Tables: `ItemTable`, `cursorDiskKV`, `composerHeaders`. `cursorDiskKV` key prefi
   of these appeared here, so the list is unverified.
 - Subagents count only as activity (mtime). Their `turn_ended` is not read, so a finished
   subagent and a stuck one look alike. `state.vscdb` (status, titles via `name`, times) is
-  unread.
+  unread by tvdash; `agenttail` now reads it in the `sqlite` feature.
 - Tool calls stall into "may need approval" after 20 s. Cursor's auto-run settings are unknown.
 
 ## Open questions
-- The `toolFormerData` field paths and status values; whether `composerData.status` reads
-  `generating` while live (the copy was made while Cursor was idle).
+- The `toolFormerData` field paths and status values are now read, with the prior-art values
+  above; the live approval-waiting value still needs Lee's capture (A5 #3).
+- Whether `composerData.status` reads `generating` while live: accepted by the reader, not
+  yet seen in a local live capture (the 2026-10-23 copy was idle).
 - `<cursor_commands>` and other wrappers; any ask-user tool name; how `cursor-agent` (CLI)
-  sessions differ (the CLI is not installed on this Mac: `~/.cursor/cli-config.json` exists, the binary is
-  not on PATH; not checked further).
-- Env overrides Cursor honours: not researched.
+  sessions differ. The CLI is not in the rig (A5); its `~/.cursor/chats/.../store.db` is not read.
+- Env overrides Cursor honours: not researched; `state.vscdb` uses the platform default below
+  the home folder.
