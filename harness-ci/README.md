@@ -354,6 +354,64 @@ cd harness-ci
 cargo run -p harness-driver -- --scenario driver/scenarios/claude_sessions_registry.json
 ```
 
-- CI wiring and version matrix (A6) are not done yet.
+## A6: GitHub Actions, version matrix and nightly drift
+
+[`.github/workflows/harness-ci.yml`](../.github/workflows/harness-ci.yml) builds this workspace
+explicitly. The root `cargo test` still does not build it.
+
+- **PR/push:** one `unit` job runs `cargo fmt --check`, `cargo clippy -D warnings`, the driver and
+  mock-server tests, and the Python survey tests. The `harness` matrix runs Claude Code
+  **2.1.281**, **2.1.310** and npm **latest**, each on **ubuntu-latest** and **macos-latest**.
+  Every job installs the CLI from npm into `$RUNNER_TEMP`, checks the reported version, builds
+  `harness-driver --release`, and runs `ci/scenarios.txt` sequentially. A hard scoring failure
+  fails the job; run artifacts are uploaded even when a scenario fails.
+- **Offline:** `ci/offline-run.sh` wraps each driver in `sandbox-exec -f offline.sb` on macOS and
+  in a fresh network namespace with loopback up on Linux. CI sets
+  `HARNESS_CI_REQUIRE_OFFLINE=1`, so a host that cannot enforce either one fails instead of
+  silently running with egress. The CLI only ever receives the driver's dummy
+  `ANTHROPIC_API_KEY`; no repository secret is configured or read.
+- **Nightly:** the same workflow runs on the `43 3 * * *` schedule (and by hand with
+  `open_drift_pr`). It installs npm `latest`, runs the matrix, and surveys the transcripts with
+  `ci/survey.py`. `ci/nightly.py` compares the Linux shape to
+  `drift/baseline/claude-code/<version>.json`. When a new version adds/removes record types,
+  field paths, content-block types or enum values, it writes `drift/reports/` plus redacted
+  fixtures under `fixtures/claude-code/<version>/<os>/ci-<scenario>/`, and the workflow opens a
+  PR. Ids, timestamps and free text are not surveyed, so value-only changes do not open a PR.
+  A committed baseline that changes under the same version is reported as a regression and does
+  not get silently rewritten.
+- **Proof:** `drift/reports/claude-code-2.1.281-to-2.1.310.md` is the report from running the
+  same suite on both versions locally. It catches the new `api-request*` records, `turnPosition`,
+  `renderedRole`/`renderedBesideToolResult`, request fields and permission-decision fields.
+- **Deferred:** Codex is not in the matrix yet: the CLI spike (A4) and its scenarios are still
+  missing, and no real API key may be used. Cursor likewise stays out. The
+  `cargo bench --bench first_read` `/usr/bin/time` budget (QUESTIONS.md #10) is not wired here;
+  it belongs with the Phase C performance budget.
+
+Green-path local check (the PTY matrix itself is also run by GHA):
+
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"
+cd harness-ci
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --offline -- -D warnings
+cargo test -p harness-driver -p mock-server --offline
+python3 -m unittest discover -s ci -p 'test_*.py' -v
+
+# One real version (install latest Claude Code first):
+cargo run -p harness-driver -- --scenario driver/scenarios/claude_plain_qa.json
+```
+
+To reproduce the drift proof with two npm versions:
+
+```sh
+npm install --prefix /tmp/cc-281 @anthropic-ai/claude-code@2.1.281
+PATH="/tmp/cc-281/node_modules/.bin:$PATH" cargo run -p harness-driver -- \
+  --scenario driver/scenarios/claude_plain_qa.json --out /tmp/run-281
+python3 ci/survey.py survey --runs /tmp/run-281 --version 2.1.281 --os linux \
+  --out /tmp/281.json
+python3 ci/survey.py compare --baseline drift/baseline/claude-code/2.1.281.json \
+  --current /tmp/281.json --report /tmp/drift.md
+```
+
 - The detector and scorer unit tests do not spawn Claude Code. A real PTY run of the four green
   scenarios is still the check that the new disagreement list stays empty on those timelines.

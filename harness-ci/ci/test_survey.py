@@ -1,0 +1,113 @@
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+import survey
+
+
+def write_transcript(root: Path, records: list[dict]) -> Path:
+    run = root / "run"
+    transcripts = run / "transcripts"
+    transcripts.mkdir(parents=True)
+    (transcripts / "session.jsonl").write_text(
+        "".join(json.dumps(record) + "\n" for record in records), encoding="utf-8"
+    )
+    (run / "score.json").write_text("{}", encoding="utf-8")
+    return run
+
+
+def base_records() -> list[dict]:
+    return [
+        {
+            "type": "user",
+            "uuid": "11111111-1111-1111-1111-111111111111",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "sessionId": "session-a",
+            "cwd": "/tmp/home/work",
+            "message": {"role": "user", "content": "hello"},
+        },
+        {
+            "type": "assistant",
+            "uuid": "22222222-2222-2222-2222-222222222222",
+            "timestamp": "2026-01-01T00:00:01Z",
+            "sessionId": "session-a",
+            "message": {
+                "content": [{"type": "text", "text": "hello back"}],
+                "stop_reason": "end_turn",
+            },
+        },
+    ]
+
+
+class ShapeSurveyTests(unittest.TestCase):
+    def test_ids_timestamps_and_content_values_are_not_drift(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            old_run = write_transcript(root / "old", base_records())
+            changed = base_records()
+            changed[0]["uuid"] = "99999999-9999-9999-9999-999999999999"
+            changed[0]["timestamp"] = "2027-02-02T02:02:02Z"
+            changed[0]["sessionId"] = "session-b"
+            changed[0]["cwd"] = "/tmp/another/work"
+            changed[0]["message"]["content"] = "a different prompt"
+            changed[1]["message"]["content"] = [{"type": "text", "text": "different reply"}]
+            new_run = write_transcript(root / "new", changed)
+
+            old = survey.survey_runs([old_run], "claude_code", "1.0.0", "linux")
+            new = survey.survey_runs([new_run], "claude_code", "1.0.1", "linux")
+            diff = survey.shape_diff(old, new)
+            self.assertFalse(survey.has_drift(diff), diff)
+            self.assertIn("No shape changes.", survey.render_report(old, new, diff))
+
+    def test_a_new_field_is_drift(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            old_run = write_transcript(root / "old", base_records())
+            changed = base_records()
+            changed[0]["turnPosition"] = {"promptIndex": 1}
+            new_run = write_transcript(root / "new", changed)
+
+            old = survey.survey_runs([old_run], "claude_code", "1.0.0", "linux")
+            new = survey.survey_runs([new_run], "claude_code", "1.0.1", "linux")
+            diff = survey.shape_diff(old, new)
+            self.assertTrue(survey.has_drift(diff))
+            self.assertIn("turnPosition", diff["added_fields"]["field_paths"]["user"])
+            self.assertIn("turnPosition", survey.render_report(old, new, diff))
+
+    def test_a_new_content_block_type_is_drift(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            old_run = write_transcript(root / "old", base_records())
+            changed = base_records()
+            changed[1]["message"]["content"].append({"type": "new_block"})
+            new_run = write_transcript(root / "new", changed)
+
+            old = survey.survey_runs([old_run], "claude_code", "1.0.0", "linux")
+            new = survey.survey_runs([new_run], "claude_code", "1.0.1", "linux")
+            diff = survey.shape_diff(old, new)
+            self.assertTrue(survey.has_drift(diff))
+            self.assertIn("new_block", diff["added_fields"]["content_types"]["assistant.content"])
+
+    def test_capture_redacts_ids_and_temp_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            records = base_records()
+            records.append({"type": "file-history-snapshot", "snapshot": {"/tmp/private/file.txt": {}}})
+            run = write_transcript(root, records)
+            out = root / "fixtures"
+            target = survey.capture_fixture(run, out, "claude_code", "1.0.0", "linux")
+            self.assertIsNotNone(target)
+            text = (target / "input" / "session.jsonl").read_text(encoding="utf-8")
+            self.assertNotIn("11111111-1111-1111-1111-111111111111", text)
+            self.assertNotIn("/tmp/home/work", text)
+            self.assertNotIn("/tmp/private/file.txt", text)
+            self.assertIn("<path-", text)
+            self.assertIn("<id-", text)
+            meta = (target / "meta.toml").read_text(encoding="utf-8")
+            self.assertIn('capture = "ci-scripted"', meta)
+            self.assertIn('version = "1.0.0"', meta)
+
+
+if __name__ == "__main__":
+    unittest.main()
