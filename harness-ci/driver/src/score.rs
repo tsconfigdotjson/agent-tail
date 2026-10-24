@@ -1504,16 +1504,15 @@ fn is_firm_end(record: &Value) -> bool {
 
 fn record_label(record: &Value) -> String {
     let kind = record.get("type").and_then(Value::as_str).unwrap_or("?");
-    if kind == "system" {
-        if let Some(subtype) = record.get("subtype").and_then(Value::as_str) {
-            return format!("system:{subtype}");
-        }
+    if kind == "system"
+        && let Some(subtype) = record.get("subtype").and_then(Value::as_str)
+    {
+        return format!("system:{subtype}");
     }
-    if kind == "assistant" {
-        if let Some(stop) = record.get("message").and_then(|message| message.get("stop_reason")).and_then(Value::as_str)
-        {
-            return format!("assistant:{stop}");
-        }
+    if kind == "assistant"
+        && let Some(stop) = record.get("message").and_then(|message| message.get("stop_reason")).and_then(Value::as_str)
+    {
+        return format!("assistant:{stop}");
     }
     if kind == "user" && is_interrupt(record) {
         return "user:interrupt".into();
