@@ -5,14 +5,16 @@
 //! seeded so the PTY starts at the prompt. Transcripts and the mock's request log are kept
 //! in the run directory as artifacts.
 
-use agenttail::{
-    Activity, Certainty, ChunkCtx, Harness, PermissionMode, Reason, ReducerOptions, SessionReducer, SessionState,
-    Timestamp,
-};
+mod score;
+mod screen;
+
+use agenttail::{ChunkCtx, Harness, ReducerOptions, SessionReducer, SessionState, Timestamp};
 use mock_server::{MockState, router, scenario::Scenario as MockScenario};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
-use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use score::{Sample, Score};
+use screen::ScreenState;
+use serde::Deserialize;
+use std::collections::BTreeMap;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -22,32 +24,6 @@ const COLS: u16 = 120;
 const ROWS: u16 = 40;
 const SAMPLE_EVERY: Duration = Duration::from_millis(100);
 const DUMMY_KEY: &str = "dummy-key";
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum ScreenState {
-    Starting,
-    Idle,
-    Working,
-    PermissionPrompt,
-    AskUserQuestion,
-    Error,
-    Unknown,
-}
-
-impl ScreenState {
-    fn id(self) -> &'static str {
-        match self {
-            ScreenState::Starting => "starting",
-            ScreenState::Idle => "idle",
-            ScreenState::Working => "working",
-            ScreenState::PermissionPrompt => "permission_prompt",
-            ScreenState::AskUserQuestion => "ask_user_question",
-            ScreenState::Error => "error",
-            ScreenState::Unknown => "unknown",
-        }
-    }
-}
 
 #[derive(Debug, Deserialize)]
 struct DriverScenario {
@@ -70,6 +46,8 @@ struct DriverScenario {
     run_for_ms: u64,
     #[serde(default)]
     no_approval: bool,
+    #[serde(default, deserialize_with = "score::deserialize_expected")]
+    expected_activity: Vec<score::ExpectedOne>,
     #[serde(default)]
     env: BTreeMap<String, String>,
 }
@@ -88,39 +66,6 @@ struct KeyAction {
 
 fn default_run_for_ms() -> u64 {
     12_000
-}
-
-#[derive(Debug, Serialize)]
-struct LibraryPoint {
-    activity: Activity,
-    certainty: Certainty,
-    reason: Reason,
-    permission: Option<PermissionMode>,
-    error: Option<String>,
-    since: Option<Timestamp>,
-    last_write: Option<Timestamp>,
-}
-
-#[derive(Debug, Serialize)]
-struct Sample {
-    elapsed_ms: u64,
-    screen: &'static str,
-    library: Option<LibraryPoint>,
-}
-
-#[derive(Debug, Default, Serialize)]
-struct Score {
-    scenario: String,
-    description: Option<String>,
-    harness: String,
-    samples: usize,
-    screen_counts: BTreeMap<String, usize>,
-    /// screen -> library activity -> samples
-    confusion: BTreeMap<String, BTreeMap<String, usize>>,
-    failures: Vec<String>,
-    mock_requests: u64,
-    remaining_mock_steps: usize,
-    transcript: Option<String>,
 }
 
 struct Tail {
@@ -298,9 +243,9 @@ fn run_pty(
             parser.process(&bytes);
         }
         let screen = parser.screen().contents();
-        let new_state = detect_screen(&screen);
-        if new_state != screen_state {
-            screen_state = new_state;
+        let reading = screen::read_screen(harness, &screen);
+        if reading.state != screen_state {
+            screen_state = reading.state;
             state_since = Instant::now();
         }
         final_screen = screen;
@@ -329,7 +274,8 @@ fn run_pty(
             samples.push(Sample {
                 elapsed_ms: start.elapsed().as_millis() as u64,
                 screen: screen_state.id(),
-                library: library.as_ref().map(library_point),
+                background_agents: reading.background_agents,
+                library: library.as_ref().map(score::library_point),
             });
             last_sample = Instant::now();
         }
@@ -338,7 +284,19 @@ fn run_pty(
 
     let _ = child.kill();
     let transcript = tail.as_ref().map(|tail| tail.path.clone());
-    let score = score(&scenario, harness, &samples, &mock, transcript.as_deref());
+    let expectations: Vec<score::Expectation> =
+        scenario.expected_activity.iter().map(score::ExpectedOne::expectation).collect();
+    let score = score::score(&score::ScoreRequest {
+        scenario: &scenario.name,
+        description: scenario.description.clone(),
+        harness: harness.id(),
+        no_approval: scenario.no_approval,
+        expected: &expectations,
+        samples: &samples,
+        mock_requests: mock.requests(),
+        remaining_mock_steps: mock.remaining(),
+        transcript: transcript.as_deref().map(|path| path.display().to_string()),
+    });
 
     let timeline = out.join("timeline.jsonl");
     let mut timeline_text = String::new();
@@ -391,44 +349,6 @@ fn seed_claude(home: &Path, work: &Path) -> Result<(), String> {
         .map_err(|e| format!("seed .claude.json: {e}"))?;
     std::fs::write(config_dir.join("settings.json"), br#"{"skipDangerousModePermissionPrompt": true}"#)
         .map_err(|e| format!("seed settings.json: {e}"))
-}
-
-/// The screen detectors for each harness. Every string here comes from a real captured
-/// screen; see the tests at the bottom.
-fn detect_screen(screen: &str) -> ScreenState {
-    let text = normalize(screen);
-    if text.contains("do you want to proceed?") || text.contains("esc to cancel · tab to amend") {
-        return ScreenState::PermissionPrompt;
-    }
-    if text.contains("api error") || text.contains("authentication failed") || text.contains("request failed") {
-        return ScreenState::Error;
-    }
-    if text.contains("esc to interrupt") || text.contains("retrying in") || text.contains("processing…") {
-        return ScreenState::Working;
-    }
-    if text.contains("? for shortcuts") || text.contains("bypass permissions on") || text.contains("auto mode on") {
-        return ScreenState::Idle;
-    }
-    if text.contains("welcome to claude code") {
-        return ScreenState::Starting;
-    }
-    ScreenState::Unknown
-}
-
-fn normalize(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
-}
-
-fn library_point(state: &SessionState) -> LibraryPoint {
-    LibraryPoint {
-        activity: state.activity,
-        certainty: state.certainty,
-        reason: state.reason,
-        permission: state.permission,
-        error: state.error.clone(),
-        since: state.since,
-        last_write: state.last_write,
-    }
 }
 
 fn library_state(tail: &mut Option<Tail>, _harness: Harness, home: &Path, now: Timestamp) -> Option<SessionState> {
@@ -495,163 +415,43 @@ fn walk(dir: &Path, depth: usize, best: &mut Option<(SystemTime, PathBuf)>) {
     }
 }
 
-fn score(
-    scenario: &DriverScenario,
-    harness: Harness,
-    samples: &[Sample],
-    mock: &MockState,
-    transcript: Option<&Path>,
-) -> Score {
-    let mut score = Score {
-        scenario: scenario.name.clone(),
-        description: scenario.description.clone(),
-        harness: harness.id().into(),
-        samples: samples.len(),
-        mock_requests: mock.requests(),
-        remaining_mock_steps: mock.remaining(),
-        transcript: transcript.map(|path| path.display().to_string()),
-        ..Score::default()
-    };
-    let mut failures = BTreeSet::new();
-    let stall = ReducerOptions::default().stall_after;
-    let stall_ms = stall.as_millis() as u64;
-
-    for sample in samples {
-        *score.screen_counts.entry(sample.screen.to_string()).or_default() += 1;
-        if let Some(library) = &sample.library {
-            *score
-                .confusion
-                .entry(sample.screen.to_string())
-                .or_default()
-                .entry(activity_id(library.activity).to_string())
-                .or_default() += 1;
-            if library.activity == Activity::AwaitingApproval {
-                if scenario.no_approval {
-                    failures.insert("AwaitingApproval in a mode where no approval is possible".into());
-                }
-                if sample.screen != ScreenState::PermissionPrompt.id() {
-                    failures.insert(format!("AwaitingApproval while the screen is {}", sample.screen));
-                }
-            }
-        }
-    }
-
-    // A permission prompt that stays on screen longer than the stall threshold plus slack
-    // without the library saying AwaitingApproval is a missed prompt.
-    let mut run_start: Option<u64> = None;
-    let mut run_last = 0u64;
-    let mut saw_awaiting = false;
-    for sample in samples {
-        let is_prompt = sample.screen == ScreenState::PermissionPrompt.id();
-        if is_prompt {
-            run_start.get_or_insert(sample.elapsed_ms);
-            run_last = sample.elapsed_ms;
-            saw_awaiting |= sample
-                .library
-                .as_ref()
-                .is_some_and(|l| matches!(l.activity, Activity::AwaitingApproval | Activity::AwaitingAnswer));
-        } else if let Some(start) = run_start.take()
-            && run_last.saturating_sub(start) > stall_ms + 1_000
-            && !saw_awaiting
-        {
-            failures
-                .insert(format!("permission prompt on screen for {} ms without AwaitingApproval", run_last - start));
-        }
-    }
-    if let Some(start) = run_start
-        && run_last.saturating_sub(start) > stall_ms + 1_000
-        && !saw_awaiting
-    {
-        failures.insert(format!("permission prompt on screen for {} ms without AwaitingApproval", run_last - start));
-    }
-
-    score.failures = failures.into_iter().collect();
-    score
-}
-
-fn activity_id(activity: Activity) -> &'static str {
-    match activity {
-        Activity::AwaitingAnswer => "awaiting_answer",
-        Activity::AwaitingApproval => "awaiting_approval",
-        Activity::RunningTool => "running_tool",
-        Activity::Thinking => "thinking",
-        Activity::BackgroundWork => "background_work",
-        Activity::Done => "done",
-        Activity::Interrupted => "interrupted",
-        Activity::Errored => "errored",
-        Activity::Idle => "idle",
-        Activity::Unknown => "unknown",
-        _ => "unknown",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn detects_the_captured_permission_prompt() {
-        // Captured from Claude Code 2.1.310, default mode, a `touch` command.
-        let screen = r#"
-            ╭──────────────────────────────────────────────────────────────╮
-            │ Bash command                                                 │
-            │   Create a marker file                                       │
-            │   touch permission-marker.txt                                │
-            │ Do you want to proceed?                                      │
-            │ ❯ 1. Yes                                                     │
-            │   2. Yes, and always allow access …                          │
-            │   3. No                                                      │
-            │ Esc to cancel · Tab to amend                                 │
-            ╰──────────────────────────────────────────────────────────────╯
-        "#;
-        assert_eq!(detect_screen(screen), ScreenState::PermissionPrompt);
+    fn scenario(name: &str) -> DriverScenario {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scenarios").join(name);
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("parse {}: {e}", path.display()))
     }
 
     #[test]
-    fn detects_the_captured_working_screen() {
-        let screen = r#"
-            ❯ run the command
-            ✻ Composing…
-            ❯
-            esc to interrupt · ← for agents
-        "#;
-        assert_eq!(detect_screen(screen), ScreenState::Working);
+    fn the_green_scenarios_parse_without_expected_activity() {
+        let plain = scenario("claude_plain_qa.json");
+        assert!(plain.expected_activity.is_empty());
+        assert!(!plain.no_approval);
+        let approval = scenario("claude_bash_approval.json");
+        assert_eq!(approval.keys.len(), 1);
+        assert_eq!(approval.keys[0].on, ScreenState::PermissionPrompt);
+        let pending = scenario("claude_bash_approval_pending.json");
+        assert!(pending.keys.is_empty());
+        let bypass = scenario("claude_bash_bypass.json");
+        assert!(bypass.no_approval);
+        assert!(bypass.expected_activity.is_empty());
     }
 
     #[test]
-    fn detects_the_captured_idle_screen() {
-        let screen = r#"
-            ⏺ The marker file was created.
-            ✻ Worked for 0s · done 9:43 PM
-
-            ❯
-            ? for shortcuts · ← for agents
-        "#;
-        assert_eq!(detect_screen(screen), ScreenState::Idle);
-    }
-
-    #[test]
-    fn detects_the_captured_bypass_idle_screen() {
-        // Captured from Claude Code 2.1.310 with --dangerously-skip-permissions.
-        let screen = r#"
-            ▗ ▗   ▖ ▖  Claude Code v2.1.310
-                       Sonnet 4.5 · API Usage Billing
-             ▘▘   ▝▝   /private/tmp/work
-            ────────────────────────────────────────────────────────────────
-            ❯
-            ────────────────────────────────────────────────────────────────
-              ⏵⏵ bypass permissions on (shift+tab to cycle)
-        "#;
-        assert_eq!(detect_screen(screen), ScreenState::Idle);
-    }
-
-    #[test]
-    fn errors_beat_the_spinner() {
-        let screen = r#"
-            ❯ run the command
-            ✻ API error · Retrying in 1s · attempt 1/10
-            esc to interrupt · ← for agents
-        "#;
-        assert_eq!(detect_screen(screen), ScreenState::Error);
+    fn expected_activity_parses_on_a_driver_scenario() {
+        let raw = r#"{
+            "name": "ends",
+            "harness": "claude_code",
+            "mock": "mock.json",
+            "expected_activity": ["done", {"activity": "interrupted", "when": "ever", "screen": "idle"}]
+        }"#;
+        let scenario: DriverScenario = serde_json::from_str(raw).unwrap();
+        assert_eq!(scenario.expected_activity.len(), 2);
+        assert_eq!(scenario.expected_activity[0].expectation().activity, "done");
+        assert_eq!(scenario.expected_activity[1].expectation().when, score::ExpectWhen::Ever);
+        assert_eq!(scenario.expected_activity[1].expectation().screen.as_deref(), Some("idle"));
     }
 }

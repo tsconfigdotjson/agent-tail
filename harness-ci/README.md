@@ -192,13 +192,28 @@ A driver scenario adds the CLI command, prompt, key actions and run time:
   "mock": "../../mock-server/scenarios/bash_approval.json",
   "prompt": "run the command",
   "keys": [{ "on": "permission_prompt", "send": "\r", "after_ms": 2000 }],
-  "run_for_ms": 14000
+  "run_for_ms": 14000,
+  "expected_activity": [{ "activity": "done", "when": "end", "screen": "idle" }]
 }
 ```
 
-Hard failures so far: `AwaitingApproval` when the screen shows no permission prompt,
-`AwaitingApproval` in a `no_approval` scenario, and a real prompt left un-inferred past the
-stall threshold. The driver exits non-zero on any hard failure.
+Hard failures: `AwaitingApproval` when the screen shows no permission prompt (a sample within
+1 s of a real prompt is write latency, not a failure), `AwaitingApproval` in a `no_approval`
+scenario or a bypass / dontAsk / never permission mode, a real prompt left un-inferred past
+`stall_after` plus 1 s, and `Done` while background agents are running (the library still lists
+helpers, or the screen keeps the `Waiting for N background agent(s) to finish` status for more
+than that 1 s). The driver exits non-zero on any hard failure. Other screen/library mismatches
+are recorded as `disagreements` after the same allowances, and stay in `score.json` without
+failing the run.
+
+`score.json` carries the raw confusion matrix (`screen` → library activity → samples), the
+disagreements that remain after `stall_after` and a 1 s write-latency window, and the
+hard-failure list. `stall_after_ms` and `write_latency_ms` are written beside them.
+`RunningTool` during the first `stall_after` of a permission prompt is agreement. `Thinking` /
+`RunningTool` on a working screen, `AwaitingAnswer` on an ask-user question, `Errored` on an
+error banner, and `Done` / `Idle` / `Interrupted` / `Errored` on an idle composer are agreement.
+Samples within 1 s of an agreeing sample are the write-latency allowance. `starting` and
+`unknown` screens are not scored.
 
 ### What the rig has already found
 
@@ -217,13 +232,21 @@ stall threshold. The driver exits non-zero on any hard failure.
 - **Onboarding, trust and bypass disclaimers** are all skipped by seeding `.claude.json`
   and `.claude/settings.json` (`skipDangerousModePermissionPrompt: true`). No key presses
   are needed before the prompt.
-- **Firm ends/interrupts/errors** are covered by library tests, not yet by driver
-  scenarios. Adding `expected_activity` to the scorer is the next rig step.
+- **Firm ends/interrupts/errors** can be asserted with `expected_activity` on a driver
+  scenario. A string, or `"when": "end"`, must be the last library activity (the screen it
+  names may lag by the 1 s write allowance). `"when": "ever"` must occur at least once, which
+  is what an interrupt or an error needs when the run then settles somewhere else. The four
+  green scenarios leave the field unset.
 
 ### Remaining A0/A2 work
 
 - Codex CLI is not installed on this machine. Its `model_providers` / `CODEX_HOME` spike is
-  still to do (issue A4).
-- Cursor CLI may need Cursor's backend; its spike is A5.
-- More screen detectors: ask-the-user, denial, interrupt. They need captured screens first.
+  still to do (issue A4). The Codex and Cursor screen readers return `unknown` until those
+  spikes capture real panes; they do not reuse Claude's strings.
+- Claude screen readers cover the permission prompt, an ask-the-user question (including plan
+  approval), the idle composer, the spinner / working line, and an error banner. Each has a
+  captured-screen unit test in `driver/src/screen.rs`. Denial and interrupt footers still need
+  their own captured screens (A3).
 - CI wiring and version matrix (A6) are not done yet.
+- The detector and scorer unit tests do not spawn Claude Code. A real PTY run of the four green
+  scenarios is still the check that the new disagreement list stays empty on those timelines.
