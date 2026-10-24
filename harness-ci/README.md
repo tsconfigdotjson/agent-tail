@@ -206,10 +206,9 @@ stall threshold. The driver exits non-zero on any hard failure.
   showed the real prompt; no transcript record is written while it is up. The library says
   `RunningTool` until the 20 s stall threshold, then `AwaitingApproval` (inferred), exactly
   as designed. The captured screen is in the detector tests.
-- **Bypass mode currently fails the score, as expected before B1.** With
-  `--dangerously-skip-permissions`, a 60 s `sleep` stays `RunningTool` on screen while the
-  library turns `AwaitingApproval` after 20 s. That is the headline bug this rig is here to
-  prove fixed.
+- **Bypass mode now passes.** Before B1 a 60 s `sleep` stayed `RunningTool` on screen while
+  the library turned `AwaitingApproval` after 20 s. After reading the permission mode the
+  library stays `RunningTool` (firm) for the whole run, and the scenario has 0 failures.
 - **Model latency matters.** With an instant mock response, Claude Code can append the
   user prompt record *after* the assistant reply, which makes the reducer read `Thinking`
   after `Done`. Real model latency hides this; scenarios give the first token a 1 s delay so
@@ -218,6 +217,8 @@ stall threshold. The driver exits non-zero on any hard failure.
 - **Onboarding, trust and bypass disclaimers** are all skipped by seeding `.claude.json`
   and `.claude/settings.json` (`skipDangerousModePermissionPrompt: true`). No key presses
   are needed before the prompt.
+- **Firm ends/interrupts/errors** are covered by library tests, not yet by driver
+  scenarios. Adding `expected_activity` to the scorer is the next rig step.
 
 ### Remaining A0/A2 work
 
