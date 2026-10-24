@@ -283,31 +283,44 @@ impl SessionReducer {
     }
 }
 
-/// `line` parsed in `mode`, and whether anything was cut first.
-fn parse(line: &[u8], mode: ParseMode) -> (serde_json::Result<Value>, bool) {
+/// Every JSON value in `line`, parsed in `mode`, and whether anything was cut first. A line
+/// with trailing junk is rejected whole, as before: partial entries are not guessed at.
+fn parse_many(line: &[u8], mode: ParseMode) -> (Vec<Value>, bool) {
     let bytes = match mode {
         ParseMode::Lean => lean(line),
         ParseMode::Full => Cow::Borrowed(line),
     };
-    (serde_json::from_slice(&bytes), matches!(bytes, Cow::Owned(_)))
+    let mut values = Vec::new();
+    let stream = serde_json::Deserializer::from_slice(&bytes).into_iter::<Value>();
+    for value in stream {
+        match value {
+            Ok(value) => values.push(value),
+            Err(_) => return (Vec::new(), matches!(bytes, Cow::Owned(_))),
+        }
+    }
+    (values, matches!(bytes, Cow::Owned(_)))
 }
 
 /// Hands each entry in `data`'s complete lines to `f`, one at a time, and returns how many
 /// bytes those lines took. A partially written entry at the end is left for next time;
-/// lines that aren't JSON are skipped (and counted).
+/// lines that aren't JSON are skipped (and counted). A line can hold more than one JSON
+/// object (ADR does this); each is handed over.
 ///
 /// A last entry with no newline after it yet counts once it's a whole JSON object (no
 /// shorter part of one is): a writer that adds the newline before each entry, or late,
 /// would otherwise keep its last entry (Cursor's "turn ended", say) from being read.
 pub(crate) fn complete_lines(data: &[u8], mode: ParseMode, diag: &mut Diagnostics, mut f: impl FnMut(Value)) -> usize {
     let end = whole_lines(data, mode, diag, &mut f);
-    if ends_an_object(&data[end..])
-        && let (Ok(Value::Object(e)), cut) = parse(&data[end..], mode)
-    {
-        diag.lines += 1;
-        diag.cut += u64::from(cut);
-        f(Value::Object(e));
-        return data.len();
+    if ends_an_object(&data[end..]) {
+        let (values, cut) = parse_many(&data[end..], mode);
+        if !values.is_empty() && values.iter().all(Value::is_object) {
+            diag.lines += values.len() as u64;
+            diag.cut += u64::from(cut);
+            for value in values {
+                f(value);
+            }
+            return data.len();
+        }
     }
     end
 }
@@ -319,15 +332,17 @@ pub(crate) fn whole_lines(data: &[u8], mode: ParseMode, diag: &mut Diagnostics, 
     let mut start = 0;
     for nl in memchr::memchr_iter(b'\n', &data[..end]) {
         let line = &data[std::mem::replace(&mut start, nl + 1)..nl];
-        let (parsed, cut) = parse(line, mode);
+        let (values, cut) = parse_many(line, mode);
         diag.cut += u64::from(cut);
-        match parsed {
-            Ok(e) => {
-                diag.lines += 1;
-                f(e);
+        if values.is_empty() {
+            if !line.trim_ascii().is_empty() {
+                diag.unparsed += 1;
             }
-            Err(_) if line.trim_ascii().is_empty() => {}
-            Err(_) => diag.unparsed += 1,
+        } else {
+            diag.lines += values.len() as u64;
+            for value in values {
+                f(value);
+            }
         }
     }
     end
@@ -355,6 +370,37 @@ mod tests {
 
     fn cursor_prompt(text: &str) -> Value {
         json!({"role": "user", "message": {"content": [{"type": "text", "text": format!("<user_query>{text}</user_query>")}]}})
+    }
+
+    #[test]
+    fn reads_two_objects_on_one_line() {
+        let text = format!("{}{}\n", cursor_prompt("one"), cursor_prompt("two"));
+        let mut s = SessionReducer::new(Harness::Cursor, ReducerOptions::default());
+        s.feed(text.as_bytes(), ctx(0)).unwrap();
+        assert_eq!(log(s.session()), ["› one", "› two"]);
+        assert_eq!(s.state(Timestamp::from_secs_f64(NOW)).diagnostics.lines, 2);
+
+        let last = format!("{}{}", cursor_prompt("three"), cursor_prompt("four"));
+        let mut s = SessionReducer::new(Harness::Cursor, ReducerOptions::default());
+        s.feed(last.as_bytes(), ctx(0)).unwrap();
+        assert_eq!(log(s.session()), ["› three", "› four"], "without a newline too");
+    }
+
+    #[test]
+    fn reads_crlf_and_an_offset_timestamp() {
+        let text = format!(
+            "{}\r\n{}\r\n",
+            json!({"type": "user", "timestamp": "2026-10-23T14:00:00+02:00", "cwd": "/w/app",
+                   "message": {"content": "go"}}),
+            json!({"type": "assistant", "timestamp": "2026-10-23T12:00:01Z",
+                   "message": {"id": "m1", "stop_reason": "end_turn", "usage": {"output_tokens": 1},
+                               "content": [{"type": "text", "text": "done"}]}}),
+        );
+        let mut s = SessionReducer::new(Harness::ClaudeCode, ReducerOptions::default());
+        s.feed(text.as_bytes(), ctx(0)).unwrap();
+        let st = s.state(Timestamp::from_secs_f64(NOW));
+        assert_eq!((st.activity, st.diagnostics.unparsed), (crate::Activity::Done, 0));
+        assert_eq!(st.last_at, Some(Timestamp::from_secs_f64(NOW + 1.0)));
     }
 
     #[test]
