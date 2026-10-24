@@ -5,10 +5,10 @@ waiting for your answer, perhaps waiting for an approval, done, or idle. Read fr
 transcripts Claude Code, Codex and Cursor already write, so there's nothing to install into
 the agents and nothing to configure.
 
-Status: **pre-release, private.** This is Phase 1a of [PLAN.md](PLAN.md): StatusWall's
-session logic extracted into a library, behaviour-identical, with a sans-IO core and
-injected time. Better status rules (permission modes, firm turn ends, background
-subagents) come next.
+Status: **pre-release, private.** The sans-IO core, the `fs` tracker, the CLI and the
+real-harness rig are in place. Permission modes, firm turn ends, interrupts and errors are
+implemented and tested against the real Claude Code TUI; background subagents are next.
+See [PLAN.md](PLAN.md) and [issue #1](https://github.com/tsconfigdotjson/agenttail/issues/1).
 
 ## Status is the headline
 
@@ -17,11 +17,16 @@ For each session you get a `SessionState`:
 | `activity` | when (today's rules) | `certainty` |
 |---|---|---|
 | `awaiting_answer` | the last entry calls an ask-the-user tool (`AskUserQuestion`, `ExitPlanMode`, `request_user_input`, Cursor's ask tools) | firm |
-| `awaiting_approval` | a tool call has had no result for 20 s: perhaps a permission prompt | **inferred** |
-| `running_tool` | a tool call is waiting for its result | firm |
+| `awaiting_approval` | a tool call has had no result for 20 s **and the mode can ask a human**: perhaps a permission prompt | **inferred** |
+| `running_tool` | a tool call is waiting for its result, including under bypass/`dontAsk`/`never`, an SDK entrypoint or an AI approval reviewer | firm |
 | `thinking` | a prompt was sent, or a tool's result came back | firm |
-| `done` | the turn ended (finished or interrupted) | firm |
+| `done` | the turn ended normally (Claude `end_turn`/`turn_duration`/`agents_killed`; Codex `task_complete`/`turn_complete`; Cursor `turn_ended`) | firm |
+| `interrupted` | the user interrupted or aborted (Claude's interrupt text, Codex `turn_aborted`, Cursor's abort status/user-stop string) | firm |
+| `errored` | the harness recorded an error ending the turn (Claude's synthetic API row, Codex `task_complete.error`, Cursor's error status and message) | firm |
 | `idle` | nothing written for 15 min, or nothing read yet | firm |
+
+Each state also carries the harness's last `permission` mode (Claude Code and Codex) and,
+for `errored`, the harness's `error` kind/message.
 
 Each state also says *why* (`reason`, one value per rule), and carries the project, branch,
 title, cost (where the harness records it), output tokens, the last few activity lines

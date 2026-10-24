@@ -55,11 +55,11 @@ pub enum Activity {
     Thinking,
     /// The turn ended, but helpers are still running. Not produced yet.
     BackgroundWork,
-    /// The turn ended (finished, or interrupted: today's rules don't tell them apart).
+    /// The turn ended normally.
     Done,
-    /// The user interrupted, or the turn was aborted. Not produced yet.
+    /// The user interrupted, or the turn was aborted.
     Interrupted,
-    /// The turn ended with an error the harness recorded. Not produced yet.
+    /// The turn ended with an error the harness recorded (see [`SessionState::error`]).
     Errored,
     /// Nothing written for `idle_after`, or nothing read yet.
     Idle,

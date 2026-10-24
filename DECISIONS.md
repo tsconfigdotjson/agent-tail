@@ -113,3 +113,37 @@ tvdash reads.
    old; tvdash also said idle (the age rule came first), so only the reason is new.
 6. **On non-Unix systems** a file's identity is unknown, so a transcript replaced by a
    longer file isn't noticed (one replaced by a shorter one is). tvdash only built on Unix.
+
+## Phase B: firm status (2026-10-24)
+
+**The real-harness rig came first.** `harness-ci/` has a scripted mock model server, a PTY
+driver with a vt100 screen parser, and a scorer that compares the screen with
+`SessionReducer::state` every 100 ms. Claude Code 2.1.310 runs fully offline against it
+(temp `HOME`/`CLAUDE_CONFIG_DIR`, seeded onboarding, `sandbox-exec` allowing only
+localhost). The rig found the headline bug before it was fixed: under
+`--dangerously-skip-permissions`, a 60 s `sleep` is `RunningTool` on screen while the old
+rule said `AwaitingApproval` after 20 s. It now passes.
+
+**Permission modes are data, not a guess.** `PermissionMode` parses the values Claude Code
+and Codex write (`default`, `acceptEdits`, `plan`, `bypassPermissions`, `dontAsk`, `auto`,
+`manual`, `normal`, `never`, `on-request`, `untrusted`; anything else is `Unknown`).
+`Session::can_ask_human()` is false for `bypassPermissions`, `dontAsk`, `never`, Claude
+Code's `entrypoint: sdk-cli` and Codex's `approvals_reviewer: auto_review`. A pending tool
+in such a session is `RunningTool`, firm, however long it runs. An unknown or absent mode
+keeps the 20 s inference. The mode is exposed as `SessionState::permission`.
+
+**Turn ends, interrupts and errors are separate.** `Last` gained `Interrupted` and
+`Errored`, with `Activity::Interrupted`/`Errored` and matching `Reason`s. Claude's
+`system/turn_duration` and `agents_killed` end a turn; the interrupt text ends it as
+`Interrupted`; a synthetic assistant row with `isApiErrorMessage`/`error` is `Errored` and
+keeps the error string in `SessionState::error`. Codex `turn_aborted` is `Interrupted`, and
+`task_complete`/`turn_complete` with an `error` is `Errored`. Cursor's `turn_ended` is
+`Interrupted` for `status: aborted` or an error string containing a user-stop phrase
+("abort", "cancel", "interrupt", "stopped by user"), and `Errored` otherwise when
+`status: error`. A tool error alone does not error the session.
+
+**Mock latency matters for transcript order.** With an instant mock reply, Claude Code can
+append the user-prompt record after the assistant reply; the reducer then reads a prompt
+after `Done` and says `Thinking`. Real model latency hides this, so scenarios give the
+first token a 1 s delay. A prompt record older than the latest activity should not move
+the state backwards: still to test and decide.
