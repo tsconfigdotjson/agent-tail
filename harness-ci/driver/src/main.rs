@@ -817,8 +817,10 @@ mod tests {
         let overloaded = scenario("claude_api_error_529.json");
         assert_eq!(overloaded.expected_activity[0].expectation().activity, "errored");
         assert_eq!(overloaded.expected_activity[0].expectation().certainty.as_deref(), Some("firm"));
+        assert_eq!(overloaded.env.get("CLAUDE_CODE_MAX_RETRIES").map(String::as_str), Some("0"));
         let broken = scenario("claude_api_error_stream.json");
         assert_eq!(broken.expected_activity[0].expectation().activity, "errored");
+        assert_eq!(broken.env.get("CLAUDE_CODE_MAX_RETRIES").map(String::as_str), Some("0"));
         assert_eq!(broken.expected_activity[0].expectation().when, score::ExpectWhen::End);
 
         for name in [

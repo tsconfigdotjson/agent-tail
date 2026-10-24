@@ -299,8 +299,8 @@ cargo run -p harness-driver -- --scenario driver/scenarios/claude_ask_user.json
 | `claude_interrupt_thinking` | Esc while the first token is still delayed. Firm `interrupted` on the idle composer, not `done`. `observations.interrupts[].turn_duration_before_next_prompt` records whether a `turn_duration` was written |
 | `claude_interrupt_tool` | Esc during a bypass-mode `sleep 30`. Same expectation. `no_approval` so a stall into `AwaitingApproval` is a hard failure |
 | `claude_background_agent` | Without `--bare` (so `Agent` is offered) and with `--dangerously-skip-permissions`. A background `Agent` launches a nested `Agent`. `dispatch: first_match` answers the subagent's own model request, whichever order it arrives. Firm `background_work` on the working screen while `pendingBackgroundAgentCount` is set, then firm `done` after `task-notification`. Helper files are copied to `subagents/` and summarized on `observations.background` (`async_launched`, pending counts, task statuses, `spawnDepth` / `parentAgentId`) |
-| `claude_api_error_529` | HTTP 529, repeated for retries. Firm `errored` at the end |
-| `claude_api_error_stream` | The stream closes after `message_start`, repeated for retries. Firm `errored` at the end |
+| `claude_api_error_529` | HTTP 529. `CLAUDE_CODE_MAX_RETRIES=0` makes the failure terminal. Firm `errored` at the end |
+| `claude_api_error_stream` | The stream closes after `message_start`, with the same retry cap. Firm `errored` at the end |
 
 `turn_duration` still ends a normal turn. It does not replace an API-error row: that row stays `Errored` when the duration record is written after it, including in the same read. A later real assistant `end_turn` clears the error. Keys are not sent until the prompt has been typed, and the key clock restarts then, so a startup spinner is not the Esc target. `keys[].occurrence` of `0` means any visit to that screen, so a short flicker does not consume the Esc meant for the long working streak.
 
