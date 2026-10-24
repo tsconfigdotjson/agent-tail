@@ -62,9 +62,11 @@ for (key, state) in t.poll(Timestamp::from(SystemTime::now())) {
 }
 ```
 
-Each harness's layout is data (`Harness::layout()`: root, depth, sessions and helpers
-folders, Codex's day folders), so a remote shell loop can be generated from it and can't
-disagree with the local walk.
+Each harness's layout is data, from `spec/discovery/*.toml` embedded at build time
+(`Harness::layout()`: root, depth, sessions and helpers folders, Codex's day folders), so a
+remote shell loop can be generated from it and can't disagree with the local walk. The same
+files hold the ask-user names, observed never-prompt tools, mode vocabulary, timestamp rules,
+and quirks with their evidence.
 
 The CLI, for looking at what a dashboard would show:
 
@@ -80,6 +82,9 @@ agenttail watch [--hours N] [--agents …]                       # each change, 
   `~/.codex/sessions/YYYY/MM/DD/*.jsonl` (Codex; `CODEX_HOME` moves it; compressed
   `.jsonl.zst` history is skipped), `~/.cursor/projects/*/agent-transcripts/**.jsonl` (Cursor). Only the bytes
   appended since the last poll are read; a session's first read goes 1 MB at a time.
+- **Does not read** `~/.claude/sessions/<pid>.json`: the A3 registry run showed `waiting`
+  also covers dialogs and a SIGKILL leaves a stale file, so it is evidence, not a source
+  (see DECISIONS.md). No pid liveness probe is made.
 - **Touches nothing**: no writes anywhere, no hooks or config changes in any agent, no
   subprocesses, **no network**. Symlinks are not followed.
 - **Keeps** a small state per session in memory (never the transcript), plus the start of

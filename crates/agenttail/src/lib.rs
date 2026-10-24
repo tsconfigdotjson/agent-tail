@@ -32,6 +32,7 @@
 //! ```
 
 mod adapters;
+mod discovery;
 mod error;
 #[cfg(feature = "fs")]
 mod fs;
@@ -44,6 +45,10 @@ mod state;
 mod testutil;
 mod time;
 
+pub use discovery::{
+    AskMatch, Discovery, EnvRoot, ModeRule, NeverPrompt, ProjectExample, ProjectRule, Quirk, Registry, Roots,
+    TimestampRule,
+};
 pub use error::Error;
 #[cfg(feature = "fs")]
 pub use fs::{Filter, READ_CHUNK, SWEEP_EVERY, SessionKey, Tracker, read_from};

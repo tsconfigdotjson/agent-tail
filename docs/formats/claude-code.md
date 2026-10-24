@@ -9,7 +9,7 @@ labelled *inference* still needs a harness-CI fixture.
 ## Paths and layout
 
 ```
-~/.claude/projects/<cwd with / and . made ->/<session id>.jsonl      main transcript
+~/.claude/projects/<cwd, every non-alphanumeric char made ->/<session id>.jsonl  main transcript
                     .../<session id>/subagents/agent-<agentId>.jsonl  one per subagent (flat, nested ones too)
                     .../<session id>/subagents/agent-<agentId>.meta.json
                     .../<session id>/subagents/agent-<agentId>.forked-skill{,.marker}.json   (forked Skill runs)
@@ -21,6 +21,14 @@ labelled *inference* still needs a harness-CI fixture.
 `CLAUDE_CONFIG_DIR` relocates `~/.claude`. In 2.1.310 it is one absolute path (not a
 comma-separated list; a relative path is ignored), checked in the binary and by an offline
 run with a temp config folder.
+
+The `<project>` folder is a **lossy** encoding and is never decoded for the card's project
+name: conversational records carry `cwd`, and that is authoritative (the last one read wins
+when a session moves). Checked against this machine on 2026-10-24: 233 of 243 project folders
+had a `cwd` record and all matched "ASCII alphanumerics kept, every other character -> `-`";
+the other 10 had no `cwd`. No non-ASCII or >200-character `cwd` was present, so the prior-art
+200-character hash fallback is unverified. Example: `.vibe-worktrees` becomes
+`-vibe-worktrees` (not `.vibe-worktrees`), and `my-app`, `my/app`, `my.app` can collide.
 
 ## Record catalogue (main transcripts; counts)
 
