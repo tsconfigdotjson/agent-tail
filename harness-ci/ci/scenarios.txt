@@ -1,0 +1,9 @@
+# Stable Claude Code scenarios for the version x OS matrix. Keep this list deterministic:
+# the nightly shape baseline is built from exactly these runs.
+claude_plain_qa
+claude_bash_approval
+claude_bash_approval_pending
+claude_bash_bypass
+claude_non_ascii
+claude_long_output
+claude_api_error_529

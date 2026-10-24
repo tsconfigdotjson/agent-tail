@@ -1,0 +1,251 @@
+{
+  "attachment_types": [
+    "date",
+    "remote_session_change",
+    "session_context"
+  ],
+  "content_types": {
+    "assistant.content": [
+      "text",
+      "tool_use"
+    ],
+    "attachment": [
+      "date",
+      "remote_session_change",
+      "session_context"
+    ],
+    "user.content": [
+      "tool_result"
+    ]
+  },
+  "enums": {
+    "entrypoint": [
+      "cli",
+      "null"
+    ],
+    "message.stop_reason": [
+      "end_turn",
+      "null",
+      "stop_sequence",
+      "tool_use"
+    ],
+    "mode": [
+      "normal",
+      "null"
+    ],
+    "origin.kind": [
+      "human",
+      "null"
+    ],
+    "permissionDecision.decision": [
+      "null"
+    ],
+    "permissionDecision.reasonType": [
+      "null"
+    ],
+    "permissionDecision.source": [
+      "null"
+    ],
+    "permissionMode": [
+      "bypassPermissions",
+      "default",
+      "null"
+    ],
+    "promptSource": [
+      "null",
+      "typed"
+    ],
+    "queue-operation.operation": [
+      "null"
+    ],
+    "sessionKind": [
+      "null"
+    ],
+    "status": [
+      "null"
+    ],
+    "toolDenialKind": [
+      "null"
+    ],
+    "userType": [
+      "external",
+      "null"
+    ],
+    "waitingFor": [
+      "null"
+    ]
+  },
+  "field_paths": {
+    "ai-title": [
+      "aiTitle",
+      "sessionId",
+      "type"
+    ],
+    "assistant": [
+      "apiBlockIndex",
+      "apiErrorStatus",
+      "cwd",
+      "entrypoint",
+      "error",
+      "gitBranch",
+      "isApiErrorMessage",
+      "isSidechain",
+      "message",
+      "message.container",
+      "message.content",
+      "message.context_management",
+      "message.diagnostics",
+      "message.id",
+      "message.model",
+      "message.role",
+      "message.stop_details",
+      "message.stop_reason",
+      "message.stop_sequence",
+      "message.type",
+      "message.usage",
+      "message.usage.cache_creation",
+      "message.usage.cache_creation.ephemeral_1h_input_tokens",
+      "message.usage.cache_creation.ephemeral_5m_input_tokens",
+      "message.usage.cache_creation_input_tokens",
+      "message.usage.cache_read_input_tokens",
+      "message.usage.inference_geo",
+      "message.usage.input_tokens",
+      "message.usage.iterations",
+      "message.usage.iterations[]",
+      "message.usage.output_tokens",
+      "message.usage.output_tokens_details",
+      "message.usage.output_tokens_details.thinking_tokens",
+      "message.usage.server_tool_use",
+      "message.usage.server_tool_use.web_fetch_requests",
+      "message.usage.server_tool_use.web_search_requests",
+      "message.usage.service_tier",
+      "message.usage.speed",
+      "parentUuid",
+      "perTurnEffort",
+      "sessionId",
+      "session_id",
+      "timestamp",
+      "type",
+      "userType",
+      "uuid",
+      "version"
+    ],
+    "atis-latch": [
+      "atis",
+      "sessionId",
+      "type"
+    ],
+    "attachment": [
+      "attachment",
+      "attachment.commit",
+      "attachment.context",
+      "attachment.date",
+      "attachment.managedCommit",
+      "attachment.managedPr",
+      "attachment.pr",
+      "attachment.sendUserFileHint",
+      "attachment.type",
+      "attachment.url",
+      "cwd",
+      "entrypoint",
+      "gitBranch",
+      "isSidechain",
+      "parentUuid",
+      "rendered",
+      "sessionId",
+      "session_id",
+      "timestamp",
+      "type",
+      "userType",
+      "uuid",
+      "version"
+    ],
+    "file-history-snapshot": [
+      "isSnapshotUpdate",
+      "messageId",
+      "snapshot",
+      "type"
+    ],
+    "last-prompt": [
+      "lastPrompt",
+      "leafUuid",
+      "sessionId",
+      "type"
+    ],
+    "mode": [
+      "mode",
+      "sessionId",
+      "type"
+    ],
+    "permission-mode": [
+      "permissionMode",
+      "sessionId",
+      "type"
+    ],
+    "system": [
+      "cwd",
+      "durationMs",
+      "entrypoint",
+      "gitBranch",
+      "isMeta",
+      "isSidechain",
+      "messageCount",
+      "parentUuid",
+      "sessionId",
+      "subtype",
+      "timestamp",
+      "type",
+      "userType",
+      "uuid",
+      "version"
+    ],
+    "user": [
+      "cwd",
+      "entrypoint",
+      "gitBranch",
+      "isSidechain",
+      "message",
+      "message.content",
+      "message.role",
+      "origin",
+      "origin.kind",
+      "parentUuid",
+      "permissionMode",
+      "promptId",
+      "promptSource",
+      "sessionId",
+      "session_id",
+      "sourceToolAssistantUUID",
+      "timestamp",
+      "toolUseResult",
+      "turnOrigin",
+      "type",
+      "userType",
+      "uuid",
+      "version"
+    ]
+  },
+  "generated_by": "harness-ci/ci/survey.py",
+  "harness": "claude_code",
+  "os": "linux",
+  "record_types": [
+    "ai-title",
+    "assistant",
+    "atis-latch",
+    "attachment",
+    "file-history-snapshot",
+    "last-prompt",
+    "mode",
+    "permission-mode",
+    "system",
+    "user"
+  ],
+  "system_subtypes": [
+    "turn_duration"
+  ],
+  "tool_names_seen": [
+    "Bash",
+    "Read"
+  ],
+  "version": "2.1.281"
+}

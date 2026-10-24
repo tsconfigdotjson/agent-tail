@@ -1,0 +1,266 @@
+name: Harness CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/harness-ci.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/**"
+      - "fixtures/**"
+      - "harness-ci/**"
+  pull_request:
+    paths:
+      - ".github/workflows/harness-ci.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/**"
+      - "fixtures/**"
+      - "harness-ci/**"
+  schedule:
+    # Nightly: install npm `latest`, run the same matrix, compare transcript shapes.
+    - cron: "43 3 * * *"
+  workflow_dispatch:
+    inputs:
+      open_drift_pr:
+        description: "Open a PR when the latest CLI changes transcript shape"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harness-ci-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  unit:
+    name: harness-ci unit and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.88
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal --component clippy,rustfmt
+          rustup default 1.88.0
+          rustc --version
+
+      - name: Format, clippy, and unit tests
+        working-directory: harness-ci
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo test -p harness-driver -p mock-server --locked
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Survey and nightly tool tests
+        run: python3 -m unittest discover -s harness-ci/ci -p 'test_*.py' -v
+
+  prepare:
+    name: Resolve npm latest
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.value }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the pinned + latest matrix once
+        id: matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest="$(npm view @anthropic-ai/claude-code version)"
+          echo "npm latest: $latest"
+          python3 - "$latest" <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import sys
+
+          latest = sys.argv[1]
+          entries = []
+          for label, version in (("2.1.281", "2.1.281"), ("2.1.310", "2.1.310"), ("latest", latest)):
+              for os_name in ("ubuntu-latest", "macos-latest"):
+                  entries.append({"label": label, "version": version, "os": os_name})
+          print("value=" + json.dumps({"include": entries}, separators=(",", ":")))
+          PY
+
+  harness:
+    name: Claude Code ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
+    needs: [unit, prepare]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      # macOS uses sandbox-exec; Linux uses a network namespace. No real API key is ever
+      # available: the driver supplies a dummy key that only the local mock sees.
+      HARNESS_CI_REQUIRE_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.88
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustc --version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Claude Code ${{ matrix.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          requested='${{ matrix.version }}'
+          echo "npm latest: $(npm view @anthropic-ai/claude-code version)"
+          prefix="$RUNNER_TEMP/claude-$requested"
+          npm install --prefix "$prefix" --no-save --no-audit --no-fund "@anthropic-ai/claude-code@$requested"
+          bin="$prefix/node_modules/.bin/claude"
+          actual="$("$bin" --version | head -n1 | awk '{print $1}')"
+          test -n "$actual"
+          if [[ "$actual" != "$requested" ]]; then
+            echo "installed $actual, wanted $requested" >&2
+            exit 1
+          fi
+          echo "$prefix/node_modules/.bin" >> "$GITHUB_PATH"
+          echo "CLAUDE_VERSION=$actual" >> "$GITHUB_ENV"
+          echo "CLAUDE_BIN=$bin" >> "$GITHUB_ENV"
+          echo "Testing Claude Code $actual"
+
+      - name: Build harness-ci explicitly
+        working-directory: harness-ci
+        run: cargo build -p harness-driver --release --locked
+
+      - name: Run Claude Code scenarios offline
+        shell: bash
+        run: |
+          set -uo pipefail
+          runs="$RUNNER_TEMP/harness-runs"
+          rm -rf "$runs"
+          mkdir -p "$runs"
+          failed=0
+          while IFS= read -r scenario; do
+            [[ -z "$scenario" || "$scenario" == \#* ]] && continue
+            echo "::group::$scenario ($CLAUDE_VERSION on ${{ runner.os }})"
+            if ! harness-ci/ci/offline-run.sh \
+              "$PWD/harness-ci/target/release/harness-driver" \
+              --scenario "$PWD/harness-ci/driver/scenarios/$scenario.json" \
+              --out "$runs/$scenario"; then
+              failed=1
+            fi
+            echo "::endgroup::"
+          done < harness-ci/ci/scenarios.txt
+          exit "$failed"
+
+      - name: Survey transcript shape
+        if: always()
+        run: |
+          python3 harness-ci/ci/survey.py survey \
+            --runs "$RUNNER_TEMP/harness-runs" \
+            --harness claude_code \
+            --version "$CLAUDE_VERSION" \
+            --os "${{ runner.os }}" \
+            --out "$RUNNER_TEMP/harness-runs/shape.json"
+
+      - name: Upload runs and shape
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-${{ matrix.label }}-${{ runner.os }}
+          path: ${{ runner.temp }}/harness-runs
+          if-no-files-found: warn
+          retention-days: 7
+
+  drift:
+    name: Nightly drift PR
+    needs: [unit, harness]
+    if: >-
+      always() && (
+        github.event_name == 'schedule' ||
+        github.event.inputs.open_drift_pr == 'true'
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: harness-*
+          path: ${{ runner.temp }}/artifacts
+
+      - name: Compare shapes and capture redacted fixtures
+        id: compare
+        shell: bash
+        run: |
+          set +e
+          python3 harness-ci/ci/nightly.py --artifacts "$RUNNER_TEMP/artifacts"
+          status=$?
+          set -e
+          if [[ "$status" -eq 2 ]]; then
+            echo "A committed baseline changed shape without a version change; not opening a PR." >&2
+            exit 1
+          fi
+          exit "$status"
+
+      - name: Open a drift PR when shape changed
+        if: steps.compare.outcome == 'success'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$(git status --porcelain)" ]]; then
+            echo "No shape changes; nothing to open."
+            exit 0
+          fi
+          version="$(git status --porcelain harness-ci/drift/baseline \
+            | awk '{print $2}' | sed -n 's#.*/\([^/]*\)\.json#\1#p' | sort -V | tail -n1)"
+          if [[ -z "$version" ]]; then
+            echo "Drift files changed but no baseline version was found" >&2
+            git status --short >&2
+            exit 1
+          fi
+          report="$(ls -t harness-ci/drift/reports/*-to-"$version".md | head -n1)"
+          branch="harness-drift/claude-code-$version-$GITHUB_RUN_ID"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add harness-ci/drift fixtures
+          git commit -m "Record Claude Code $version harness shape drift"
+          git push origin "$branch"
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "Harness drift: Claude Code $version" \
+            --body-file "$report"
