@@ -239,3 +239,39 @@ On an instant failure, Claude Code 2.1.310 can flush the user prompt *after* tha
 an earlier timestamp. A prompt older than activity already recorded does not start a new turn,
 so the session stays `Errored` (the same rule keeps an instant `Done` from rewinding to
 `Thinking`). A prompt newer than that activity still does.
+
+## Phase B8: discovery specs, project from cwd, and the registry (2026-10-24)
+
+**`spec/discovery/*.toml` is the source of the layouts.** `crates/agenttail/build.rs` parses
+and validates the three files at build time and generates `Discovery` and `Layout`: roots,
+depth, `sessions_in`, helper owner, day folders, the file suffix, ask-user names, observed
+never-prompt tools, mode vocabulary, timestamp rules, project encoding, quirks, and the
+registry decision. The adapters' ask-user matching and `Tracker`'s environment overrides come
+from the same data, so `Harness::layout()` no longer has a second hard-coded copy. The build
+fails on a missing field, contradictory layout, duplicate name, or missing evidence. The
+generated source is in `OUT_DIR`; the TOML stays the file people edit.
+
+**Project comes from `cwd` records, never the folder name.** Claude Code writes `cwd` on its
+conversational records and Codex writes it in `session_meta`/`turn_context`; both already used
+it. Cursor has no `cwd` records, so it uses a workspace path from a prompt or tool call when
+one appears and keeps the lossy `<project>` folder only as a fallback. The Claude folder
+encoding was checked against this machine's `~/.claude/projects` on 2026-10-24: 233 of 243
+project folders had a `cwd` record, every one matched "ASCII alphanumerics kept, every other
+character -> `-`", and the other 10 had no `cwd`. No non-ASCII or >200-character `cwd` was in
+the sample, so the prior art's 200-character hash fallback is still unverified. The encoding is
+lossy (`my-app`, `my/app`, and `my.app` can collide) and is not decoded.
+
+**Never-prompt lists contain only what was observed.** Claude Code lists `Write` under
+`acceptEdits`, and `Read`/`ToolSearch` under `plan`, all from A3. `Bash` is deliberately absent
+because it prompted in default, plan, and `acceptEdits`. Codex's and Cursor's lists are empty:
+A4 (#11) has not run, and the Cursor corpus saw no approval prompt or auto-run setting. An
+empty list means "not observed", not "this tool prompts".
+
+**The `~/.claude/sessions/<pid>.json` registry is not read.** A3/PR #32 showed useful facts:
+`busy` and `idle` agree with the screen, a permission prompt is `waiting` /
+`waitingFor: "permission prompt"`, and a graceful exit removes the file. But `waiting` also
+covers `/model` and `/background` dialogs, SIGKILL leaves a stale file, and the registry is a
+snapshot rather than a transcript signal. Using it would need a liveness check
+(`kill(pid, 0)`) and would still not replace the existing transcript rules. The TOML records
+the evidence with `used = false`; the tracker does not open the registry, so it adds no
+process probe to "what this touches".

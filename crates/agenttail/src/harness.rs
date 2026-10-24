@@ -44,13 +44,9 @@ impl Harness {
         }
     }
 
-    /// Where its transcripts live.
+    /// Where its transcripts live, from its `spec/discovery` entry.
     pub fn layout(self) -> &'static Layout {
-        match self {
-            Harness::ClaudeCode => &adapters::claude::LAYOUT,
-            Harness::Codex => &adapters::codex::LAYOUT,
-            Harness::Cursor => &adapters::cursor::LAYOUT,
-        }
+        &self.discovery().layout
     }
 
     pub(crate) fn adapter(self) -> &'static dyn Adapter {
@@ -93,6 +89,8 @@ pub struct Layout {
     /// Whether transcripts are filed in YYYY/MM/DD folders by the day their session
     /// started, and stay there; see [`may_hold_since`](Layout::may_hold_since).
     pub day_folders: bool,
+    /// The extension of a transcript (`jsonl`), from the discovery spec's file pattern.
+    pub session_suffix: &'static str,
 }
 
 /// How a helper transcript names the session it belongs to.
@@ -143,11 +141,11 @@ impl Layout {
         let owner = match self.helper_owner {
             HelperOwner::SessionFolder => {
                 let owner = c[n - 3].to_string_lossy();
-                c[..n - 2].iter().collect::<PathBuf>().join(format!("{owner}.jsonl"))
+                c[..n - 2].iter().collect::<PathBuf>().join(format!("{owner}.{}", self.session_suffix))
             }
             HelperOwner::SessionFileStem => {
                 let mut owner: PathBuf = c[..n - 2].iter().collect();
-                owner.set_extension("jsonl");
+                owner.set_extension(self.session_suffix);
                 owner
             }
         };

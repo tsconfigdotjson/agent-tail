@@ -18,6 +18,10 @@ memchr.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+[build-dependencies]
+serde.workspace = true
+toml = "1.1.8"
+
 [dev-dependencies]
 proptest = "1.6"
 tempfile = "3.27.0"

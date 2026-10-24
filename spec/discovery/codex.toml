@@ -1,0 +1,89 @@
+# Codex CLI discovery, as observed. This file is embedded by crates/agenttail/build.rs.
+schema = 1
+harness = "codex"
+name = "Codex"
+
+[roots]
+# Rollouts sit in day folders below sessions/.
+default = ".codex/sessions"
+evidence = "docs/formats/codex.md#paths-and-layout; fixtures/legacy/codex-0.160-exec.jsonl"
+
+[[roots.env]]
+# CODEX_HOME replaces ~/.codex, so sessions/ below it holds rollouts. A4 (#11) still needs
+# to confirm this against the current CLI, not only prior art and the tracker tests.
+var = "CODEX_HOME"
+append = "sessions"
+absolute = true
+semantics = "home directory override; sessions/ below it holds rollouts; relative values are ignored by the tracker"
+evidence = "https://github.com/tsconfigdotjson/agenttail/issues/11; docs/prior-art.md#codex-cli; https://github.com/tsconfigdotjson/agenttail/pull/7"
+
+[layout]
+# YYYY/MM/DD/rollout-*.jsonl today. No fixed depth: older and future layouts are tolerated.
+session_pattern = "*.jsonl"
+day_folders = true
+evidence = "docs/formats/codex.md#paths-and-layout; crates/agenttail/src/fs.rs"
+
+[project]
+source = "session_meta.payload.cwd; turn_context.payload.cwd updates it when the session moves"
+encoding = "no project-folder encoding; cwd is recorded directly"
+evidence = "docs/formats/codex.md#record-catalogue-1-rollout-counts; crates/agenttail/src/adapters/codex.rs"
+
+[timestamps]
+field = "timestamp"
+format = "rfc3339"
+timezone = "as written (UTC or a numeric offset)"
+fallback = "file mtime when an event has no timestamp"
+evidence = "docs/formats/codex.md#record-catalogue-1-rollout-counts; fixtures/legacy/codex-0.160-exec.jsonl"
+
+[asks_user]
+match = "exact"
+evidence = "fixtures/legacy/codex-0.160-resume.jsonl; docs/formats/codex.md#status-signals"
+values = [
+  { name = "request_user_input", evidence = "fixtures/legacy/codex-0.160-resume.jsonl (the 0.160 recording; A4 has not run request_user_input against a live Codex yet)" },
+]
+
+[never_prompt]
+# A4 (#11) has not run. No Codex tool was observed to be accepted without a prompt, so this
+# list is empty on purpose. `write_stdin` is polling an existing command, not a new action.
+# `approval_policy = never` is a mode-level fact, not evidence about a particular tool.
+evidence = "docs/formats/codex.md#status-signals; https://github.com/tsconfigdotjson/agenttail/issues/11"
+values = []
+
+[modes]
+evidence = "docs/formats/codex.md#status-signals; docs/prior-art.md#codex-cli; crates/agenttail/src/state.rs"
+values = [
+  { value = "on-request", can_ask_human = true, observed = true, evidence = "docs/formats/codex.md#record-catalogue-1-rollout-counts (approval_policy on-request)" },
+  { value = "on_request", can_ask_human = true, observed = false, evidence = "docs/prior-art.md#codex-cli (alias accepted by the parser)" },
+  { value = "never", can_ask_human = false, observed = false, evidence = "docs/prior-art.md#codex-cli; crates/agenttail/src/state.rs (fixture coverage)" },
+  { value = "untrusted", can_ask_human = true, observed = false, evidence = "docs/prior-art.md#codex-cli" },
+]
+
+[[quirks]]
+id = "day-folder-is-start-day"
+summary = "A rollout stays in the local-time day folder of the session start; a resumed session appends to its old file, so an old day folder can come back to life."
+evidence = "docs/formats/codex.md#paths-and-layout; docs/prior-art.md#codex-cli; https://github.com/tsconfigdotjson/agenttail/issues/1"
+
+[[quirks]]
+id = "zstd-history"
+summary = "Older rollouts may be `.jsonl.zst`; the tracker reads only live `.jsonl` files and resume can decompress an old one back to `.jsonl`."
+evidence = "docs/formats/codex.md#paths-and-layout; docs/prior-art.md#codex-cli"
+
+[[quirks]]
+id = "approval-events-may-not-be-persisted"
+summary = "A pending approval or ask-user may appear only as a tool call with no output; whether 0.16x rollouts persist approval events is the A4 open question."
+evidence = "docs/formats/codex.md#status-signals; docs/prior-art.md#codex-cli; https://github.com/tsconfigdotjson/agenttail/issues/11"
+
+[[quirks]]
+id = "token-count-is-running-total"
+summary = "`event_msg/token_count.info.total_token_usage` is a running session total, not a per-call delta."
+evidence = "docs/formats/codex.md#record-catalogue-1-rollout-counts; crates/agenttail/src/adapters/codex.rs"
+
+[[quirks]]
+id = "write-stdin-is-polling"
+summary = "`write_stdin` polls a command already running; it is not a new tool action and must not be logged as one."
+evidence = "fixtures/legacy/codex-0.160-exec.jsonl; crates/agenttail/src/adapters/codex.rs"
+
+[[quirks]]
+id = "a4-not-run"
+summary = "Codex has no real-harness PTY run yet: the roots override, approval policy scenarios, parallel calls, and session_index titles still need #11."
+evidence = "https://github.com/tsconfigdotjson/agenttail/issues/11; harness-ci/README.md#remaining-a0a2-work"

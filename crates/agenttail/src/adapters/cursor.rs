@@ -13,29 +13,16 @@
 //! call or a prompt that is in the workspace), and until then is the folder's last part.
 
 use super::Adapter;
-use crate::harness::{HelperOwner, Layout};
 use crate::session::{Last, Session, command, file_name, first_line, tool};
 use crate::state::ActivityLine;
 use crate::time::{days_from_civil, valid_date};
 use serde_json::Value;
 use std::path::Path;
 
-/// Tools that stop and ask the user something, lowercased with `_` left out.
-const ASKS_USER: [&str; 4] = ["askquestion", "askuserquestion", "askfollowupquestion", "requestuserinput"];
 /// Where the project folders' sessions are.
 const TRANSCRIPTS: &str = "agent-transcripts";
 /// The longest string looked through for the workspace's path.
 const MAX_PATH: usize = 1024;
-
-pub(crate) const LAYOUT: Layout = Layout {
-    root: ".cursor/projects",
-    // <project>/agent-transcripts/<id>/<id>.jsonl.
-    max_depth: Some(4),
-    sessions_in: Some(TRANSCRIPTS),
-    helpers_in: Some("subagents"),
-    helper_owner: HelperOwner::SessionFolder,
-    day_folders: false,
-};
 
 pub(crate) struct Cursor;
 
@@ -227,13 +214,8 @@ fn assistant(s: &mut Session, content: &Value, t: f64) {
                     None => &c["input"],
                 };
                 find_project(s, strings(input));
-                let key: String =
-                    name.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_ascii_lowercase();
-                s.tool_call(
-                    ASKS_USER.contains(&key.as_str()),
-                    (!name.is_empty()).then(|| describe_tool(name, input)),
-                    t,
-                );
+                let asks_user = s.harness.discovery().asks_user(name);
+                s.tool_call(asks_user, (!name.is_empty()).then(|| describe_tool(name, input)), t);
             }
             // Cursor doesn't record tools' results: the model writing again means they're in.
             Some("text" | "thinking" | "reasoning") => s.set(Last::ToolResult, t),
@@ -647,13 +629,16 @@ mod tests {
         let events: Vec<Value> = SYNTHETIC.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
         let s = in_folder("Users-sam-Work-demo-app", &events);
         assert_eq!((s.project.as_str(), s.title.as_str()), ("demo-app", "Add a health check to the API"));
+        // The fixture's second prompt has an explicit 9:41 timestamp, but its assistant
+        // rows are dated by this test's fixed file mtime (a week later). A prompt older than
+        // recorded activity is a late flush and is ignored, as it is for Claude Code.
         assert_eq!(
             log(&s),
             [
+                "Read routes.ts",
                 "Task Find the existing tests",
                 "StrReplace routes.ts",
                 "$ npm test",
-                "› Now deploy it",
                 "$ npm run deploy"
             ]
         );
@@ -662,12 +647,14 @@ mod tests {
         let shell = events.iter().position(|e| e["message"]["content"][0]["name"] == "Shell").unwrap();
         let s = in_folder("Users-sam-Work-demo-app", &events[..=shell]);
         assert_eq!(status(&s), (Status::Working, "working"));
-        // Each prompt is dated by its timestamp, the opening one and the one after a turn.
+        // The opening prompt is dated by its timestamp. The second one is older than the
+        // fixture's artificial file mtime, so it is ignored as a late flush; the earlier
+        // turn end stays the last event.
         let at = |s: &str| parse_rfc3339(s).unwrap();
         let s = in_folder("Users-sam-Work-demo-app", &events[..1]);
         assert_eq!((s.last_at, s.last), (at("2026-10-16T16:05:00Z"), Last::Prompt));
         let again = events.iter().rposition(|e| e["role"] == "user").unwrap();
         let s = in_folder("Users-sam-Work-demo-app", &events[..=again]);
-        assert_eq!((s.last_at, s.last), (at("2026-10-16T16:41:00Z"), Last::Prompt));
+        assert_eq!((s.last_at, s.last), (NOW, Last::EndTurn));
     }
 }

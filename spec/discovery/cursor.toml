@@ -1,0 +1,88 @@
+# Cursor agent discovery, as observed. This file is embedded by crates/agenttail/build.rs.
+schema = 1
+harness = "cursor"
+name = "Cursor"
+
+[roots]
+# Cursor files transcripts by encoded workspace path below projects/.
+default = ".cursor/projects"
+evidence = "docs/formats/cursor.md#paths-and-layout"
+
+[layout]
+# <project>/agent-transcripts/<id>/<id>.jsonl, with subagents beside it.
+max_depth = 4
+session_pattern = "*.jsonl"
+sessions_in = "agent-transcripts"
+helpers_in = "subagents"
+helper_owner = "session_folder"
+day_folders = false
+evidence = "docs/formats/cursor.md#paths-and-layout; crates/agenttail/src/adapters/cursor.rs"
+
+[project]
+source = "workspace paths in prompts and tool calls; the encoded <project> folder is the fallback until a path is found"
+encoding = "project folders replace every run of non-alphanumeric characters with '-'; like Claude's, the encoding is lossy and is not decoded as the source of truth"
+evidence = "docs/formats/cursor.md#paths-and-layout; docs/prior-art.md#cursor; crates/agenttail/src/adapters/cursor.rs"
+
+[[project.examples]]
+cwd = "/Users/sam/Work/demo-app"
+folder = "Users-sam-Work-demo-app"
+
+[[project.examples]]
+cwd = "/Users/sam/.vibe-worktrees/My App"
+folder = "Users-sam-vibe-worktrees-My-App"
+
+[timestamps]
+field = "none"
+format = "none (prompts carry an English <timestamp> block to the minute)"
+timezone = "the prompt's explicit UTC offset"
+fallback = "file mtime for every other entry; a future prompt is capped at the file mtime"
+evidence = "docs/formats/cursor.md#status-signals; docs/prior-art.md#4-quirks; crates/agenttail/src/adapters/cursor.rs"
+
+[asks_user]
+# Names from the tvdash adapter. None were seen in the Cursor corpus, so this is
+# ported-unverified; the match is case- and separator-insensitive as Cursor's names vary.
+match = "alnum_lower"
+evidence = "docs/formats/cursor.md#transcript-record-catalogue-main-counts; crates/agenttail/src/adapters/cursor.rs"
+values = [
+  { name = "AskQuestion", evidence = "ported-unverified: tvdash adapter, no Cursor corpus sighting" },
+  { name = "AskUserQuestion", evidence = "ported-unverified: tvdash adapter, no Cursor corpus sighting" },
+  { name = "AskFollowupQuestion", evidence = "ported-unverified: tvdash adapter, no Cursor corpus sighting" },
+  { name = "RequestUserInput", evidence = "ported-unverified: tvdash adapter, no Cursor corpus sighting" },
+]
+
+[never_prompt]
+# No approval prompt, auto-run setting, or never-prompt tool was observed in the Cursor
+# corpus. Do not infer one from Claude's or Codex's lists.
+evidence = "docs/formats/cursor.md#status-signals; docs/formats/cursor.md#open-questions"
+values = []
+
+[modes]
+# Transcripts carry no permission mode; Cursor's auto-run settings are unknown. The
+# state.vscdb may hold one, but it is not read yet.
+evidence = "docs/formats/cursor.md#status-signals; docs/formats/cursor.md#open-questions"
+values = []
+
+[[quirks]]
+id = "no-tool-results"
+summary = "Cursor records tool calls but no results; an assistant text/thinking block after a call is the evidence that the result is in."
+evidence = "docs/formats/cursor.md#transcript-record-catalogue-main-counts; crates/agenttail/src/adapters/cursor.rs"
+
+[[quirks]]
+id = "turn-ended-errors-are-user-stops"
+summary = "Every `turn_ended` with `status: error` in the corpus was a user stop (`User aborted request`, `user_stopped_generation`, `new_message_submitted`), not a failure."
+evidence = "docs/formats/cursor.md#transcript-record-catalogue-main-counts; crates/agenttail/src/adapters/cursor.rs"
+
+[[quirks]]
+id = "lossy-project-folders"
+summary = "The <project> folder is a lossy encoding of the workspace path, so the project name is recovered from a workspace path in the transcript when one appears."
+evidence = "docs/formats/cursor.md#paths-and-layout; crates/agenttail/src/adapters/cursor.rs"
+
+[[quirks]]
+id = "state-vscdb-not-read"
+summary = "`state.vscdb` has statuses and times, but the tracker reads only agent-transcripts; the toolFormerData approval state remains unverified."
+evidence = "docs/formats/cursor.md#state-vscdb-quick-look; docs/formats/cursor.md#open-questions"
+
+[[quirks]]
+id = "no-real-harness-run"
+summary = "Cursor has no harness-CI run or version string in its artifacts; the format is seen on a real Mac but not reproduced in CI."
+evidence = "docs/formats/cursor.md; harness-ci/README.md#remaining-a0a2-work"
