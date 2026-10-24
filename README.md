@@ -30,7 +30,8 @@ Each state also carries the harness's last `permission` mode (Claude Code and Co
 `background` helpers still running, and, for `errored`, the harness's `error` kind/message.
 
 Each state also says *why* (`reason`, one value per rule), and carries the project, branch,
-title, cost (where the harness records it), output tokens, the last few activity lines
+title, cost (where the harness records it), token usage (`input`, `output`, cache read and
+cache write, each `None` when the harness doesn't record it), the last few activity lines
 (`› fix the build`, `$ cargo test`, `Edit routing.ts`), and diagnostics (lines skipped, lines
 cut). The thresholds and the number of activity lines are options.
 

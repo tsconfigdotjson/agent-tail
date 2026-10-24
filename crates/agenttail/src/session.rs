@@ -3,7 +3,9 @@
 
 use crate::harness::Harness;
 use crate::reducer::ReducerOptions;
-use crate::state::{Activity, ActivityLine, Certainty, Diagnostics, PermissionMode, Reason, SessionMeta, SessionState};
+use crate::state::{
+    Activity, ActivityLine, Certainty, Diagnostics, PermissionMode, Reason, SessionMeta, SessionState, TokenUsage,
+};
 use crate::time::{Timestamp, parse_rfc3339};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -43,6 +45,10 @@ pub(crate) struct Session {
     pub(crate) title: String,
     pub(crate) cost: Option<f64>,
     pub(crate) out_tokens: u64,
+    /// Token counts, deduped by message id where the harness splits one message over rows.
+    pub(crate) usage: TokenUsage,
+    /// The highest usage each API message has reported so far.
+    message_usage: HashMap<String, TokenUsage>,
     /// The permission mode the harness last recorded, if any.
     pub(crate) permission: Option<PermissionMode>,
     /// Claude Code: `entrypoint: sdk-cli` has no human at the keyboard.
@@ -80,6 +86,8 @@ impl Session {
             title: String::new(),
             cost: None,
             out_tokens: 0,
+            usage: TokenUsage::default(),
+            message_usage: HashMap::new(),
             permission: None,
             entrypoint_sdk: false,
             approval_reviewer_auto: false,
@@ -136,6 +144,7 @@ impl Session {
                 title: self.title.clone(),
             },
             cost_usd: self.cost,
+            usage: self.usage,
             out_tokens: self.out_tokens,
             recent: self.log.iter().cloned().collect(),
             diagnostics,
@@ -190,6 +199,39 @@ impl Session {
     pub(crate) fn set_error(&mut self, error: impl Into<String>, t: f64) {
         self.set(Last::Errored, t);
         self.error = Some(error.into());
+    }
+
+    /// Record one API message's usage, keeping the highest value each field has reported.
+    /// Claude Code repeats the same usage on every content-block row, and some rows grow as
+    /// the message is written; summing rows would overcount, and taking the first would
+    /// undercount.
+    pub(crate) fn record_usage(&mut self, id: &str, usage: TokenUsage) {
+        let previous = self.message_usage.get(id).copied().unwrap_or_default();
+        let next = TokenUsage {
+            input_tokens: max_opt(previous.input_tokens, usage.input_tokens),
+            output_tokens: max_opt(previous.output_tokens, usage.output_tokens),
+            cache_read_input_tokens: max_opt(previous.cache_read_input_tokens, usage.cache_read_input_tokens),
+            cache_creation_input_tokens: max_opt(
+                previous.cache_creation_input_tokens,
+                usage.cache_creation_input_tokens,
+            ),
+        };
+        bump(&mut self.usage.input_tokens, previous.input_tokens, next.input_tokens);
+        bump(&mut self.usage.output_tokens, previous.output_tokens, next.output_tokens);
+        bump(&mut self.usage.cache_read_input_tokens, previous.cache_read_input_tokens, next.cache_read_input_tokens);
+        bump(
+            &mut self.usage.cache_creation_input_tokens,
+            previous.cache_creation_input_tokens,
+            next.cache_creation_input_tokens,
+        );
+        self.out_tokens = self.usage.output_tokens.unwrap_or(0);
+        self.message_usage.insert(id.into(), next);
+    }
+
+    /// Codex reports running session totals, not per-message usage.
+    pub(crate) fn set_usage(&mut self, usage: TokenUsage) {
+        self.usage = usage;
+        self.out_tokens = usage.output_tokens.unwrap_or(0);
     }
 
     /// Claude Code's firm count of helpers still running when the turn ended.
@@ -279,6 +321,21 @@ impl Session {
         }
         let any_question = self.pending_tools.values().any(|&asks| asks);
         self.set(if any_question { Last::Question } else { Last::ToolUse }, t);
+    }
+}
+
+fn max_opt(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (a, None) => a,
+        (None, b) => b,
+    }
+}
+
+/// Add the increase in one reported field to the total, marking it recorded even when zero.
+fn bump(total: &mut Option<u64>, previous: Option<u64>, next: Option<u64>) {
+    if let Some(next) = next {
+        *total = Some(total.unwrap_or(0) + next.saturating_sub(previous.unwrap_or(0)));
     }
 }
 

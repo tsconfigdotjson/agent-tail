@@ -105,11 +105,18 @@ fn assistant(s: &mut Session, e: &Value) {
         s.set_error(error, t);
         return;
     }
-    // One API message can span several transcript entries; count its usage once.
-    let id = msg["id"].as_str().unwrap_or_default().to_string();
-    if s.seen.insert(id) {
-        s.out_tokens += msg["usage"]["output_tokens"].as_u64().unwrap_or(0);
-    }
+    // One API message can span several transcript entries; dedupe its usage by message id.
+    let id = msg["id"].as_str().unwrap_or_default();
+    let usage = &msg["usage"];
+    s.record_usage(
+        id,
+        crate::TokenUsage {
+            input_tokens: usage["input_tokens"].as_u64(),
+            output_tokens: usage["output_tokens"].as_u64(),
+            cache_read_input_tokens: usage["cache_read_input_tokens"].as_u64(),
+            cache_creation_input_tokens: usage["cache_creation_input_tokens"].as_u64(),
+        },
+    );
     for c in msg["content"].as_array().into_iter().flatten() {
         if c["type"] == "tool_use" {
             let name = c["name"].as_str().unwrap_or_default();
@@ -344,6 +351,27 @@ mod tests {
             end_turn(1.0, "m2"),
         ]);
         assert_eq!(s.out_tokens, 15);
+    }
+
+    #[test]
+    fn usage_repeated_or_growing_on_a_message_is_counted_once() {
+        let row = |id: &str, input: u64, output: u64, cache_read: u64, cache_write: u64| {
+            json!({"type": "assistant", "timestamp": at(1.0),
+                   "message": {"id": id, "stop_reason": "tool_use",
+                               "usage": {"input_tokens": input, "output_tokens": output,
+                                         "cache_read_input_tokens": cache_read,
+                                         "cache_creation_input_tokens": cache_write},
+                               "content": [{"type": "text", "text": "…"}]}})
+        };
+        let s = session(&[
+            row("m1", 2, 8, 0, 100),
+            row("m1", 2, 8, 0, 100),   // identical row
+            row("m1", 2, 135, 0, 100), // the final row grows
+            row("m2", 7, 4, 20, 0),
+        ]);
+        assert_eq!(s.out_tokens, 139);
+        assert_eq!((s.usage.input_tokens, s.usage.output_tokens), (Some(9), Some(139)));
+        assert_eq!((s.usage.cache_read_input_tokens, s.usage.cache_creation_input_tokens), (Some(20), Some(100)));
     }
 
     #[test]
