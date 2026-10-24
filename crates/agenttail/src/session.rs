@@ -3,7 +3,7 @@
 
 use crate::harness::Harness;
 use crate::reducer::ReducerOptions;
-use crate::state::{Activity, ActivityLine, Certainty, Diagnostics, Reason, SessionMeta, SessionState};
+use crate::state::{Activity, ActivityLine, Certainty, Diagnostics, PermissionMode, Reason, SessionMeta, SessionState};
 use crate::time::{Timestamp, parse_rfc3339};
 use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
@@ -22,8 +22,12 @@ pub(crate) enum Last {
     Question,
     /// A tool's result came back: the model is thinking again.
     ToolResult,
-    /// The turn ended, finished or interrupted.
+    /// The turn ended normally.
     EndTurn,
+    /// The user interrupted, or the turn was aborted.
+    Interrupted,
+    /// The harness recorded an error ending the turn.
+    Errored,
 }
 
 /// One session's state, built up entry by entry by its harness's adapter. Times are seconds
@@ -39,6 +43,14 @@ pub(crate) struct Session {
     pub(crate) title: String,
     pub(crate) cost: Option<f64>,
     pub(crate) out_tokens: u64,
+    /// The permission mode the harness last recorded, if any.
+    pub(crate) permission: Option<PermissionMode>,
+    /// Claude Code: `entrypoint: sdk-cli` has no human at the keyboard.
+    pub(crate) entrypoint_sdk: bool,
+    /// Codex: an AI reviewer, not a human, handles approval requests.
+    pub(crate) approval_reviewer_auto: bool,
+    /// The error the harness recorded, if the last thing was an error.
+    pub(crate) error: Option<String>,
     pub(crate) log: VecDeque<ActivityLine>,
     log_lines: usize,
     pub(crate) last: Last,
@@ -61,6 +73,10 @@ impl Session {
             title: String::new(),
             cost: None,
             out_tokens: 0,
+            permission: None,
+            entrypoint_sdk: false,
+            approval_reviewer_auto: false,
+            error: None,
             log: VecDeque::with_capacity(log_lines + 1),
             log_lines,
             last: Last::Nothing,
@@ -100,6 +116,8 @@ impl Session {
             since: some(if self.last_at > 0.0 { self.last_at } else { self.mtime }),
             last_at: some(self.last_at),
             last_write: some(self.active_at()),
+            permission: self.permission,
+            error: self.error.clone(),
             meta: SessionMeta {
                 project: self.project.clone(),
                 folder: self.folder.clone(),
@@ -127,11 +145,16 @@ impl Session {
         }
         match self.last {
             Last::Question => (AwaitingAnswer, Firm, AskUserTool),
+            // A pending tool can only be waiting on a human when this mode can ask one.
+            // Under bypass/dontAsk/never, or with no human at an SDK entrypoint, it runs.
+            Last::ToolUse if !self.can_ask_human() => (RunningTool, Firm, ToolCallPending),
             Last::ToolUse if age > o.stall_after.as_secs_f64() => (AwaitingApproval, Inferred, ToolCallStalled),
             Last::ToolUse => (RunningTool, Firm, ToolCallPending),
             Last::Prompt => (Thinking, Firm, PromptSent),
             Last::ToolResult => (Thinking, Firm, ToolResultIn),
             Last::EndTurn => (Done, Firm, TurnEnded),
+            Last::Interrupted => (Activity::Interrupted, Firm, Reason::Interrupted),
+            Last::Errored => (Activity::Errored, Firm, Reason::Errored),
             Last::Nothing => unreachable!("handled above"),
         }
     }
@@ -140,12 +163,43 @@ impl Session {
 
     pub(crate) fn set(&mut self, last: Last, t: f64) {
         (self.last, self.last_at) = (last, t);
+        if last != Last::Errored {
+            self.error = None;
+        }
+    }
+
+    /// The turn ended with an error the harness recorded.
+    pub(crate) fn set_error(&mut self, error: impl Into<String>, t: f64) {
+        self.set(Last::Errored, t);
+        self.error = Some(error.into());
     }
 
     /// When entry `e` happened: its RFC 3339 `timestamp`, or (with none) when the transcript
     /// was written.
     pub(crate) fn time_of(&self, e: &Value) -> f64 {
         e["timestamp"].as_str().and_then(parse_rfc3339).unwrap_or(self.mtime)
+    }
+
+    /// The harness recorded a permission mode (`None`: it doesn't record one).
+    pub(crate) fn set_permission(&mut self, mode: Option<PermissionMode>) {
+        self.permission = mode;
+    }
+
+    /// Claude Code: whether this session came from an SDK host with no human attached.
+    pub(crate) fn set_entrypoint(&mut self, entrypoint: &str) {
+        self.entrypoint_sdk = entrypoint == "sdk-cli";
+    }
+
+    /// Codex: whether approval requests go to an AI reviewer instead of a human.
+    pub(crate) fn set_approval_reviewer_auto(&mut self, auto: bool) {
+        self.approval_reviewer_auto = auto;
+    }
+
+    /// Whether a permission prompt could be waiting on a human in this session.
+    pub(crate) fn can_ask_human(&self) -> bool {
+        !self.entrypoint_sdk
+            && !self.approval_reviewer_auto
+            && self.permission.is_none_or(PermissionMode::can_ask_human)
     }
 
     pub(crate) fn set_cwd(&mut self, cwd: &str) {

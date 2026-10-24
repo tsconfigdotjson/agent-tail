@@ -23,6 +23,11 @@ pub struct SessionState {
     pub last_at: Option<Timestamp>,
     /// The newest write to the transcript, or to any of its helpers' transcripts.
     pub last_write: Option<Timestamp>,
+    /// The permission mode the harness last recorded, if it records one.
+    pub permission: Option<PermissionMode>,
+    /// The error the harness recorded, when the turn ended with one (e.g. `server_error`,
+    /// `Connection failed`). Cleared when another activity takes over.
+    pub error: Option<String>,
     pub meta: SessionMeta,
     /// Spend in US dollars, as the harness recorded it (Claude Code); never estimated.
     pub cost_usd: Option<f64>,
@@ -94,6 +99,59 @@ pub enum Certainty {
     Inferred,
 }
 
+/// A harness's permission mode, as far as it changes who can answer a prompt.
+///
+/// Unknown strings are [`PermissionMode::Unknown`]: the status rules then keep the timing
+/// guess instead of assuming a human can be asked. Codex's approval policies and Claude
+/// Code's permission modes fit in the same vocabulary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum PermissionMode {
+    Default,
+    AcceptEdits,
+    Plan,
+    BypassPermissions,
+    DontAsk,
+    Auto,
+    Manual,
+    Normal,
+    /// Codex: never ask for approval.
+    Never,
+    /// Codex: ask when a command needs it.
+    OnRequest,
+    /// Codex: ask for commands outside the trusted set.
+    Untrusted,
+    /// A value this version hasn't seen. Keep the inference, don't assume a human.
+    Unknown,
+}
+
+impl PermissionMode {
+    /// Parse the vocabulary Claude Code and Codex write. Case-sensitive on purpose: both
+    /// harnesses write exact camelCase/snake-case values.
+    pub fn parse(mode: &str) -> PermissionMode {
+        match mode {
+            "default" => PermissionMode::Default,
+            "acceptEdits" => PermissionMode::AcceptEdits,
+            "plan" => PermissionMode::Plan,
+            "bypassPermissions" => PermissionMode::BypassPermissions,
+            "dontAsk" => PermissionMode::DontAsk,
+            "auto" => PermissionMode::Auto,
+            "manual" => PermissionMode::Manual,
+            "normal" => PermissionMode::Normal,
+            "never" => PermissionMode::Never,
+            "on-request" | "on_request" => PermissionMode::OnRequest,
+            "untrusted" => PermissionMode::Untrusted,
+            _ => PermissionMode::Unknown,
+        }
+    }
+
+    /// Whether this mode can put a permission prompt in front of a human.
+    pub fn can_ask_human(self) -> bool {
+        !matches!(self, PermissionMode::BypassPermissions | PermissionMode::DontAsk | PermissionMode::Never)
+    }
+}
+
 /// Which rule decided the activity: machine-readable, stable, one per rule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -116,8 +174,12 @@ pub enum Reason {
     /// A tool's result came back (or, for harnesses that don't record results, the model
     /// wrote again): `Thinking`.
     ToolResultIn,
-    /// The turn ended, finished, failed or interrupted: `Done`.
+    /// The turn ended normally: `Done`.
     TurnEnded,
+    /// The user interrupted, or the turn was aborted: `Interrupted`.
+    Interrupted,
+    /// The harness recorded an error ending the turn: `Errored`.
+    Errored,
 }
 
 /// Where and what a session is about.

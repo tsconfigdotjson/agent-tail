@@ -6,7 +6,8 @@
 //! in the run directory as artifacts.
 
 use agenttail::{
-    Activity, Certainty, ChunkCtx, Harness, Reason, ReducerOptions, SessionReducer, SessionState, Timestamp,
+    Activity, Certainty, ChunkCtx, Harness, PermissionMode, Reason, ReducerOptions, SessionReducer, SessionState,
+    Timestamp,
 };
 use mock_server::{MockState, router, scenario::Scenario as MockScenario};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
@@ -94,6 +95,8 @@ struct LibraryPoint {
     activity: Activity,
     certainty: Certainty,
     reason: Reason,
+    permission: Option<PermissionMode>,
+    error: Option<String>,
     since: Option<Timestamp>,
     last_write: Option<Timestamp>,
 }
@@ -421,6 +424,8 @@ fn library_point(state: &SessionState) -> LibraryPoint {
         activity: state.activity,
         certainty: state.certainty,
         reason: state.reason,
+        permission: state.permission,
+        error: state.error.clone(),
         since: state.since,
         last_write: state.last_write,
     }
