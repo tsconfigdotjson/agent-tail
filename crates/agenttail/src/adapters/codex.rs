@@ -81,9 +81,19 @@ impl Adapter for Codex {
             }
             ("response_item", "function_call" | "custom_tool_call") => {
                 let name = p["name"].as_str().unwrap_or_default();
-                s.tool_call(ASKS_USER.contains(&name), describe_tool(name, p), t);
+                let asks_user = ASKS_USER.contains(&name);
+                let line = describe_tool(name, p);
+                match p["call_id"].as_str().filter(|id| !id.is_empty()) {
+                    Some(call_id) => s.tool_call_id(call_id, asks_user, line, t),
+                    None => s.tool_call(asks_user, line, t),
+                }
             }
-            ("response_item", "function_call_output" | "custom_tool_call_output") => s.set(Last::ToolResult, t),
+            ("response_item", "function_call_output" | "custom_tool_call_output") => {
+                match p["call_id"].as_str().filter(|id| !id.is_empty()) {
+                    Some(call_id) => s.tool_result_id(call_id, t),
+                    None => s.set(Last::ToolResult, t),
+                }
+            }
             _ => {}
         }
     }
@@ -277,6 +287,54 @@ mod tests {
         let mut s = session(&events);
         s.last_at -= STALL_AFTER * 2.0;
         assert_eq!(status(&s), (Status::Working, "working"));
+    }
+
+    #[test]
+    fn parallel_calls_stay_running_until_every_result_arrives() {
+        let call = |id: &str| {
+            event(
+                "response_item",
+                json!({"type": "function_call", "name": "exec_command", "call_id": id,
+                       "arguments": "{\"cmd\":\"sleep 1\"}"}),
+            )
+        };
+        let out =
+            |id: &str| event("response_item", json!({"type": "function_call_output", "call_id": id, "output": "ok"}));
+        let s = session(&[call("c1"), call("c2")]);
+        assert_eq!(status(&s), (Status::Working, "working"));
+
+        let s = session(&[call("c1"), call("c2"), out("c1")]);
+        assert_eq!(status(&s), (Status::Working, "working"), "c2 is still pending");
+
+        let s = session(&[call("c1"), call("c2"), out("c1"), out("c2")]);
+        assert_eq!(status(&s), (Status::Working, "thinking"), "all results in");
+
+        let s = session(&[call("c1"), call("c2"), out("other"), out("c2"), out("c1")]);
+        assert_eq!(status(&s), (Status::Working, "thinking"), "an unknown id doesn't end another call");
+    }
+
+    #[test]
+    fn a_question_among_parallel_calls_keeps_priority() {
+        let ask = event(
+            "response_item",
+            json!({"type": "function_call", "name": "request_user_input", "call_id": "q1", "arguments": "{}"}),
+        );
+        let shell = event(
+            "response_item",
+            json!({"type": "function_call", "name": "exec_command", "call_id": "c1",
+                   "arguments": "{\"cmd\":\"ls\"}"}),
+        );
+        let out =
+            |id: &str| event("response_item", json!({"type": "function_call_output", "call_id": id, "output": "ok"}));
+
+        let s = session(&[shell.clone(), ask.clone()]);
+        assert_eq!(status(&s), (Status::NeedsYou, "needs your answer"));
+        let s = session(&[shell.clone(), ask.clone(), out("c1")]);
+        assert_eq!(status(&s), (Status::NeedsYou, "needs your answer"), "the question is still pending");
+        let s = session(&[shell.clone(), ask.clone(), out("q1")]);
+        assert_eq!(status(&s), (Status::Working, "working"), "the shell is still pending");
+        let s = session(&[shell, ask, out("q1"), out("c1")]);
+        assert_eq!(status(&s), (Status::Working, "thinking"));
     }
 
     #[test]
