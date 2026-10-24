@@ -1,6 +1,6 @@
 {
   "name": "claude_api_error_529",
-  "description": "The mock returns HTTP 529 overloaded. CLAUDE_CODE_MAX_RETRIES=0 makes that failure terminal instead of a long retry loop. Claude records a synthetic assistant row with error, which stays Errored (firm) after the turn_duration that follows it.",
+  "description": "The mock returns HTTP 529 overloaded. CLAUDE_CODE_MAX_RETRIES=0 makes that failure terminal instead of a long retry loop. Claude records a synthetic assistant row with error, which stays Errored (firm) after turn_duration and after the user prompt, which 2.1.310 flushes later with an earlier timestamp.",
   "harness": "claude_code",
   "mock": "../../mock-server/scenarios/api_error_529.json",
   "prompt": "trigger an error",

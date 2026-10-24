@@ -218,12 +218,18 @@ async fn anthropic_messages(State(state): State<Arc<MockState>>, body: Bytes) ->
         Ok(found) => found,
         Err(error) => return failure_response(error, Api::Anthropic),
     };
-    if let Some(Fault::Http { status, message }) = step.reply.fault {
-        return error_response(status, message.as_deref().unwrap_or("scripted failure"), Api::Anthropic);
+    let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
+    match &step.reply.fault {
+        Some(Fault::Http { status, message }) => {
+            return error_response(*status, message.as_deref().unwrap_or("scripted failure"), Api::Anthropic);
+        }
+        Some(Fault::BrokenStream) if !stream => {
+            return error_response(500, "connection closed before a complete message", Api::Anthropic);
+        }
+        _ => {}
     }
     let model = state.scenario.model(&step, "claude-sonnet-4-5");
     let stop_reason = state.scenario.stop_reason(&step);
-    let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
     if stream {
         let events = anthropic::stream_events(index, &model, &step.reply, &stop_reason);
         sse_response(events)
@@ -444,6 +450,17 @@ mod tests {
             post(app, "/v1/messages", json!({"stream": false, "messages": [{"role": "user", "content": "hi"}]})).await;
         assert_eq!(status, StatusCode::OK);
         assert!(body.contains("msg_mock_0"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn a_broken_stream_fault_fails_a_nonstreaming_retry() {
+        let mut step = text_step("unused");
+        step.reply.fault = Some(Fault::BrokenStream);
+        let app = router(state(vec![step]));
+        let (status, body) = post(app, "/v1/messages", json!({"stream": false, "messages": []})).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(!body.contains("unused"), "{body}");
+        assert!(body.contains("api_error"), "{body}");
     }
 
     #[tokio::test]

@@ -343,6 +343,24 @@ mod tests {
     }
 
     #[test]
+    fn a_late_flushed_prompt_does_not_rewind_an_api_error() {
+        let error = json!({"type": "assistant", "timestamp": at(1.0),
+                           "isApiErrorMessage": true, "error": "server_error",
+                           "message": {"id": "m1", "stop_reason": "stop_sequence",
+                                       "content": [{"type": "text", "text": "API error"}]}});
+        let duration = json!({"type": "system", "subtype": "turn_duration", "timestamp": at(0.5)});
+        let late = prompt("trigger an error", 2.0);
+        let s = session(&[error, duration, late]);
+        let st = s.state(
+            crate::time::Timestamp::from_secs_f64(crate::testutil::NOW),
+            &crate::ReducerOptions::default(),
+            crate::Diagnostics::default(),
+        );
+        assert_eq!((st.activity, st.reason), (crate::Activity::Errored, crate::Reason::Errored));
+        assert!(s.log.is_empty());
+    }
+
+    #[test]
     fn a_later_end_turn_clears_an_api_error() {
         let error = json!({"type": "assistant", "timestamp": at(2.0),
                            "isApiErrorMessage": true, "error": "server_error",

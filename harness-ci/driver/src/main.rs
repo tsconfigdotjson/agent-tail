@@ -785,7 +785,7 @@ mod tests {
         let thinking = scenario("claude_interrupt_thinking.json");
         assert_eq!(thinking.keys[0].on, ScreenState::Working);
         assert_eq!(thinking.keys[0].send, "\u{1b}");
-        assert_eq!(thinking.keys[0].after_ms, 2_500);
+        assert_eq!(thinking.keys[0].after_ms, 8_000);
         assert_eq!(thinking.keys[0].occurrence, 0);
         let thinking_end = thinking.expected_activity[0].expectation();
         assert_eq!(thinking_end.activity, "interrupted");
@@ -847,6 +847,12 @@ mod tests {
                 assert!(mock.steps.iter().all(|step| {
                     matches!(step.reply.fault, Some(mock_server::scenario::Fault::Http { status: 529, .. }))
                 }));
+            }
+            if name == "claude_interrupt_thinking.json" {
+                assert!(matches!(
+                    mock.steps[0].reply.fault,
+                    Some(mock_server::scenario::Fault::PauseAfterFirstBlock { delay_ms: 20000 })
+                ));
             }
             if name == "claude_api_error_stream.json" {
                 assert_eq!(mock.steps.len(), 8);

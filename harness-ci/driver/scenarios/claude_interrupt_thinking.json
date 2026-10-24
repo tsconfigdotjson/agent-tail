@@ -1,10 +1,10 @@
 {
   "name": "claude_interrupt_thinking",
-  "description": "Esc while the model is still thinking. The turn ends Interrupted (firm) on the idle composer, not Done. Interrupted turns get no turn_duration; observations.interrupts records whether one was written.",
+  "description": "Esc while a thinking block is on screen and the mock is still holding the rest of the turn. The firm end this asserts is Interrupted on the idle composer. Claude Code 2.1.310 restores the draft instead and writes no interrupt row, so the library stays Thinking and this run hard-fails. Mid-tool Esc does write the row.",
   "harness": "claude_code",
   "mock": "../../mock-server/scenarios/interrupt_thinking.json",
   "prompt": "think slowly",
-  "keys": [{ "on": "working", "send": "\u001b", "after_ms": 2500, "occurrence": 0 }],
+  "keys": [{ "on": "working", "send": "\u001b", "after_ms": 8000, "occurrence": 0 }],
   "run_for_ms": 25000,
   "expected_activity": [
     { "activity": "interrupted", "certainty": "firm", "when": "end", "screen": "idle" }

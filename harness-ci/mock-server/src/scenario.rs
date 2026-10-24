@@ -155,6 +155,8 @@ pub enum Fault {
     BrokenStream,
     /// Wait this long after the initial event before the first content.
     SlowFirstToken { delay_ms: u64 },
+    /// Finish the first content block, then wait before the rest of the stream.
+    PauseAfterFirstBlock { delay_ms: u64 },
     /// Wait this long before the whole reply (streaming or not).
     Slow { delay_ms: u64 },
 }

@@ -64,8 +64,11 @@ fn claude_state(lines: &[String]) -> ScreenState {
     {
         return ScreenState::Error;
     }
-    if let Some(state) = lines.iter().rev().find_map(|line| line_status(line)) {
+    if let Some(state) = lines.iter().rev().filter(|line| !line_mode_footer(line)).find_map(|line| line_status(line)) {
         return state;
+    }
+    if lines.iter().any(|line| line_idle(line)) {
+        return ScreenState::Idle;
     }
     if lines.iter().any(|line| line.contains("welcome to claude code")) {
         return ScreenState::Starting;
@@ -177,12 +180,24 @@ fn line_idle(line: &str) -> bool {
     if line_interrupt(line) {
         return false;
     }
+    line_mode_footer(line) || line_settled_interrupt(line) || line_settled(line)
+}
+
+fn line_mode_footer(line: &str) -> bool {
+    if line_interrupt(line) || line_background(line) || line_spinner(line) {
+        return false;
+    }
     line.contains("? for shortcuts")
         || line.contains("bypass permissions on")
         || line.contains("auto mode on")
         || line.contains("accept edits on")
         || line.contains("plan mode on")
-        || line_settled_interrupt(line)
+        || line.contains("manual mode on")
+}
+
+fn line_settled(line: &str) -> bool {
+    let Some(at) = line.find("· done") else { return false };
+    line[..at].contains(" for ") && line.chars().count() <= 64
 }
 
 fn line_settled_interrupt(line: &str) -> bool {
@@ -219,7 +234,7 @@ fn line_status(line: &str) -> Option<ScreenState> {
 
 fn background_running(lines: &[String]) -> bool {
     let Some(idx) = lines.iter().rposition(|line| line_background(line)) else { return false };
-    !lines[idx + 1..].iter().any(|line| line_idle(line))
+    !lines[idx + 1..].iter().any(|line| line_settled(line) || (line_idle(line) && !line_mode_footer(line)))
 }
 
 fn normalized_lines(screen: &str) -> Vec<String> {
@@ -405,6 +420,29 @@ mod tests {
     }
 
     #[test]
+    fn a_background_status_above_the_bypass_footer_is_working() {
+        let screen = "\
+● The background agent has started.
+✻ Waiting for 1 background agent to finish
+❯
+⏵⏵ bypass permissions on (shift+tab to cycle)
+";
+        let reading = claude(screen);
+        assert_eq!(reading.state, ScreenState::Working);
+        assert!(reading.background_agents);
+        let finished = "\
+✻ Waiting for 1 background agent to finish
+● The background agent finished.
+✻ Churned for 10s · done 3:15 PM
+❯
+⏵⏵ bypass permissions on (shift+tab to cycle)
+";
+        let reading = claude(finished);
+        assert_eq!(reading.state, ScreenState::Idle);
+        assert!(!reading.background_agents);
+    }
+
+    #[test]
     fn detects_the_captured_background_agent_status_as_working() {
         let screen = "\
 ✻ Waiting for 1 background agent to finish
@@ -470,6 +508,11 @@ mod tests {
     fn a_bypass_status_line_that_can_still_be_interrupted_is_working() {
         let screen = "⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt · ← for agents\n";
         assert_eq!(claude(screen).state, ScreenState::Working);
+    }
+
+    #[test]
+    fn detects_manual_mode_as_idle() {
+        assert_eq!(claude("⏸ manual mode on\n").state, ScreenState::Idle);
     }
 
     #[test]

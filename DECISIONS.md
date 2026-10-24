@@ -234,3 +234,8 @@ Claude Code writes a synthetic assistant row (`isApiErrorMessage` / `error`) and
 longer replaces `Errored`: that row is the error, and the duration only timestamps the close.
 A later real assistant `end_turn` still clears it. `pendingBackgroundAgentCount` on the same
 duration record does not promote the error into `BackgroundWork`.
+
+On an instant failure, Claude Code 2.1.310 can flush the user prompt *after* that error, with
+an earlier timestamp. A prompt older than activity already recorded does not start a new turn,
+so the session stays `Errored` (the same rule keeps an instant `Done` from rewinding to
+`Thinking`). A prompt newer than that activity still does.

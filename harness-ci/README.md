@@ -161,7 +161,11 @@ A scenario is a list of steps:
 - `reply.content`: `text`, `thinking` (with a signature), `tool_use` (with `input`). A
   `tool_use` defaults its id to `toolu_mock_<request>_<block>`.
 - `reply.fault`: `http` (`status`, `message`), `broken_stream`, `slow_first_token`
-  (`delay_ms`), `slow` (`delay_ms`).
+  (`delay_ms`), `slow` (`delay_ms`), `pause_after_first_block` (`delay_ms`). A streaming
+  `broken_stream` sends `message_start` and closes. Claude Code then retries that turn
+  *without* streaming, so a non-streaming `broken_stream` is HTTP 500 instead of the
+  scripted body. `pause_after_first_block` finishes the first content block, then
+  waits before the rest of the stream, so Esc can land after thinking has started.
 - `expect.user_also_contains` is a second user-text substring. `expect.not_user_contains`
   rejects a step when the user's text has that substring (tool results are not user text).
   System prompt text is part of `contains`, not of `user_contains`.
@@ -231,11 +235,21 @@ Samples within 1 s of an agreeing sample are the write-latency allowance. `start
 - **Bypass mode now passes.** Before B1 a 60 s `sleep` stayed `RunningTool` on screen while
   the library turned `AwaitingApproval` after 20 s. After reading the permission mode the
   library stays `RunningTool` (firm) for the whole run, and the scenario has 0 failures.
+- **Esc during streaming thinking does not write an interrupt row.** On Claude Code
+  2.1.310 the thinking text is on screen, and the transcript still has no assistant
+  row, when Esc restores the draft. There is no `[Request interrupted by user]`
+  record, so the library stays `Thinking`. `claude_interrupt_thinking` keeps the
+  firm `Interrupted` expectation and hard-fails on that version. Esc during a
+  running tool does write the row, and that turn has no `turn_duration`.
+- **A background-agent status above the mode footer is still working.** Bypass
+  mode leaves `bypass permissions on` under `Waiting for N background agent(s)
+  to finish`. The footer is chrome; the status line is the activity. A later
+  `for Ns · done` line settles the screen back to idle.
 - **Model latency matters.** With an instant mock response, Claude Code can append the
-  user prompt record *after* the assistant reply, which makes the reducer read `Thinking`
-  after `Done`. Real model latency hides this; scenarios give the first token a 1 s delay so
-  the transcript order matches reality. This is still worth a status-rule test (a prompt
-  record older than the latest activity should not move the state backwards).
+  user prompt record *after* the assistant reply. A prompt older than activity already
+  recorded does not move the state backwards, so an instant `Done` or `Errored` stays put.
+  Scenarios still delay the first token by about 1 s when the screen needs to show the
+  working state before the reply.
 - **Onboarding, trust and bypass disclaimers** are all skipped by seeding `.claude.json`
   and `.claude/settings.json` (`skipDangerousModePermissionPrompt: true`). No key presses
   are needed before the prompt.
