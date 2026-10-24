@@ -1,0 +1,24 @@
+{
+  "name": "interrupt_tool",
+  "description": "A bypass-mode Bash sleep that stays running until Esc.",
+  "steps": [
+    {
+      "expect": { "user_contains": "sleep" },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "sleep 30",
+              "description": "Wait before finishing",
+              "timeout": 60000
+            }
+          }
+        ],
+        "usage": { "input_tokens": 10, "output_tokens": 20 },
+        "fault": { "type": "slow_first_token", "delay_ms": 800 }
+      }
+    }
+  ]
+}

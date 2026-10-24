@@ -1,0 +1,23 @@
+{
+  "name": "claude_background_agent",
+  "description": "Without --bare, so Agent is offered. A background Agent launches a nested Agent. The mock answers the subagent's own model request (dispatch first_match). Firm background_work while pendingBackgroundAgentCount is set, then firm done after task-notification. Helper transcripts are copied under subagents/ and summarized on observations.background.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/background_agent.json",
+  "command": ["claude", "--model", "claude-sonnet-4-5", "--dangerously-skip-permissions"],
+  "prompt": "delegate the summary",
+  "keys": [
+    { "on": "permission_prompt", "send": "\r", "after_ms": 800, "occurrence": 1 },
+    { "on": "permission_prompt", "send": "\r", "after_ms": 800, "occurrence": 2 }
+  ],
+  "run_for_ms": 75000,
+  "no_approval": true,
+  "expected_activity": [
+    {
+      "activity": "background_work",
+      "certainty": "firm",
+      "when": "ever",
+      "screen": "working"
+    },
+    { "activity": "done", "certainty": "firm", "when": "end", "screen": "idle" }
+  ]
+}

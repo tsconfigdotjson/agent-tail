@@ -226,3 +226,11 @@ semantics still need the A4 CLI spike.
 
 The remaining B8 work is the `spec/discovery/*.toml` data files (ask-user lists, auto-approve
 lists, mode vocabulary, quirks with evidence) and loading `Layout` from them.
+
+## API errors stay Errored (2026-10-24)
+
+Claude Code writes a synthetic assistant row (`isApiErrorMessage` / `error`) and then
+`system/turn_duration`. The duration record is still the firm end of a normal turn, but it no
+longer replaces `Errored`: that row is the error, and the duration only timestamps the close.
+A later real assistant `end_turn` still clears it. `pendingBackgroundAgentCount` on the same
+duration record does not promote the error into `BackgroundWork`.

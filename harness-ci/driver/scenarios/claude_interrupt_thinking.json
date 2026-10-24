@@ -1,0 +1,12 @@
+{
+  "name": "claude_interrupt_thinking",
+  "description": "Esc while the model is still thinking. The turn ends Interrupted (firm) on the idle composer, not Done. Interrupted turns get no turn_duration; observations.interrupts records whether one was written.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/interrupt_thinking.json",
+  "prompt": "think slowly",
+  "keys": [{ "on": "working", "send": "\u001b", "after_ms": 2500, "occurrence": 0 }],
+  "run_for_ms": 25000,
+  "expected_activity": [
+    { "activity": "interrupted", "certainty": "firm", "when": "end", "screen": "idle" }
+  ]
+}

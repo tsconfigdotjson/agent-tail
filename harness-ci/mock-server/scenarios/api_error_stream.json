@@ -1,0 +1,15 @@
+{
+  "name": "api_error_stream",
+  "description": "The stream closes after message_start, including the retries that follow.",
+  "steps": [
+    {
+      "repeat": 8,
+      "expect": { "user_contains": "break the stream" },
+      "reply": {
+        "content": [{ "type": "text", "text": "unused" }],
+        "usage": { "input_tokens": 10, "output_tokens": 1 },
+        "fault": { "type": "broken_stream" }
+      }
+    }
+  ]
+}

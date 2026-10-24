@@ -162,6 +162,13 @@ A scenario is a list of steps:
   `tool_use` defaults its id to `toolu_mock_<request>_<block>`.
 - `reply.fault`: `http` (`status`, `message`), `broken_stream`, `slow_first_token`
   (`delay_ms`), `slow` (`delay_ms`).
+- `expect.user_also_contains` is a second user-text substring. `expect.not_user_contains`
+  rejects a step when the user's text has that substring (tool results are not user text).
+  System prompt text is part of `contains`, not of `user_contains`.
+- `repeat` expands one step into that many identical steps (cap 30), for a fault the CLI retries.
+- `dispatch` is `sequential` (default) or `first_match`. `first_match` answers the first unused
+  step whose `expect` matches, so a subagent's model request can arrive before the parent's
+  next turn. A request that matches nothing is still a 500.
 - Claude Code's separate session-title request is answered with a fixed title and does not
   consume a step. Without that, the title request steals the scripted first reply.
 
@@ -258,8 +265,9 @@ Samples within 1 s of an agreeing sample are the write-latency allowance. `start
   spikes capture real panes; they do not reuse Claude's strings.
 - Claude screen readers cover the permission prompt, an ask-the-user question (including the
   plan-exit dialog and `accept edits` / `plan mode` idle footers), the idle composer, the
-  spinner / working line, and an error banner. Each has a captured-screen unit test in
-  `driver/src/screen.rs`. Interrupt footers still need their own captured screens.
+  spinner / working line, an error banner, and the settled interrupt composer
+  ("What should Claude do instead?"). Each has a unit test in `driver/src/screen.rs`. A real
+  PTY capture should replace that interrupt string if 2.1.310 words it differently.
 
 ### A3 scenarios (permission and ask-user)
 
@@ -283,6 +291,26 @@ On Claude Code 2.1.310 those runs showed:
 cd harness-ci
 cargo run -p harness-driver -- --scenario driver/scenarios/claude_ask_user.json
 ```
+
+### A3 scenarios (interrupt, background, API error)
+
+| scenario | what it checks |
+|---|---|
+| `claude_interrupt_thinking` | Esc while the first token is still delayed. Firm `interrupted` on the idle composer, not `done`. `observations.interrupts[].turn_duration_before_next_prompt` records whether a `turn_duration` was written |
+| `claude_interrupt_tool` | Esc during a bypass-mode `sleep 30`. Same expectation. `no_approval` so a stall into `AwaitingApproval` is a hard failure |
+| `claude_background_agent` | Without `--bare` (so `Agent` is offered) and with `--dangerously-skip-permissions`. A background `Agent` launches a nested `Agent`. `dispatch: first_match` answers the subagent's own model request, whichever order it arrives. Firm `background_work` on the working screen while `pendingBackgroundAgentCount` is set, then firm `done` after `task-notification`. Helper files are copied to `subagents/` and summarized on `observations.background` (`async_launched`, pending counts, task statuses, `spawnDepth` / `parentAgentId`) |
+| `claude_api_error_529` | HTTP 529, repeated for retries. Firm `errored` at the end |
+| `claude_api_error_stream` | The stream closes after `message_start`, repeated for retries. Firm `errored` at the end |
+
+`turn_duration` still ends a normal turn. It does not replace an API-error row: that row stays `Errored` when the duration record is written after it, including in the same read. A later real assistant `end_turn` clears the error. Keys are not sent until the prompt has been typed, and the key clock restarts then, so a startup spinner is not the Esc target. `keys[].occurrence` of `0` means any visit to that screen, so a short flicker does not consume the Esc meant for the long working streak.
+
+The background scenario does not link `async_launched` or `.meta.json` into the library's helper state. `BackgroundWork` comes from `pendingBackgroundAgentCount` on the parent transcript. `Done` while the screen still says background agents are running remains a hard failure.
+
+```sh
+cd harness-ci
+cargo run -p harness-driver -- --scenario driver/scenarios/claude_background_agent.json
+```
+
 - CI wiring and version matrix (A6) are not done yet.
 - The detector and scorer unit tests do not spawn Claude Code. A real PTY run of the four green
   scenarios is still the check that the new disagreement list stays empty on those timelines.

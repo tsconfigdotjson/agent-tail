@@ -1,0 +1,11 @@
+{
+  "name": "claude_api_error_stream",
+  "description": "The mock closes the stream after message_start. The synthetic assistant error row is Errored (firm), including when turn_duration follows it.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/api_error_stream.json",
+  "prompt": "break the stream",
+  "run_for_ms": 45000,
+  "expected_activity": [
+    { "activity": "errored", "certainty": "firm", "when": "end" }
+  ]
+}

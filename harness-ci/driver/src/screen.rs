@@ -182,6 +182,11 @@ fn line_idle(line: &str) -> bool {
         || line.contains("auto mode on")
         || line.contains("accept edits on")
         || line.contains("plan mode on")
+        || line_settled_interrupt(line)
+}
+
+fn line_settled_interrupt(line: &str) -> bool {
+    line.contains("what should claude do instead") && line.chars().count() <= 96
 }
 
 fn line_background(line: &str) -> bool {
@@ -420,6 +425,17 @@ mod tests {
         let reading = claude(screen);
         assert_eq!(reading.state, ScreenState::Idle);
         assert!(!reading.background_agents);
+    }
+
+    #[test]
+    fn an_interrupted_composer_is_idle_without_the_shortcuts_footer() {
+        let screen = "Interrupted · What should Claude do instead?\n";
+        assert_eq!(claude(screen).state, ScreenState::Idle);
+        let quoted =
+            "The notes say What should Claude do instead? only as a quotation from an old session log that ran long.\n";
+        assert_eq!(claude(quoted).state, ScreenState::Unknown);
+        let working = "Interrupted · What should Claude do instead?\nesc to interrupt\n";
+        assert_eq!(claude(working).state, ScreenState::Working);
     }
 
     #[test]

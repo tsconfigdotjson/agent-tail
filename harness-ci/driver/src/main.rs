@@ -14,7 +14,7 @@ use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use score::{Sample, Score};
 use screen::ScreenState;
 use serde::Deserialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -269,6 +269,21 @@ fn run_pty(
         let now_ms = start.elapsed().as_millis() as u64;
         let (key_state, occurrence, key_elapsed_ms) = keys_clock.tick(reading.state, now_ms);
 
+        let prompt_pending = scenario.prompt.is_some() && !prompt_sent;
+        if !prompt_pending {
+            for index in
+                due_keys(&scenario.keys, &keys_sent, key_state, occurrence, Duration::from_millis(key_elapsed_ms))
+            {
+                write_keys(&mut writer, scenario.keys[index].send.as_bytes())?;
+                keys_sent[index] = true;
+                eprintln!(
+                    "driver: sent {:?} on {} occurrence {occurrence}",
+                    scenario.keys[index].send,
+                    scenario.keys[index].on.id()
+                );
+            }
+        }
+
         if screen_state == ScreenState::Idle
             && !prompt_sent
             && let Some(prompt) = &scenario.prompt
@@ -276,18 +291,8 @@ fn run_pty(
             write_keys(&mut writer, prompt.as_bytes())?;
             write_keys(&mut writer, b"\r")?;
             prompt_sent = true;
+            keys_clock.reset(ScreenState::Idle, now_ms);
             eprintln!("driver: prompt sent");
-        }
-
-        for index in due_keys(&scenario.keys, &keys_sent, key_state, occurrence, Duration::from_millis(key_elapsed_ms))
-        {
-            write_keys(&mut writer, scenario.keys[index].send.as_bytes())?;
-            keys_sent[index] = true;
-            eprintln!(
-                "driver: sent {:?} on {} occurrence {occurrence}",
-                scenario.keys[index].send,
-                scenario.keys[index].on.id()
-            );
         }
 
         if last_sample.elapsed() >= SAMPLE_EVERY {
@@ -306,6 +311,8 @@ fn run_pty(
     let _ = child.kill();
     let transcript = tail.as_ref().map(|tail| tail.path.clone());
     let transcript_text = transcript.as_ref().and_then(|path| std::fs::read_to_string(path).ok());
+    let helpers = collect_helpers(home);
+    copy_helpers(&helpers, &out)?;
     let expectations: Vec<score::Expectation> =
         scenario.expected_activity.iter().map(score::ExpectedOne::expectation).collect();
     let score = score::score(&score::ScoreRequest {
@@ -320,6 +327,7 @@ fn run_pty(
         transcript: transcript.as_deref().map(|path| path.display().to_string()),
         min_screen_ms: &scenario.min_screen_ms,
         transcript_jsonl: transcript_text.as_deref(),
+        helpers: &helpers,
     });
 
     let timeline = out.join("timeline.jsonl");
@@ -352,6 +360,10 @@ impl KeyClock {
         Self { state, since_ms: 0, counts: BTreeMap::new(), gap: None }
     }
 
+    fn reset(&mut self, state: ScreenState, now_ms: u64) {
+        *self = Self { state, since_ms: now_ms, counts: BTreeMap::new(), gap: None };
+    }
+
     fn tick(&mut self, raw: ScreenState, now_ms: u64) -> (ScreenState, u32, u64) {
         if raw == self.state {
             self.gap = None;
@@ -377,7 +389,7 @@ fn due_keys(keys: &[KeyAction], sent: &[bool], screen: ScreenState, occurrence: 
         .enumerate()
         .filter(|(index, action)| {
             action.on == screen
-                && action.occurrence == occurrence
+                && (action.occurrence == 0 || action.occurrence == occurrence)
                 && elapsed >= Duration::from_millis(action.after_ms)
                 && (action.repeat || !sent[*index])
         })
@@ -477,6 +489,85 @@ fn library_state(tail: &mut Option<Tail>, _harness: Harness, home: &Path, now: T
         tail.reducer.transcript_written(mtime);
     }
     Some(tail.reducer.state(now))
+}
+
+fn collect_helpers(home: &Path) -> Vec<score::ObservedHelper> {
+    let mut found = Vec::new();
+    walk_helpers(&home.join(".claude").join("projects"), 0, &mut found);
+    found.sort_by(|a, b| a.id.cmp(&b.id));
+    found
+}
+
+fn walk_helpers(dir: &Path, depth: usize, found: &mut Vec<score::ObservedHelper>) {
+    if depth > 6 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(file_type) = entry.file_type() else { continue };
+        if !file_type.is_dir() {
+            continue;
+        }
+        if path.file_name().is_some_and(|name| name == "subagents") {
+            read_subagents(&path, found);
+        } else {
+            walk_helpers(&path, depth + 1, found);
+        }
+    }
+}
+
+fn read_subagents(dir: &Path, found: &mut Vec<score::ObservedHelper>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let mut metas = BTreeMap::new();
+    let mut jsonls = BTreeMap::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else { continue };
+        if let Some(id) = name.strip_suffix(".meta.json")
+            && safe_helper_id(id)
+            && let Ok(text) = std::fs::read_to_string(&path)
+        {
+            metas.insert(id.to_string(), text);
+        } else if let Some(id) = name.strip_suffix(".jsonl")
+            && safe_helper_id(id)
+            && let Ok(text) = std::fs::read_to_string(&path)
+        {
+            jsonls.insert(id.to_string(), text);
+        }
+    }
+    let mut ids = BTreeSet::new();
+    ids.extend(metas.keys().cloned());
+    ids.extend(jsonls.keys().cloned());
+    for id in ids {
+        found.push(score::ObservedHelper { meta_json: metas.remove(&id), jsonl: jsonls.remove(&id), id });
+    }
+}
+
+fn safe_helper_id(id: &str) -> bool {
+    !id.is_empty() && !id.contains('/') && !id.contains('\\') && id != "." && id != ".."
+}
+
+fn copy_helpers(helpers: &[score::ObservedHelper], out: &Path) -> Result<(), String> {
+    if helpers.is_empty() {
+        return Ok(());
+    }
+    let dir = out.join("subagents");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    for helper in helpers {
+        if !safe_helper_id(&helper.id) {
+            continue;
+        }
+        if let Some(jsonl) = &helper.jsonl {
+            let path = dir.join(format!("{}.jsonl", helper.id));
+            std::fs::write(&path, jsonl).map_err(|e| format!("write {}: {e}", path.display()))?;
+        }
+        if let Some(meta) = &helper.meta_json {
+            let path = dir.join(format!("{}.meta.json", helper.id));
+            std::fs::write(&path, meta).map_err(|e| format!("write {}: {e}", path.display()))?;
+        }
+    }
+    Ok(())
 }
 
 fn find_claude_transcript(home: &Path) -> Option<PathBuf> {
@@ -604,6 +695,10 @@ mod tests {
         assert_eq!(second, vec![1]);
         sent[1] = true;
         assert!(due_keys(&keys, &sent, ScreenState::PermissionPrompt, 2, Duration::from_millis(9_000)).is_empty());
+        let any = vec![key(ScreenState::Working, 0, 1_000, false)];
+        assert!(due_keys(&any, &[false], ScreenState::Working, 1, Duration::from_millis(999)).is_empty());
+        assert_eq!(due_keys(&any, &[false], ScreenState::Working, 2, Duration::from_millis(1_000)), vec![0]);
+        assert!(due_keys(&any, &[true], ScreenState::Working, 3, Duration::from_millis(5_000)).is_empty());
         let repeat = vec![key(ScreenState::AskUserQuestion, 1, 0, true)];
         let sent = vec![true];
         assert_eq!(due_keys(&repeat, &sent, ScreenState::AskUserQuestion, 1, Duration::ZERO), vec![0]);
@@ -669,6 +764,120 @@ mod tests {
         let got = substitute_workspace(raw, Path::new("/tmp/a3 work\""));
         let value: serde_json::Value = serde_json::from_str(&got).unwrap();
         assert_eq!(value["file_path"], "/tmp/a3 work\"/note.txt");
+    }
+
+    #[test]
+    fn resetting_the_key_clock_forgets_startup_screens() {
+        let mut clock = KeyClock::new(ScreenState::Starting);
+        clock.tick(ScreenState::Working, 1_000);
+        let (state, occurrence, _) = clock.tick(ScreenState::Working, 1_400);
+        assert_eq!((state, occurrence), (ScreenState::Working, 1));
+        clock.reset(ScreenState::Idle, 5_000);
+        assert_eq!(clock.tick(ScreenState::Idle, 5_100).1, 0);
+        clock.tick(ScreenState::Working, 6_000);
+        let (state, occurrence, elapsed) = clock.tick(ScreenState::Working, 6_400);
+        assert_eq!((state, occurrence), (ScreenState::Working, 1));
+        assert_eq!(elapsed, 400);
+    }
+
+    #[test]
+    fn the_interrupt_background_and_error_scenarios_parse() {
+        let thinking = scenario("claude_interrupt_thinking.json");
+        assert_eq!(thinking.keys[0].on, ScreenState::Working);
+        assert_eq!(thinking.keys[0].send, "\u{1b}");
+        assert_eq!(thinking.keys[0].after_ms, 2_500);
+        assert_eq!(thinking.keys[0].occurrence, 0);
+        let thinking_end = thinking.expected_activity[0].expectation();
+        assert_eq!(thinking_end.activity, "interrupted");
+        assert_eq!(thinking_end.certainty.as_deref(), Some("firm"));
+        assert_eq!(thinking_end.when, score::ExpectWhen::End);
+        assert_eq!(thinking_end.screen.as_deref(), Some("idle"));
+
+        let tool = scenario("claude_interrupt_tool.json");
+        assert!(tool.no_approval);
+        assert!(tool.command.iter().any(|arg| arg == "--dangerously-skip-permissions"));
+        assert_eq!(tool.keys[0].send, "\u{1b}");
+        assert_eq!(tool.keys[0].occurrence, 0);
+        assert_eq!(tool.expected_activity[0].expectation().activity, "interrupted");
+
+        let background = scenario("claude_background_agent.json");
+        assert!(background.command.iter().all(|arg| arg != "--bare"));
+        assert!(background.no_approval);
+        let activities: Vec<_> = background.expected_activity.iter().map(|item| item.expectation().activity).collect();
+        assert_eq!(activities, vec!["background_work".to_string(), "done".to_string()]);
+        let waiting = background.expected_activity[0].expectation();
+        assert_eq!(waiting.certainty.as_deref(), Some("firm"));
+        assert_eq!(waiting.when, score::ExpectWhen::Ever);
+        assert_eq!(waiting.screen.as_deref(), Some("working"));
+        let finished = background.expected_activity[1].expectation();
+        assert_eq!(finished.activity, "done");
+        assert_eq!(finished.certainty.as_deref(), Some("firm"));
+        assert_eq!(finished.screen.as_deref(), Some("idle"));
+
+        let overloaded = scenario("claude_api_error_529.json");
+        assert_eq!(overloaded.expected_activity[0].expectation().activity, "errored");
+        assert_eq!(overloaded.expected_activity[0].expectation().certainty.as_deref(), Some("firm"));
+        let broken = scenario("claude_api_error_stream.json");
+        assert_eq!(broken.expected_activity[0].expectation().activity, "errored");
+        assert_eq!(broken.expected_activity[0].expectation().when, score::ExpectWhen::End);
+
+        for name in [
+            "claude_interrupt_thinking.json",
+            "claude_interrupt_tool.json",
+            "claude_background_agent.json",
+            "claude_api_error_529.json",
+            "claude_api_error_stream.json",
+        ] {
+            let driver = scenario(name);
+            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scenarios").join(name);
+            let mock_path = path.parent().unwrap().join(&driver.mock);
+            let text =
+                std::fs::read_to_string(&mock_path).unwrap_or_else(|e| panic!("read {}: {e}", mock_path.display()));
+            let text = substitute_workspace(&text, Path::new("/tmp/a3 work\""));
+            let mock = mock_server::scenario::Scenario::parse(&text)
+                .unwrap_or_else(|e| panic!("parse {}: {e}", mock_path.display()));
+            if name == "claude_background_agent.json" {
+                assert_eq!(mock.dispatch, mock_server::scenario::Dispatch::FirstMatch);
+                assert!(mock.steps.len() >= 5, "{}", mock.steps.len());
+            }
+            if name == "claude_api_error_529.json" {
+                assert_eq!(mock.steps.len(), 8);
+                assert!(mock.steps.iter().all(|step| {
+                    matches!(step.reply.fault, Some(mock_server::scenario::Fault::Http { status: 529, .. }))
+                }));
+            }
+            if name == "claude_api_error_stream.json" {
+                assert_eq!(mock.steps.len(), 8);
+                assert!(
+                    mock.steps
+                        .iter()
+                        .all(|step| matches!(step.reply.fault, Some(mock_server::scenario::Fault::BrokenStream)))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn helper_transcripts_are_collected_and_copied() {
+        let home = tempfile::tempdir().unwrap();
+        let sub = home.path().join(".claude/projects/work/sess/subagents");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("agent-outer.jsonl"), "{\"type\":\"assistant\"}\n").unwrap();
+        std::fs::write(sub.join("agent-inner.meta.json"), "{\"spawnDepth\":2}\n").unwrap();
+        std::fs::write(sub.join("../not-a-helper.jsonl"), "nope").unwrap();
+        std::fs::write(sub.join("../x.jsonl"), "nope").unwrap();
+        let helpers = collect_helpers(home.path());
+        let ids: Vec<_> = helpers.iter().map(|helper| helper.id.as_str()).collect();
+        assert_eq!(ids, vec!["agent-inner", "agent-outer"]);
+        assert!(helpers[1].jsonl.as_ref().unwrap().contains("assistant"));
+        assert!(helpers[0].meta_json.as_ref().unwrap().contains("spawnDepth"));
+        let out = tempfile::tempdir().unwrap();
+        copy_helpers(&helpers, out.path()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(out.path().join("subagents/agent-outer.jsonl")).unwrap(),
+            "{\"type\":\"assistant\"}\n"
+        );
+        assert!(out.path().join("subagents/agent-inner.meta.json").is_file());
     }
 
     #[test]

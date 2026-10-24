@@ -127,6 +127,13 @@ pub struct Score {
     pub observations: Observations,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ObservedHelper {
+    pub id: String,
+    pub meta_json: Option<String>,
+    pub jsonl: Option<String>,
+}
+
 pub struct ScoreRequest<'a> {
     pub scenario: &'a str,
     pub description: Option<String>,
@@ -139,6 +146,7 @@ pub struct ScoreRequest<'a> {
     pub transcript: Option<String>,
     pub min_screen_ms: &'a BTreeMap<String, u64>,
     pub transcript_jsonl: Option<&'a str>,
+    pub helpers: &'a [ObservedHelper],
 }
 
 pub fn library_point(state: &SessionState) -> LibraryPoint {
@@ -172,7 +180,7 @@ pub fn score(request: &ScoreRequest<'_>) -> Score {
         mock_requests: request.mock_requests,
         remaining_mock_steps: request.remaining_mock_steps,
         transcript: request.transcript.clone(),
-        observations: request.transcript_jsonl.map(observe_transcript).unwrap_or_default(),
+        observations: observe_run(request.transcript_jsonl, request.helpers),
     };
     let mut failures = BTreeSet::new();
     for sample in request.samples {
@@ -539,12 +547,64 @@ pub struct Observations {
     pub tool_permissions: Vec<ToolPermission>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_rejections: Vec<ToolRejection>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub interrupts: Vec<InterruptNote>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub api_errors: Vec<ApiErrorNote>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background: Option<BackgroundNote>,
 }
 
 impl Observations {
     pub fn is_empty(&self) -> bool {
-        self.permission_modes.is_empty() && self.tool_permissions.is_empty() && self.tool_rejections.is_empty()
+        self.permission_modes.is_empty()
+            && self.tool_permissions.is_empty()
+            && self.tool_rejections.is_empty()
+            && self.interrupts.is_empty()
+            && self.api_errors.is_empty()
+            && self.background.is_none()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InterruptNote {
+    pub text: String,
+    pub turn_duration_before_next_prompt: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ApiErrorNote {
+    pub error: String,
+    pub is_api_error_message: bool,
+    pub turn_duration_follows: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+pub struct BackgroundNote {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_counts: Vec<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub task_statuses: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub async_launched: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub helpers: Vec<HelperNote>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HelperNote {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spawn_depth: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped_by_user: Option<bool>,
+    pub launched_agent: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -569,8 +629,13 @@ pub struct ToolRejection {
     pub following: Vec<String>,
 }
 
-pub fn observe_transcript(jsonl: &str) -> Observations {
-    let records = jsonl_records(jsonl);
+#[cfg(test)]
+fn observe_transcript(jsonl: &str) -> Observations {
+    observe_run(Some(jsonl), &[])
+}
+
+fn observe_run(jsonl: Option<&str>, helpers: &[ObservedHelper]) -> Observations {
+    let records = jsonl.map(jsonl_records).unwrap_or_default();
     let tools = tool_names(&records);
     let mut observations = Observations::default();
     for record in &records {
@@ -588,7 +653,138 @@ pub fn observe_transcript(jsonl: &str) -> Observations {
             observations.tool_rejections.push(rejection);
         }
     }
+    observations.interrupts = interrupt_notes(&records);
+    observations.api_errors = api_error_notes(&records);
+    observations.background = background_note(&records, helpers);
     observations
+}
+
+fn interrupt_notes(records: &[Value]) -> Vec<InterruptNote> {
+    let mut notes = Vec::new();
+    for (index, record) in records.iter().enumerate() {
+        if !is_interrupt(record) {
+            continue;
+        }
+        notes.push(InterruptNote {
+            text: clip(&message_text(record), 120),
+            turn_duration_before_next_prompt: turn_duration_before_prompt(&records[index + 1..]),
+        });
+    }
+    notes
+}
+
+fn api_error_notes(records: &[Value]) -> Vec<ApiErrorNote> {
+    let mut notes = Vec::new();
+    for (index, record) in records.iter().enumerate() {
+        if record.get("type").and_then(Value::as_str) != Some("assistant") {
+            continue;
+        }
+        let flagged = record.get("isApiErrorMessage") == Some(&Value::Bool(true));
+        let error = record.get("error").and_then(Value::as_str).filter(|text| !text.is_empty());
+        if !flagged && error.is_none() {
+            continue;
+        }
+        notes.push(ApiErrorNote {
+            error: error.unwrap_or("api_error").to_string(),
+            is_api_error_message: flagged,
+            turn_duration_follows: turn_duration_before_prompt(&records[index + 1..]),
+        });
+    }
+    notes
+}
+
+fn turn_duration_before_prompt(after: &[Value]) -> bool {
+    for record in after {
+        if is_user_prompt(record) {
+            return false;
+        }
+        if record.get("type").and_then(Value::as_str) == Some("system")
+            && record.get("subtype").and_then(Value::as_str) == Some("turn_duration")
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn background_note(records: &[Value], helpers: &[ObservedHelper]) -> Option<BackgroundNote> {
+    let mut note = BackgroundNote::default();
+    for record in records {
+        if record.get("type").and_then(Value::as_str) == Some("system")
+            && record.get("subtype").and_then(Value::as_str) == Some("turn_duration")
+            && let Some(count) = record.get("pendingBackgroundAgentCount").and_then(Value::as_u64)
+        {
+            note.pending_counts.push(count);
+        }
+        if record.get("origin").and_then(|origin| origin.get("kind")).and_then(Value::as_str)
+            == Some("task-notification")
+            && let Some(status) = task_status(&message_text(record))
+        {
+            note.task_statuses.push(status);
+        }
+        if let Some(agent_id) = async_agent_id(record) {
+            note.async_launched.push(agent_id);
+        }
+    }
+    note.helpers = helpers.iter().map(helper_note).collect();
+    if note.pending_counts.is_empty()
+        && note.task_statuses.is_empty()
+        && note.async_launched.is_empty()
+        && note.helpers.is_empty()
+    {
+        None
+    } else {
+        Some(note)
+    }
+}
+
+fn task_status(text: &str) -> Option<String> {
+    let rest = text.split_once("<status>")?.1;
+    let status = rest.split_once("</status>")?.0.trim();
+    if status.is_empty() { None } else { Some(status.to_string()) }
+}
+
+fn async_agent_id(record: &Value) -> Option<String> {
+    let result = record.get("toolUseResult")?;
+    match result {
+        Value::Object(map) => {
+            if map.get("status").and_then(Value::as_str) != Some("async_launched") {
+                return None;
+            }
+            Some(map.get("agentId").and_then(Value::as_str).unwrap_or("unknown").to_string())
+        }
+        Value::String(text) if text.contains("async_launched") => Some("unknown".to_string()),
+        _ => None,
+    }
+}
+
+fn helper_note(helper: &ObservedHelper) -> HelperNote {
+    let meta = helper.meta_json.as_deref().and_then(|text| serde_json::from_str::<Value>(text).ok());
+    let field =
+        |name: &str| meta.as_ref().and_then(|value| value.get(name)).and_then(Value::as_str).map(str::to_string);
+    HelperNote {
+        id: helper.id.clone(),
+        parent_agent_id: field("parentAgentId"),
+        spawn_depth: meta.as_ref().and_then(|value| value.get("spawnDepth")).and_then(Value::as_u64),
+        agent_type: field("agentType"),
+        finished: meta.as_ref().and_then(|value| value.get("finished")).and_then(Value::as_bool),
+        stopped_by_user: meta.as_ref().and_then(|value| value.get("stoppedByUser")).and_then(Value::as_bool),
+        launched_agent: helper_launched_agent(helper.jsonl.as_deref()),
+    }
+}
+
+fn helper_launched_agent(jsonl: Option<&str>) -> bool {
+    let Some(jsonl) = jsonl else { return false };
+    jsonl_records(jsonl).iter().any(|record| {
+        record.get("message").and_then(|message| message.get("content")).and_then(Value::as_array).is_some_and(
+            |blocks| {
+                blocks.iter().any(|block| {
+                    block.get("type").and_then(Value::as_str) == Some("tool_use")
+                        && matches!(block.get("name").and_then(Value::as_str), Some("Agent" | "Task"))
+                })
+            },
+        )
+    })
 }
 
 fn jsonl_records(jsonl: &str) -> Vec<Value> {
@@ -864,6 +1060,7 @@ mod tests {
             transcript: None,
             min_screen_ms: &minimums,
             transcript_jsonl: None,
+            helpers: &[],
         })
     }
 
@@ -1316,6 +1513,7 @@ mod tests {
             transcript: None,
             min_screen_ms: &minimums,
             transcript_jsonl: None,
+            helpers: &[],
         });
         assert!(scored.failures.is_empty(), "{:?}", scored.failures);
 
@@ -1332,6 +1530,7 @@ mod tests {
             transcript: None,
             min_screen_ms: &minimums,
             transcript_jsonl: None,
+            helpers: &[],
         });
         assert!(scored.failures.iter().any(|f| f.contains("expected at least 40000")), "{:?}", scored.failures);
 
@@ -1353,6 +1552,7 @@ mod tests {
             transcript: None,
             min_screen_ms: &minimums,
             transcript_jsonl: None,
+            helpers: &[],
         });
         assert!(scored.failures.iter().any(|f| f.contains("for 0 ms")), "{:?}", scored.failures);
     }
@@ -1452,9 +1652,76 @@ not json
             transcript: None,
             min_screen_ms: &minimums,
             transcript_jsonl: Some(local_end),
+            helpers: &[],
         });
         assert!(scored.observations.tool_rejections[0].ends_turn);
         let json = serde_json::to_value(&scored).unwrap();
         assert!(json["observations"]["tool_rejections"][0]["ends_turn"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn interrupts_record_whether_turn_duration_follows() {
+        let bare = r#"{"type":"user","message":{"content":"[Request interrupted by user]"}}"#;
+        let noted = observe_transcript(bare);
+        assert_eq!(noted.interrupts.len(), 1);
+        assert!(!noted.interrupts[0].turn_duration_before_next_prompt);
+        assert!(noted.api_errors.is_empty());
+        assert!(noted.background.is_none());
+
+        let closed = r#"
+{"type":"user","message":{"content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}
+{"type":"system","subtype":"turn_duration"}
+{"type":"user","message":{"content":"next"}}
+"#;
+        let noted = observe_transcript(closed);
+        assert!(noted.interrupts[0].turn_duration_before_next_prompt);
+        assert!(noted.interrupts[0].text.contains("for tool use"));
+    }
+
+    #[test]
+    fn api_errors_keep_the_synthetic_row_and_a_following_duration() {
+        let rows = r#"
+{"type":"assistant","isApiErrorMessage":true,"error":"server_error","message":{"stop_reason":"stop_sequence","content":[{"type":"text","text":"API Error: 529"}]}}
+{"type":"system","subtype":"turn_duration"}
+"#;
+        let noted = observe_transcript(rows);
+        assert_eq!(noted.api_errors.len(), 1);
+        assert_eq!(noted.api_errors[0].error, "server_error");
+        assert!(noted.api_errors[0].is_api_error_message);
+        assert!(noted.api_errors[0].turn_duration_follows);
+    }
+
+    #[test]
+    fn background_notes_cover_the_count_the_notification_and_nested_helpers() {
+        let rows = r#"
+{"type":"user","toolUseResult":{"status":"async_launched","agentId":"agent-outer"},"message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"launched"}]}}
+{"type":"system","subtype":"turn_duration","pendingBackgroundAgentCount":1}
+{"type":"user","origin":{"kind":"task-notification"},"message":{"content":"<task-notification><status>completed</status></task-notification>"}}
+"#;
+        let helpers = [ObservedHelper {
+            id: "agent-inner".into(),
+            meta_json: Some(
+                r#"{"agentType":"general-purpose","spawnDepth":2,"parentAgentId":"agent-outer","finished":true,"stoppedByUser":false}"#
+                    .into(),
+            ),
+            jsonl: Some(
+                r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Agent","input":{}}]}}"#.into(),
+            ),
+        }];
+        let noted = observe_run(Some(rows), &helpers);
+        let background = noted.background.expect("background");
+        assert_eq!(background.pending_counts, vec![1]);
+        assert_eq!(background.task_statuses, vec!["completed".to_string()]);
+        assert_eq!(background.async_launched, vec!["agent-outer".to_string()]);
+        assert_eq!(background.helpers.len(), 1);
+        let helper = &background.helpers[0];
+        assert_eq!(helper.spawn_depth, Some(2));
+        assert_eq!(helper.parent_agent_id.as_deref(), Some("agent-outer"));
+        assert_eq!(helper.agent_type.as_deref(), Some("general-purpose"));
+        assert_eq!(helper.finished, Some(true));
+        assert_eq!(helper.stopped_by_user, Some(false));
+        assert!(helper.launched_agent);
+        let string_result = r#"{"type":"user","toolUseResult":"status async_launched"}"#;
+        assert_eq!(observe_transcript(string_result).background.unwrap().async_launched, vec!["unknown".to_string()]);
     }
 }
