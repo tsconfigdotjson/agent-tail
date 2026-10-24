@@ -5,7 +5,7 @@
 //! Checked against rollouts written by Codex CLI 0.160.1 (the fixtures) and earlier ones.
 
 use super::Adapter;
-use crate::harness::Layout;
+use crate::harness::{HelperOwner, Layout};
 use crate::session::{Last, Session, command, file_name, tool};
 use crate::state::{ActivityLine, PermissionMode};
 use serde_json::Value;
@@ -19,6 +19,7 @@ pub(crate) const LAYOUT: Layout = Layout {
     max_depth: None,
     sessions_in: None,
     helpers_in: None,
+    helper_owner: HelperOwner::SessionFolder,
     // A rollout stays in the folder of the day its session started, in local time: a
     // resumed session appends to it (tvdash #26, #64).
     day_folders: true,

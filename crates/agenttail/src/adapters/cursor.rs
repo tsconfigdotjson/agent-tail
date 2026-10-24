@@ -13,7 +13,7 @@
 //! call or a prompt that is in the workspace), and until then is the folder's last part.
 
 use super::Adapter;
-use crate::harness::Layout;
+use crate::harness::{HelperOwner, Layout};
 use crate::session::{Last, Session, command, file_name, first_line, tool};
 use crate::state::ActivityLine;
 use crate::time::{days_from_civil, valid_date};
@@ -33,6 +33,7 @@ pub(crate) const LAYOUT: Layout = Layout {
     max_depth: Some(4),
     sessions_in: Some(TRANSCRIPTS),
     helpers_in: Some("subagents"),
+    helper_owner: HelperOwner::SessionFolder,
     day_folders: false,
 };
 

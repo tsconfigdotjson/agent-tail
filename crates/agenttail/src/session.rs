@@ -51,6 +51,10 @@ pub(crate) struct Session {
     pub(crate) approval_reviewer_auto: bool,
     /// The error the harness recorded, if the last thing was an error.
     pub(crate) error: Option<String>,
+    /// Claude Code's `turn_duration.pendingBackgroundAgentCount`, when it records one.
+    pub(crate) background_agents: usize,
+    /// Whether this is a helper's own session: its records carry `isSidechain: true`.
+    pub(crate) is_helper: bool,
     pub(crate) log: VecDeque<ActivityLine>,
     log_lines: usize,
     pub(crate) last: Last,
@@ -80,6 +84,8 @@ impl Session {
             entrypoint_sdk: false,
             approval_reviewer_auto: false,
             error: None,
+            background_agents: 0,
+            is_helper: false,
             log: VecDeque::with_capacity(log_lines + 1),
             log_lines,
             last: Last::Nothing,
@@ -120,6 +126,7 @@ impl Session {
             since: some(if self.last_at > 0.0 { self.last_at } else { self.mtime }),
             last_at: some(self.last_at),
             last_write: some(self.active_at()),
+            background: Vec::new(),
             permission: self.permission,
             error: self.error.clone(),
             meta: SessionMeta {
@@ -174,12 +181,25 @@ impl Session {
         if matches!(last, Last::Prompt | Last::EndTurn | Last::Interrupted | Last::Errored) {
             self.pending_tools.clear();
         }
+        if matches!(last, Last::Prompt | Last::Interrupted | Last::Errored) {
+            self.background_agents = 0;
+        }
     }
 
     /// The turn ended with an error the harness recorded.
     pub(crate) fn set_error(&mut self, error: impl Into<String>, t: f64) {
         self.set(Last::Errored, t);
         self.error = Some(error.into());
+    }
+
+    /// Claude Code's firm count of helpers still running when the turn ended.
+    pub(crate) fn set_background_agents(&mut self, n: usize) {
+        self.background_agents = n;
+    }
+
+    /// A `task-notification` arrived for one helper: one fewer background agent.
+    pub(crate) fn background_agent_finished(&mut self) {
+        self.background_agents = self.background_agents.saturating_sub(1);
     }
 
     /// When entry `e` happened: its RFC 3339 `timestamp`, or (with none) when the transcript

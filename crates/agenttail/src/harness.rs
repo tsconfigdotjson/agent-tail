@@ -84,13 +84,27 @@ pub struct Layout {
     pub sessions_in: Option<&'static str>,
     /// The folder, beside a session's transcript, that holds its helpers' transcripts
     /// (Cursor's subagents: `<id>/<id>.jsonl`, and `<id>/subagents/*.jsonl` one level below
-    /// `max_depth`). They aren't sessions of their own and aren't read: a write to one
-    /// counts as activity of the session it helps, so a session waiting on a subagent isn't
-    /// taken for one waiting on the user. Needs a `max_depth`.
+    /// `max_depth`). They aren't sessions of their own and aren't read as one: their bytes
+    /// are fed to the session as helper state, so a session whose turn ended with a helper
+    /// still writing is `BackgroundWork`, not `Done`. Needs a `max_depth`.
     pub helpers_in: Option<&'static str>,
+    /// How a helper's file path names the session it helps (see [`HelperOwner`]).
+    pub helper_owner: HelperOwner,
     /// Whether transcripts are filed in YYYY/MM/DD folders by the day their session
     /// started, and stay there; see [`may_hold_since`](Layout::may_hold_since).
     pub day_folders: bool,
+}
+
+/// How a helper transcript names the session it belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum HelperOwner {
+    /// Cursor: a session is `<id>/<id>.jsonl`, and helpers are `<id>/subagents/*.jsonl`.
+    SessionFolder,
+    /// Claude Code: a session is `<id>.jsonl`, and helpers are in the sibling
+    /// `<id>/subagents/*.jsonl`.
+    SessionFileStem,
 }
 
 /// What a `*.jsonl` file below a harness's root is to it.
@@ -119,17 +133,36 @@ impl Layout {
             return Some(Role::Session);
         }
         let helpers = self.helpers_in?;
-        if n != max + 1 || c[n - 2] != helpers || n < 3 {
+        let helper_depth = match self.helper_owner {
+            HelperOwner::SessionFolder => max + 1,
+            HelperOwner::SessionFileStem => max + 2,
+        };
+        if n != helper_depth || c[n - 2] != helpers || n < 3 {
             return None;
         }
-        let owner = c[n - 3].to_string_lossy();
-        Some(Role::Helper(c[..n - 2].iter().collect::<PathBuf>().join(format!("{owner}.jsonl"))))
+        let owner = match self.helper_owner {
+            HelperOwner::SessionFolder => {
+                let owner = c[n - 3].to_string_lossy();
+                c[..n - 2].iter().collect::<PathBuf>().join(format!("{owner}.jsonl"))
+            }
+            HelperOwner::SessionFileStem => {
+                let mut owner: PathBuf = c[..n - 2].iter().collect();
+                owner.set_extension("jsonl");
+                owner
+            }
+        };
+        Some(Role::Helper(owner))
     }
 
     /// How many folders down from `root` files are looked for: sessions' depth, plus one for
     /// helpers.
     pub fn walk_depth(&self) -> usize {
-        self.max_depth.map_or(usize::MAX, |d| d + usize::from(self.helpers_in.is_some()))
+        let extra = match (self.helpers_in, self.helper_owner) {
+            (None, _) => 0,
+            (Some(_), HelperOwner::SessionFolder) => 1,
+            (Some(_), HelperOwner::SessionFileStem) => 2,
+        };
+        self.max_depth.map_or(usize::MAX, |d| d + extra)
     }
 
     /// Whether `dir`, a folder below `root` (relative to it), may hold transcripts of
@@ -222,12 +255,15 @@ mod tests {
         ] {
             assert_eq!(rel(not), None, "{not}");
         }
-        // The others take any transcript within their depth, and have no helpers.
+        // Claude Code: the session is `p/s.jsonl`; its helpers are in the sibling folder
+        // `p/s/subagents/`, not inside a session folder.
         let claude = Harness::ClaudeCode.layout();
         assert_eq!(claude.role(Path::new("p/s.jsonl")), Some(Role::Session));
-        assert_eq!(claude.role(Path::new("p/s/subagents/a.jsonl")), None);
+        assert_eq!(claude.role(Path::new("p/s/subagents/a.jsonl")), Some(Role::Helper(PathBuf::from("p/s.jsonl"))));
+        assert_eq!(claude.role(Path::new("p/s/other/a.jsonl")), None);
         assert_eq!(Harness::Codex.layout().role(Path::new("2026/10/22/r.jsonl")), Some(Role::Session));
         assert_eq!(cursor.walk_depth(), 5);
+        assert_eq!(claude.walk_depth(), 4);
         assert_eq!(Harness::Codex.layout().walk_depth(), usize::MAX);
     }
 

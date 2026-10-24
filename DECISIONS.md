@@ -147,3 +147,34 @@ append the user-prompt record after the assistant reply; the reducer then reads 
 after `Done` and says `Thinking`. Real model latency hides this, so scenarios give the
 first token a 1 s delay. A prompt record older than the latest activity should not move
 the state backwards: still to test and decide.
+
+## Phase B5: background helpers (2026-10-24)
+
+**Helpers are read, not just counted as writes.** `Layout` gained `helper_owner`: Cursor
+keeps a session at `<id>/<id>.jsonl` with helpers in `<id>/subagents` (`SessionFolder`),
+while Claude Code keeps `<id>.jsonl` with helpers in the sibling `<id>/subagents`
+(`SessionFileStem`). `walk_depth` and `Role::role` account for the extra folder depth.
+Claude Code's `max_depth` stays 2 for sessions, but the walk reaches 4 for helpers.
+
+**`SessionReducer::feed_helper(id, bytes, ctx)`** follows each helper with the same parser
+and status rules as its parent. Helper records carry `isSidechain: true`; `Session` has an
+`is_helper` flag so the Claude adapter stops filtering them for helper reducers only. The
+Tracker remembers each helper's byte offset and feeds new bytes to the session it helps,
+keeping the old mtime-only `helper_written` behavior as well.
+
+**`SessionState.background` and `BackgroundWork`.** `HelperState` carries the helper's id
+(its transcript path), activity, certainty, reason and times. A helper is running unless its
+own state is `Done`/`Interrupted`/`Errored`/`Idle`/`Unknown`. When the parent turn ended and
+either a helper is running or Claude's `turn_duration.pendingBackgroundAgentCount` is above
+zero, the activity becomes `BackgroundWork` (reason `BackgroundHelpers`). The parent's count
+is firm; a helper transcript alone is inferred. The count is decremented by each
+`task-notification` (`completed`/`failed`/`stopped`), and `task-notification` records are
+explicitly excluded from prompts via `origin.kind`. `agents_killed` clears the count.
+
+**Cursor helpers now have their own `turn_ended` read**, so a finished subagent and a stuck
+one no longer look alike. The existing fs test now asserts BackgroundWork while the helper
+runs and Done after its `turn_ended`.
+
+Still to do for B5: link parent `Agent` `async_launched` results and `.meta.json`
+`finished: true`/`stoppedByUser` to helper ids, and add a driver scenario for a real
+background `Agent` (the mock needs to answer the subagent's own model request).
