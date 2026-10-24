@@ -191,5 +191,25 @@ time, so a timestamp with an offset no longer falls back to the transcript's mti
 handles a last line with no newline. `Diagnostics::lines` counts entries now, not physical
 lines.
 
-**CRLF** needed no special-case (`serde_json` accepts the ``), but a test now covers it
+**CRLF** needed no special-case (`serde_json` accepts the `
+`), but a test now covers it
 together with an offset timestamp.
+
+## Phase B7: usage (2026-10-24)
+
+**Claude's per-message rows repeat or grow, so use the highest value.** A structure-only
+survey of this Mac's Claude Code transcripts found 11,798 assistant messages split over
+24,617 rows: 8,107 messages had identical usage on every row, 369 grew (e.g. output 8 then
+135), and none shrank. `Session::record_usage` keeps the highest value each field has
+reported for a `message.id` and adds only the increases, so repeated rows don't overcount
+and an early row doesn't undercount. The old first-row rule was the undercounting case.
+
+**`SessionState.usage` is the reported counts.** `TokenUsage` has `input_tokens`,
+`output_tokens`, `cache_read_input_tokens` and `cache_creation_input_tokens`, each
+`Option<u64>` and `None` when the harness doesn't record it. `out_tokens` stays as the
+StatusWall card convenience and equals `usage.output_tokens.unwrap_or(0)`. Codex's
+`token_count.total_token_usage` is a running total, so it replaces the usage instead of
+being summed; `cached_input_tokens` maps to cache-read. Cursor reports none.
+
+Still to do for B7: Codex title from `session_index.jsonl` `thread_name`, and Cursor's title
+from `state.vscdb` (B9).

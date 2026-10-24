@@ -33,7 +33,12 @@ pub struct SessionState {
     pub meta: SessionMeta,
     /// Spend in US dollars, as the harness recorded it (Claude Code); never estimated.
     pub cost_usd: Option<f64>,
-    /// Output tokens so far, as the harness reported them (each API message counted once).
+    /// Token counts as the harness reported them; `None` for a kind it doesn't record.
+    /// Claude Code's per-message rows are deduped by `message.id`, taking the highest value
+    /// each field reports (rows repeat or grow as a message is written).
+    pub usage: TokenUsage,
+    /// Output tokens so far. Kept for StatusWall's card; equal to
+    /// `usage.output_tokens.unwrap_or(0)`.
     pub out_tokens: u64,
     /// The last few things the session did, oldest first (see
     /// [`ReducerOptions::recent_lines`](crate::ReducerOptions::recent_lines)).
@@ -184,6 +189,15 @@ pub enum Reason {
     Errored,
     /// The turn ended, but a helper is still writing: `BackgroundWork`.
     BackgroundHelpers,
+}
+
+/// Token counts as a harness reports them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct TokenUsage {
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub cache_read_input_tokens: Option<u64>,
+    pub cache_creation_input_tokens: Option<u64>,
 }
 
 /// A helper still running: a subagent or background task that outlived the parent's turn.

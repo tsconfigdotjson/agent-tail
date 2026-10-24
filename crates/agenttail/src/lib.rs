@@ -51,5 +51,6 @@ pub use harness::{Harness, Layout, Role};
 pub use reducer::{ChunkCtx, ParseMode, ReducerOptions, SessionReducer};
 pub use state::{
     Activity, ActivityLine, Certainty, Diagnostics, PermissionMode, Reason, SessionMeta, SessionState, StatusClass,
+    TokenUsage,
 };
 pub use time::Timestamp;

@@ -75,9 +75,15 @@ impl Adapter for Codex {
             }
             ("event_msg", "turn_aborted") => s.set(Last::Interrupted, t),
             ("event_msg", "token_count") => {
-                // A running total for the session.
-                if let Some(n) = p["info"]["total_token_usage"]["output_tokens"].as_u64() {
-                    s.out_tokens = n;
+                // A running total for the session, not a per-call delta.
+                let total = &p["info"]["total_token_usage"];
+                if !total.is_null() {
+                    s.set_usage(crate::TokenUsage {
+                        input_tokens: total["input_tokens"].as_u64(),
+                        output_tokens: total["output_tokens"].as_u64(),
+                        cache_read_input_tokens: total["cached_input_tokens"].as_u64(),
+                        cache_creation_input_tokens: None,
+                    });
                 }
             }
             ("response_item", "function_call" | "custom_tool_call") => {
@@ -201,10 +207,11 @@ mod tests {
             s.apply(&event(
                 "event_msg",
                 json!({"type": "token_count",
-                "info": {"total_token_usage": {"output_tokens": n}}}),
+                "info": {"total_token_usage": {"input_tokens": 900, "output_tokens": n, "cached_input_tokens": 50}}}),
             ));
             assert_eq!(s.out_tokens, n, "Codex reports running totals");
         }
+        assert_eq!((s.usage.input_tokens, s.usage.cache_read_input_tokens), (Some(900), Some(50)));
 
         s.apply(&event("event_msg", json!({"type": "task_complete"})));
         assert_eq!(status(&s), (Status::Done, "done"));
