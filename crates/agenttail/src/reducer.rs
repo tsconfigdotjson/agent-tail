@@ -5,10 +5,11 @@ use crate::error::Error;
 use crate::harness::Harness;
 use crate::lean::lean;
 use crate::session::Session;
-use crate::state::{Diagnostics, SessionState};
+use crate::state::{Activity, Certainty, Diagnostics, HelperState, Reason, SessionState};
 use crate::time::Timestamp;
 use serde_json::Value;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -90,6 +91,10 @@ pub struct SessionReducer {
     path: Option<PathBuf>,
     fed: bool,
     diagnostics: Diagnostics,
+    /// Helpers (subagents/background tasks), each followed with the same reducer.
+    helpers: HashMap<String, SessionReducer>,
+    /// This reducer is following a helper transcript, whose records are `isSidechain`.
+    helper: bool,
 }
 
 impl SessionReducer {
@@ -102,6 +107,8 @@ impl SessionReducer {
             path: None,
             fed: false,
             diagnostics: Diagnostics::default(),
+            helpers: HashMap::new(),
+            helper: false,
         }
     }
 
@@ -110,7 +117,9 @@ impl SessionReducer {
     /// project) while its file is still empty. Only the first path counts.
     pub fn set_path(&mut self, path: &Path) {
         if self.path.is_none() {
+            let is_helper = self.session.is_helper;
             self.session = Session::at(self.session.harness, self.options.recent_lines, path);
+            self.session.is_helper = is_helper;
             self.path = Some(path.into());
         }
     }
@@ -168,7 +177,51 @@ impl SessionReducer {
 
     /// The session's state as of `now`: a pure function of what was fed and `now`.
     pub fn state(&self, now: Timestamp) -> SessionState {
-        self.session.state(now, &self.options, self.diagnostics)
+        let mut state = self.session.state(now, &self.options, self.diagnostics);
+        let mut background = Vec::new();
+        for (id, helper) in &self.helpers {
+            let helper = helper.state(now);
+            // A finished or stale helper no longer keeps the parent at work.
+            if matches!(
+                helper.activity,
+                Activity::Done | Activity::Interrupted | Activity::Errored | Activity::Idle | Activity::Unknown
+            ) {
+                continue;
+            }
+            background.push(HelperState {
+                id: id.clone(),
+                activity: helper.activity,
+                certainty: helper.certainty,
+                reason: helper.reason,
+                since: helper.since,
+                last_write: helper.last_write,
+            });
+        }
+        background.sort_by(|a, b| a.id.cmp(&b.id));
+        let pending = self.session.background_agents;
+        if state.activity == Activity::Done && (pending > 0 || !background.is_empty()) {
+            state.activity = Activity::BackgroundWork;
+            state.reason = Reason::BackgroundHelpers;
+            // The parent's pending count is firm; a helper's own transcript end is inferred.
+            state.certainty = if pending > 0 { Certainty::Firm } else { Certainty::Inferred };
+        }
+        state.background = background;
+        state
+    }
+
+    /// Feed one helper's transcript (a subagent or background task). `id` is stable for the
+    /// helper, usually its transcript path. Helpers use the same parser and status rules as
+    /// their parent.
+    pub fn feed_helper(&mut self, id: &str, bytes: &[u8], ctx: ChunkCtx<'_>) -> Result<(), Error> {
+        let harness = self.session.harness;
+        let options = self.options.clone();
+        let helper = self.helpers.entry(id.to_string()).or_insert_with(|| {
+            let mut reducer = SessionReducer::new(harness, options);
+            reducer.helper = true;
+            reducer.session.is_helper = true;
+            reducer
+        });
+        helper.feed(bytes, ctx)
     }
 
     /// When the session was last seen at work: its transcript's last write, or a helper's.
@@ -215,7 +268,10 @@ impl SessionReducer {
     /// Back to an empty session at the same path.
     fn restart(&mut self) {
         let path = self.path.take();
+        let helper = self.helper;
         *self = SessionReducer::new(self.session.harness, self.options.clone());
+        self.helper = helper;
+        self.session.is_helper = helper;
         if let Some(path) = path {
             self.set_path(&path);
         }
@@ -388,6 +444,54 @@ mod tests {
             s.feed(text.as_bytes(), ctx(0)).unwrap();
             assert_eq!(s.state(Timestamp::from_secs_f64(NOW)).diagnostics, Diagnostics { lines: 2, unparsed: 1, cut });
         }
+    }
+
+    #[test]
+    fn helpers_keep_a_finished_turn_at_work() {
+        let mut s = SessionReducer::new(Harness::ClaudeCode, ReducerOptions::default());
+        let parent = jsonl(&[
+            json!({"type": "assistant", "timestamp": crate::testutil::at(3.0),
+                   "message": {"id": "m1", "stop_reason": "end_turn", "usage": {"output_tokens": 1},
+                               "content": [{"type": "text", "text": "done"}]}}),
+            json!({"type": "system", "subtype": "turn_duration", "timestamp": crate::testutil::at(2.0),
+                   "pendingBackgroundAgentCount": 1}),
+        ]);
+        s.feed(parent.as_bytes(), ctx(0)).unwrap();
+        let st = s.state(Timestamp::from_secs_f64(NOW));
+        assert_eq!(
+            (st.activity, st.certainty, st.reason),
+            (Activity::BackgroundWork, Certainty::Firm, Reason::BackgroundHelpers)
+        );
+
+        let helper = jsonl(&[json!({"type": "assistant", "isSidechain": true, "timestamp": crate::testutil::at(1.0),
+                                    "message": {"id": "h1", "stop_reason": "tool_use", "usage": {"output_tokens": 1},
+                                                "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "sleep 9"}}]}})]);
+        s.feed_helper("agent-a1", helper.as_bytes(), ctx(0)).unwrap();
+        // The helper is running a tool, not asking for approval: it is background work.
+        let st = s.state(Timestamp::from_secs_f64(NOW));
+        assert_eq!(st.background.len(), 1);
+        assert_eq!(st.background[0].id, "agent-a1");
+        assert_eq!(st.background[0].activity, Activity::RunningTool);
+
+        let finished =
+            jsonl(&[json!({"type": "assistant", "isSidechain": true, "timestamp": crate::testutil::at(0.5),
+                                      "message": {"id": "h2", "stop_reason": "end_turn", "usage": {"output_tokens": 1},
+                                                  "content": [{"type": "text", "text": "done"}]}})]);
+        s.feed_helper("agent-a1", finished.as_bytes(), ctx(helper.len() as u64)).unwrap();
+        let st = s.state(Timestamp::from_secs_f64(NOW));
+        assert_eq!(st.background.len(), 0);
+        // The parent count is still 1 until its task-notification arrives.
+        assert_eq!((st.activity, st.certainty), (Activity::BackgroundWork, Certainty::Firm));
+
+        let note = jsonl(&[
+            json!({"type": "user", "origin": {"kind": "task-notification"}, "timestamp": crate::testutil::at(0.2),
+                                  "message": {"content": "<task-notification><status>completed</status></task-notification>"}}),
+        ]);
+        let offset = parent.len() as u64;
+        s.feed(note.as_bytes(), ctx(offset)).unwrap();
+        let st = s.state(Timestamp::from_secs_f64(NOW));
+        assert_eq!((st.activity, st.background.len()), (Activity::Done, 0));
+        assert_eq!(log(s.session()), Vec::<String>::new(), "a task-notification is not a prompt");
     }
 
     #[test]

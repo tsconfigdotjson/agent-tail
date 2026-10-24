@@ -74,6 +74,8 @@ pub struct Tracker {
     /// Helpers' transcripts (see `Layout::helpers_in`) in the window, with the session each
     /// helps: followed between sweeps as sessions are.
     helpers: HashMap<PathBuf, (Harness, PathBuf)>,
+    /// How much of each helper transcript has been fed to its session.
+    helper_offsets: HashMap<PathBuf, u64>,
     /// When a poll last read every folder; None: the next one does.
     swept: Option<Timestamp>,
     /// Each folder looked into by the last poll, as it was then. Between sweeps a folder that
@@ -114,6 +116,7 @@ impl Tracker {
             options: ReducerOptions::default(),
             sessions: HashMap::new(),
             helpers: HashMap::new(),
+            helper_offsets: HashMap::new(),
             swept: None,
             folders: HashMap::new(),
         }
@@ -188,6 +191,41 @@ impl Tracker {
         }
         self.sessions.retain(|p, _| live.contains(p));
         self.helpers = helpers;
+        // Feed each helper's new bytes to the session it helps. A helper's own transcript
+        // says whether it is still running; the parent then reports BackgroundWork.
+        let current = std::mem::take(&mut self.helpers);
+        let mut live_helpers = HashSet::new();
+        for (path, (harness, owner)) in &current {
+            if !self.filter.shows(*harness) || !live.contains(owner) {
+                continue;
+            }
+            let Some(f) = self.sessions.get_mut(owner) else { continue };
+            let Ok(meta) = std::fs::metadata(path) else { continue };
+            let Ok(mtime) = meta.modified() else { continue };
+            let len = meta.len();
+            let offset = self.helper_offsets.get(path).copied().unwrap_or(0);
+            let offset = if len < offset { 0 } else { offset };
+            if len > offset {
+                let Ok(mut file) = File::open(path) else { continue };
+                if file.seek(SeekFrom::Start(offset)).is_err() {
+                    continue;
+                }
+                let mut bytes = Vec::new();
+                if file.read_to_end(&mut bytes).is_err() {
+                    continue;
+                }
+                let id = path.to_string_lossy();
+                let ctx = ChunkCtx { offset, mtime: Timestamp::from(mtime), path };
+                if f.reducer.feed_helper(&id, &bytes, ctx).is_ok() {
+                    self.helper_offsets.insert(path.clone(), len);
+                } else {
+                    self.helper_offsets.insert(path.clone(), 0);
+                }
+            }
+            live_helpers.insert(path.clone());
+        }
+        self.helpers = current;
+        self.helper_offsets.retain(|p, _| live_helpers.contains(p));
         for (owner, t) in helped {
             if let Some(f) = self.sessions.get_mut(&owner) {
                 f.reducer.helper_written(Timestamp::from_secs_f64(t));
@@ -654,6 +692,61 @@ mod tests {
     }
 
     #[test]
+    fn tracker_feeds_claude_subagents_and_reports_background_work() {
+        let home = tempfile::tempdir().unwrap();
+        let project = home.path().join(".claude/projects/-w-site");
+        std::fs::create_dir_all(project.join("s/subagents")).unwrap();
+        let parent = project.join("s.jsonl");
+        std::fs::write(
+            &parent,
+            jsonl(&[
+                claude_prompt("/w/site", "go", 5.0),
+                json!({"type": "assistant", "timestamp": at(3.0),
+                       "message": {"id": "m1", "stop_reason": "end_turn", "usage": {"output_tokens": 1},
+                                   "content": [{"type": "text", "text": "done"}]}}),
+                json!({"type": "system", "subtype": "turn_duration", "timestamp": at(2.0),
+                       "pendingBackgroundAgentCount": 1}),
+            ]),
+        )
+        .unwrap();
+        let helper = project.join("s/subagents/agent-a1.jsonl");
+        std::fs::write(
+            &helper,
+            jsonl(&[json!({"type": "assistant", "isSidechain": true, "timestamp": at(1.0),
+                           "message": {"id": "h1", "stop_reason": "tool_use", "usage": {"output_tokens": 1},
+                                       "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "sleep 9"}}]}})]),
+        )
+        .unwrap();
+
+        let mut t = Tracker::new(home.path(), hours(1.0));
+        let v = t.poll(wall());
+        assert_eq!(v.len(), 1, "the helper is not a session of its own");
+        let state = &v[0].1;
+        assert_eq!(state.activity, crate::Activity::BackgroundWork);
+        assert_eq!(state.certainty, crate::Certainty::Firm, "the parent's count is firm");
+        assert_eq!(state.background.len(), 1);
+        let id = state.background[0].id.clone();
+        assert!(id.ends_with("agent-a1.jsonl"), "{id}");
+
+        append(
+            &helper,
+            &jsonl(&[json!({"type": "assistant", "isSidechain": true, "timestamp": at(0.8),
+                            "message": {"id": "h2", "stop_reason": "end_turn", "usage": {"output_tokens": 1},
+                                        "content": [{"type": "text", "text": "done"}]}})]),
+        );
+        let state = &t.poll(wall())[0].1;
+        assert_eq!(state.background.len(), 0, "the helper's own end is read");
+
+        append(
+            &parent,
+            &jsonl(&[json!({"type": "user", "origin": {"kind": "task-notification"}, "timestamp": at(0.5),
+                            "message": {"content": "<task-notification><status>completed</status></task-notification>"}})]),
+        );
+        let state = &t.poll(wall())[0].1;
+        assert_eq!((state.activity, state.background.len()), (crate::Activity::Done, 0));
+    }
+
+    #[test]
     fn tracker_takes_roots_of_its_own() {
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path().join("elsewhere/-w-site");
@@ -705,12 +798,16 @@ mod tests {
             "Users-sam-Work-shade/x.jsonl",
             "loose.jsonl",
             "Users-sam-Work-shade/agent-transcripts/b2/notes/n.jsonl",
-            "Users-sam-Work-shade/agent-transcripts/b2/subagents/s1.jsonl",
         ] {
             let path = h.join(".cursor/projects").join(rel);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, &decoy).unwrap();
         }
+        // A subagent is not a session, but it is read as a helper; make it finished so the
+        // parent stays done.
+        let helper = h.join(".cursor/projects/Users-sam-Work-shade/agent-transcripts/b2/subagents/s1.jsonl");
+        std::fs::create_dir_all(helper.parent().unwrap()).unwrap();
+        std::fs::write(helper, cursor_line(json!({"type": "turn_ended", "status": "success"}))).unwrap();
         let outside = h.join("elsewhere.jsonl");
         std::fs::write(&outside, &decoy).unwrap();
         let link = h.join(".cursor/projects/Users-sam-Work-shade/agent-transcripts/link");
@@ -791,8 +888,11 @@ mod tests {
         let cutoff = (wall() - t.filter.window).to_system_time();
         let followed: Vec<_> = t.transcripts(cutoff, false).into_iter().map(|(_, p, _, r)| (p, r)).collect();
         assert!(followed.contains(&(sub.clone(), Role::Helper(main.clone()))), "{followed:?}");
-        // The session's own write after the subagent's: as usual.
+        // The session's own turn ends while its subagent still runs: background work.
         append(&main, &cursor_line(json!({"type": "turn_ended", "status": "success"})));
+        assert_eq!(polled(&mut t), [("app".into(), "working".into())], "the helper is still running");
+        // The helper's own end lets the session finish.
+        append(&sub, &cursor_line(json!({"type": "turn_ended", "status": "success"})));
         assert_eq!(polled(&mut t), [("app".into(), "done".into())]);
     }
 

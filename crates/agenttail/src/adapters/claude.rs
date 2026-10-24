@@ -2,7 +2,7 @@
 //! ("user" / "assistant" messages, plus "ai-title", "cost-state" and bookkeeping we skip).
 
 use super::Adapter;
-use crate::harness::Layout;
+use crate::harness::{HelperOwner, Layout};
 use crate::session::{Last, Session, command, file_name, first_line, tool};
 use crate::state::{ActivityLine, PermissionMode};
 use serde_json::Value;
@@ -15,7 +15,8 @@ pub(crate) const LAYOUT: Layout = Layout {
     // <project>/<session id>.jsonl; subagents' transcripts, further down, belong to their session.
     max_depth: Some(2),
     sessions_in: None,
-    helpers_in: None,
+    helpers_in: Some("subagents"),
+    helper_owner: HelperOwner::SessionFileStem,
     day_folders: false,
 };
 
@@ -46,8 +47,8 @@ impl Adapter for ClaudeCode {
                     s.cost = Some(cost);
                 }
             }
-            Some("user") if e["isSidechain"] != true => user(s, e),
-            Some("assistant") if e["isSidechain"] != true => assistant(s, e),
+            Some("user") if s.is_helper || e["isSidechain"] != true => user(s, e),
+            Some("assistant") if s.is_helper || e["isSidechain"] != true => assistant(s, e),
             Some("system") => system(s, e),
             _ => {}
         }
@@ -61,6 +62,16 @@ fn interrupted(s: &str) -> bool {
 fn user(s: &mut Session, e: &Value) {
     let t = s.time_of(e);
     let content = &e["message"]["content"];
+    // The same channel carries subagent completions; they are not prompts.
+    if e["origin"]["kind"] == "task-notification" {
+        if let Some(status) = task_status(content) {
+            // completed, failed or stopped: either way the helper is no longer pending.
+            if ["completed", "failed", "stopped"].contains(&status) {
+                s.background_agent_finished();
+            }
+        }
+        return;
+    }
     if let Some(text) = content.as_str() {
         if interrupted(text) {
             s.set(Last::Interrupted, t);
@@ -113,11 +124,32 @@ fn assistant(s: &mut Session, e: &Value) {
 fn system(s: &mut Session, e: &Value) {
     let t = s.time_of(e);
     match e["subtype"].as_str() {
-        // The firmest turn end, written once after the hooks. `agents_killed` marks a
-        // session exiting with its helpers: the turn is over.
-        Some("turn_duration" | "agents_killed") => s.set(Last::EndTurn, t),
+        // The firmest turn end, written once after the hooks. It also carries a firm count
+        // of helpers still running when the turn ended.
+        Some("turn_duration") => {
+            s.set(Last::EndTurn, t);
+            if let Some(n) = e["pendingBackgroundAgentCount"].as_u64() {
+                s.set_background_agents(n as usize);
+            }
+        }
+        // A session exiting with its helpers: the turn is over, nothing is left running.
+        Some("agents_killed") => {
+            s.set(Last::EndTurn, t);
+            s.set_background_agents(0);
+        }
         _ => {}
     }
+}
+
+/// The `<status>` a `task-notification` carries, if it has one.
+fn task_status(content: &Value) -> Option<&str> {
+    let text = match content {
+        Value::String(text) => text.as_str(),
+        Value::Array(blocks) => blocks.iter().find_map(|b| b["text"].as_str())?,
+        _ => return None,
+    };
+    let rest = text.split_once("<status>")?.1;
+    rest.split_once("</status>").map(|(status, _)| status.trim())
 }
 
 fn describe_tool(name: &str, input: &Value) -> ActivityLine {

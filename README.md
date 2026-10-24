@@ -6,8 +6,8 @@ transcripts Claude Code, Codex and Cursor already write, so there's nothing to i
 the agents and nothing to configure.
 
 Status: **pre-release, private.** The sans-IO core, the `fs` tracker, the CLI and the
-real-harness rig are in place. Permission modes, firm turn ends, interrupts and errors are
-implemented and tested against the real Claude Code TUI; background subagents are next.
+real-harness rig are in place. Permission modes, firm turn ends, interrupts, errors and
+background helpers are implemented; the harness CI matrix and StatusWall adoption are next.
 See [PLAN.md](PLAN.md) and [issue #1](https://github.com/tsconfigdotjson/agenttail/issues/1).
 
 ## Status is the headline
@@ -23,10 +23,11 @@ For each session you get a `SessionState`:
 | `done` | the turn ended normally (Claude `end_turn`/`turn_duration`/`agents_killed`; Codex `task_complete`/`turn_complete`; Cursor `turn_ended`) | firm |
 | `interrupted` | the user interrupted or aborted (Claude's interrupt text, Codex `turn_aborted`, Cursor's abort status/user-stop string) | firm |
 | `errored` | the harness recorded an error ending the turn (Claude's synthetic API row, Codex `task_complete.error`, Cursor's error status and message) | firm |
+| `background_work` | the turn ended, but a subagent or background task is still writing (Claude's `pendingBackgroundAgentCount` makes this firm; a helper's own transcript makes it inferred) | firm / **inferred** |
 | `idle` | nothing written for 15 min, or nothing read yet | firm |
 
-Each state also carries the harness's last `permission` mode (Claude Code and Codex) and,
-for `errored`, the harness's `error` kind/message.
+Each state also carries the harness's last `permission` mode (Claude Code and Codex), the
+`background` helpers still running, and, for `errored`, the harness's `error` kind/message.
 
 Each state also says *why* (`reason`, one value per rule), and carries the project, branch,
 title, cost (where the harness records it), output tokens, the last few activity lines

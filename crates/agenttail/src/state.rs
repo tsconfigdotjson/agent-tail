@@ -23,6 +23,8 @@ pub struct SessionState {
     pub last_at: Option<Timestamp>,
     /// The newest write to the transcript, or to any of its helpers' transcripts.
     pub last_write: Option<Timestamp>,
+    /// Helpers (subagents and background tasks) still running, as their own transcripts say.
+    pub background: Vec<HelperState>,
     /// The permission mode the harness last recorded, if it records one.
     pub permission: Option<PermissionMode>,
     /// The error the harness recorded, when the turn ended with one (e.g. `server_error`,
@@ -39,8 +41,8 @@ pub struct SessionState {
     pub diagnostics: Diagnostics,
 }
 
-/// What a session is doing. Shaped for where the library is going (PLAN.md section 4); for
-/// now only some are produced, by today's rules: see [`Reason`].
+/// What a session is doing. Shaped for where the library is going (PLAN.md section 4): see
+/// [`Reason`] for the rule that produced it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
@@ -53,7 +55,7 @@ pub enum Activity {
     RunningTool,
     /// A prompt was sent or a tool result came back: the model is generating.
     Thinking,
-    /// The turn ended, but helpers are still running. Not produced yet.
+    /// The turn ended, but helpers (subagents/background tasks) are still running.
     BackgroundWork,
     /// The turn ended normally.
     Done,
@@ -180,6 +182,20 @@ pub enum Reason {
     Interrupted,
     /// The harness recorded an error ending the turn: `Errored`.
     Errored,
+    /// The turn ended, but a helper is still writing: `BackgroundWork`.
+    BackgroundHelpers,
+}
+
+/// A helper still running: a subagent or background task that outlived the parent's turn.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct HelperState {
+    /// The helper's transcript identity (its path, for local sessions).
+    pub id: String,
+    pub activity: Activity,
+    pub certainty: Certainty,
+    pub reason: Reason,
+    pub since: Option<Timestamp>,
+    pub last_write: Option<Timestamp>,
 }
 
 /// Where and what a session is about.
