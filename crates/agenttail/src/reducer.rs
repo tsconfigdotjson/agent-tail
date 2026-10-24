@@ -93,8 +93,24 @@ pub struct SessionReducer {
     diagnostics: Diagnostics,
     /// Helpers (subagents/background tasks), each followed with the same reducer.
     helpers: HashMap<String, SessionReducer>,
+    /// A helper's `.meta.json`, keyed like `helpers`: `finished`/`stoppedByUser` is the
+    /// firm end that a transcript's `end_turn` alone isn't.
+    helper_meta: HashMap<String, HelperMeta>,
     /// This reducer is following a helper transcript, whose records are `isSidechain`.
     helper: bool,
+}
+
+/// The fields of Claude Code's `<agent>.meta.json` that decide whether a helper ended.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct HelperMeta {
+    finished: bool,
+    stopped_by_user: bool,
+}
+
+impl HelperMeta {
+    fn ended(self) -> bool {
+        self.finished || self.stopped_by_user
+    }
 }
 
 impl SessionReducer {
@@ -108,6 +124,7 @@ impl SessionReducer {
             fed: false,
             diagnostics: Diagnostics::default(),
             helpers: HashMap::new(),
+            helper_meta: HashMap::new(),
             helper: false,
         }
     }
@@ -180,6 +197,14 @@ impl SessionReducer {
         let mut state = self.session.state(now, &self.options, self.diagnostics);
         let mut background = Vec::new();
         for (id, helper) in &self.helpers {
+            // `.meta.json` finished/stopped is firmer than the helper's own last entry; a
+            // notification or metadata that ended the parent's launch also ends it here.
+            let meta_ended = self.helper_meta.get(id).is_some_and(|meta| meta.ended());
+            let launch_ended =
+                self.session.launched_helpers.values().any(|launch| launch.ended && launch.matches_helper(id));
+            if meta_ended || launch_ended {
+                continue;
+            }
             let helper = helper.state(now);
             // A finished or stale helper no longer keeps the parent at work.
             if matches!(
@@ -195,6 +220,22 @@ impl SessionReducer {
                 reason: helper.reason,
                 since: helper.since,
                 last_write: helper.last_write,
+            });
+        }
+        // An async launch is known before its file is read. Once the helper's own transcript
+        // is followed, that transcript (and its metadata) is the more precise state.
+        for launch in self.session.launched_helpers.values().filter(|launch| !launch.ended) {
+            if self.helpers.keys().any(|id| launch.matches_helper(id)) {
+                continue;
+            }
+            let since = (launch.since > 0.0).then(|| Timestamp::from_secs_f64(launch.since));
+            background.push(HelperState {
+                id: launch.id(),
+                activity: Activity::RunningTool,
+                certainty: Certainty::Inferred,
+                reason: Reason::ToolCallPending,
+                since,
+                last_write: since,
             });
         }
         background.sort_by(|a, b| a.id.cmp(&b.id));
@@ -222,6 +263,33 @@ impl SessionReducer {
             reducer
         });
         helper.feed(bytes, ctx)
+    }
+
+    /// Feed a helper's `.meta.json` (Claude Code's `agent-<id>.meta.json`), keyed by the same
+    /// `id` as its transcript. `finished: true` (or `stoppedByUser: true`) is a firm end,
+    /// even when the transcript's last entry is still a pending tool call. Malformed JSON is
+    /// ignored: the transcript, notification and parent count still apply.
+    pub fn feed_helper_meta(&mut self, id: &str, bytes: &[u8]) {
+        let Ok(meta) = serde_json::from_slice::<Value>(bytes) else { return };
+        let Some(meta) = meta.as_object() else { return };
+        let meta = HelperMeta {
+            finished: meta.get("finished").and_then(Value::as_bool).unwrap_or(false),
+            stopped_by_user: meta.get("stoppedByUser").and_then(Value::as_bool).unwrap_or(false),
+        };
+        if meta.ended() {
+            self.session.background_helper_meta_finished(id);
+        }
+        self.helper_meta.insert(id.to_string(), meta);
+    }
+
+    /// The Codex thread id this session's `session_meta` recorded.
+    pub fn session_id(&self) -> &str {
+        &self.session.session_id
+    }
+
+    /// Use a title from Codex's `session_index.jsonl`; later prompts don't overwrite it.
+    pub fn set_index_title(&mut self, title: Option<&str>) {
+        self.session.set_index_title(title);
     }
 
     /// When the session was last seen at work: its transcript's last write, or a helper's.
@@ -538,6 +606,105 @@ mod tests {
         let st = s.state(Timestamp::from_secs_f64(NOW));
         assert_eq!((st.activity, st.background.len()), (Activity::Done, 0));
         assert_eq!(log(s.session()), Vec::<String>::new(), "a task-notification is not a prompt");
+    }
+
+    fn linked_parent() -> (SessionReducer, String) {
+        let output = "/h/.claude/projects/-w-app/s/subagents/agent-a1.jsonl";
+        let parent = jsonl(&[
+            json!({"type": "assistant", "timestamp": crate::testutil::at(4.0),
+                   "message": {"id": "m1", "stop_reason": "tool_use", "usage": {"output_tokens": 1},
+                               "content": [{"type": "tool_use", "id": "toolu_1", "name": "Agent",
+                                            "input": {"description": "look", "prompt": "look"}}]}}),
+            json!({"type": "user", "timestamp": crate::testutil::at(3.5), "sourceToolUseID": "toolu_1",
+                   "toolUseResult": {"status": "async_launched", "isAsync": true, "agentId": "a1",
+                                     "outputFile": output, "backgroundTaskId": "task-a1"},
+                   "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "launched"}]}}),
+            json!({"type": "assistant", "timestamp": crate::testutil::at(3.0),
+                   "message": {"id": "m2", "stop_reason": "end_turn", "usage": {"output_tokens": 1},
+                               "content": [{"type": "text", "text": "started"}]}}),
+        ]);
+        let mut s = SessionReducer::new(Harness::ClaudeCode, ReducerOptions::default());
+        s.feed(parent.as_bytes(), ctx(0)).unwrap();
+        (s, output.into())
+    }
+
+    fn running_helper() -> String {
+        jsonl(&[json!({"type": "assistant", "isSidechain": true, "timestamp": crate::testutil::at(1.0),
+                       "message": {"id": "h1", "stop_reason": "tool_use", "usage": {"output_tokens": 1},
+                                   "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "sleep 9"}}]}})])
+    }
+
+    #[test]
+    fn an_async_launch_names_the_helper_and_its_meta_ends_it() {
+        let (mut s, output) = linked_parent();
+        let st = s.state(Timestamp::from_secs_f64(NOW));
+        assert_eq!(
+            (st.activity, st.certainty, st.reason),
+            (Activity::BackgroundWork, Certainty::Inferred, Reason::BackgroundHelpers)
+        );
+        assert_eq!(st.background.len(), 1, "the launch is known before its file is read");
+        assert_eq!(st.background[0].id, output);
+
+        let helper = running_helper();
+        s.feed_helper(&output, helper.as_bytes(), ctx(0)).unwrap();
+        let st = s.state(Timestamp::from_secs_f64(NOW));
+        assert_eq!((st.background.len(), st.background[0].id.as_str()), (1, output.as_str()));
+        assert_eq!(st.background[0].activity, Activity::RunningTool);
+
+        s.feed_helper_meta(&output, br#"{"finished":false}"#);
+        assert_eq!(s.state(Timestamp::from_secs_f64(NOW)).background.len(), 1, "false is still running");
+
+        s.feed_helper_meta(&output, br#"{"finished":true,"stoppedByUser":false}"#);
+        let st = s.state(Timestamp::from_secs_f64(NOW));
+        assert_eq!((st.activity, st.background.len()), (Activity::Done, 0), "the meta end beats a pending tool");
+    }
+
+    #[test]
+    fn malformed_or_someone_elses_meta_does_not_end_a_helper() {
+        let (mut s, output) = linked_parent();
+        s.feed_helper(&output, running_helper().as_bytes(), ctx(0)).unwrap();
+        s.feed_helper_meta(&output, b"{not json");
+        s.feed_helper_meta("/h/.claude/projects/-w-app/s/subagents/agent-other.jsonl", br#"{"finished":true}"#);
+        assert_eq!(s.state(Timestamp::from_secs_f64(NOW)).background.len(), 1);
+        s.feed_helper_meta(&output, br#"{"stoppedByUser":true}"#);
+        assert_eq!(s.state(Timestamp::from_secs_f64(NOW)).background.len(), 0);
+    }
+
+    #[test]
+    fn a_matching_notification_ends_a_still_running_helper() {
+        let (mut s, output) = linked_parent();
+        s.feed_helper(&output, running_helper().as_bytes(), ctx(0)).unwrap();
+        let note = jsonl(&[json!({"type": "user", "origin": {"kind": "task-notification"},
+                                  "timestamp": crate::testutil::at(0.5),
+                                  "message": {"content": "<task-notification><task-id>task-a1</task-id>\
+                                               <tool-use-id>toolu_1</tool-use-id><status>completed</status>\
+                                               </task-notification>"}})]);
+        let offset = s.consumed();
+        s.feed(note.as_bytes(), ctx(offset)).unwrap();
+        let st = s.state(Timestamp::from_secs_f64(NOW));
+        assert_eq!((st.activity, st.background.len()), (Activity::Done, 0));
+    }
+
+    #[test]
+    fn is_async_and_background_task_id_are_enough_to_link_a_launch() {
+        let parent = jsonl(&[
+            json!({"type": "user", "timestamp": crate::testutil::at(3.0), "sourceToolUseID": "toolu_9",
+                   "toolUseResult": {"isAsync": true, "backgroundTaskId": "task-9"},
+                   "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_9", "content": "launched"}]}}),
+            json!({"type": "assistant", "timestamp": crate::testutil::at(2.0),
+                   "message": {"id": "m2", "stop_reason": "end_turn", "usage": {"output_tokens": 1},
+                               "content": [{"type": "text", "text": "done"}]}}),
+        ]);
+        let mut s = SessionReducer::new(Harness::ClaudeCode, ReducerOptions::default());
+        s.feed(parent.as_bytes(), ctx(0)).unwrap();
+        let st = s.state(Timestamp::from_secs_f64(NOW));
+        assert_eq!((st.activity, st.background[0].id.as_str()), (Activity::BackgroundWork, "task-9"));
+        let note = jsonl(&[json!({"type": "user", "origin": {"kind": "task-notification"},
+                                  "timestamp": crate::testutil::at(0.5),
+                                  "message": {"content": "<task-notification><task-id>task-9</task-id><status>completed</status></task-notification>"}})]);
+        let offset = s.consumed();
+        s.feed(note.as_bytes(), ctx(offset)).unwrap();
+        assert_eq!(s.state(Timestamp::from_secs_f64(NOW)).activity, Activity::Done);
     }
 
     #[test]

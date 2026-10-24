@@ -17,6 +17,9 @@ impl Adapter for Codex {
         let p = &e["payload"];
         match (e["type"].as_str().unwrap_or_default(), p["type"].as_str().unwrap_or_default()) {
             ("session_meta", _) => {
+                if let Some(id) = p["id"].as_str().or_else(|| p["session_id"].as_str()) {
+                    s.set_session_id(id);
+                }
                 if let Some(cwd) = p["cwd"].as_str() {
                     s.set_cwd(cwd);
                 }
@@ -122,11 +125,10 @@ fn prompts_from(s: &mut Session, kind: &str) -> bool {
 }
 
 fn prompt(s: &mut Session, text: &str, t: f64) {
-    if let Some(first) = s.prompt(text, t)
-        && s.title.is_empty()
-    {
-        // Codex has no generated title; the opening prompt is the best summary.
-        s.title = first;
+    if let Some(first) = s.prompt(text, t) {
+        // Codex has no generated title; the opening prompt is the fallback when
+        // `session_index.jsonl` has no `thread_name` for this thread.
+        s.set_title_from_prompt(first);
     }
 }
 

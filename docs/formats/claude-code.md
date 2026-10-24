@@ -133,7 +133,9 @@ Mid-stream aborts: `isAbortedMidStream` (2).
    parent's `sessionId`, with `isSidechain: true`, and no `system` records. `meta.json` has
    `toolUseId` (= the spawning `tool_use.id`), `agentType` (`general-purpose|Explore|fork`),
    `spawnDepth` (1|2), `parentAgentId` (nested), `requestShape: background`, and
-   **`finished: true`** when done (52/69; `stoppedByUser` 1).
+   **`finished: true`** when done (52/69; `stoppedByUser` 1). This library links the
+   parent result's `agentId`/`outputFile` to that file and reads the metadata's
+   `finished`/`stoppedByUser` as a firm end.
 4. Completion reaches the parent as a `user` record with `origin.kind: "task-notification"`
    (`promptSource: system`). Its string content is a `<task-notification>` block with tags
    `task-id, tool-use-id, output-file, status, summary, result, usage, note`. `<status>`:
@@ -177,7 +179,8 @@ local-only, and liveness has to be checked by pid (*inference from source; one l
 - `max_depth 2` skips `subagents/` entirely: nothing follows helpers, and with `async_launched`
   results the parent reads "thinking", then "done", while agents run. Task-notification prompts
   (`origin.kind`) are logged as user prompts (`› <task-notification>` is skipped only because
-  it starts with `<`).
+  it starts with `<`). This library follows `subagents/`, links `async_launched`, and reads
+  `finished`/`stoppedByUser` from the sibling `.meta.json`.
 - `ASKS_USER` has `ExitPlanMode`, which never appeared here (no plan-mode sessions), but it misses
   nothing else seen.
 - Usage is only `output_tokens` per `message.id` (correct dedupe). Cost takes the last `cost-state`,

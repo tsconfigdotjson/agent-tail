@@ -76,6 +76,12 @@ pub struct Tracker {
     helpers: HashMap<PathBuf, (Harness, PathBuf)>,
     /// How much of each helper transcript has been fed to its session.
     helper_offsets: HashMap<PathBuf, u64>,
+    /// When each helper's `.meta.json` was last read, and its length then.
+    helper_metas: HashMap<PathBuf, (SystemTime, u64)>,
+    /// Codex thread titles from `session_index.jsonl`, by thread id.
+    codex_index: HashMap<String, String>,
+    /// When `session_index.jsonl` was last read and how long it was; None: it was missing.
+    codex_index_stamp: Option<(SystemTime, u64)>,
     /// When a poll last read every folder; None: the next one does.
     swept: Option<Timestamp>,
     /// Each folder looked into by the last poll, as it was then. Between sweeps a folder that
@@ -146,6 +152,9 @@ impl Tracker {
             sessions: HashMap::new(),
             helpers: HashMap::new(),
             helper_offsets: HashMap::new(),
+            helper_metas: HashMap::new(),
+            codex_index: HashMap::new(),
+            codex_index_stamp: None,
             swept: None,
             folders: HashMap::new(),
         }
@@ -168,6 +177,28 @@ impl Tracker {
     pub fn set_filter(&mut self, filter: Filter) {
         self.filter = filter;
         self.swept = None;
+    }
+
+    /// Read Codex's `session_index.jsonl` when it changed. It sits beside `sessions/`
+    /// (also under `CODEX_HOME`), so the parent of the Codex root is the right place.
+    fn refresh_codex_index(&mut self) {
+        let Some((_, root)) = self.roots.iter().find(|(harness, _)| *harness == Harness::Codex) else { return };
+        let path = root.parent().unwrap_or(root).join("session_index.jsonl");
+        let stamp = std::fs::metadata(&path).and_then(|meta| Ok((meta.modified()?, meta.len()))).ok();
+        if stamp == self.codex_index_stamp {
+            return;
+        }
+        self.codex_index.clear();
+        self.codex_index_stamp = stamp;
+        let Ok(text) = std::fs::read_to_string(&path) else { return };
+        for line in text.lines() {
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+            let Some(id) = value["id"].as_str().filter(|id| !id.is_empty()) else { continue };
+            let Some(title) = value["thread_name"].as_str().map(str::trim).filter(|title| !title.is_empty()) else {
+                continue;
+            };
+            self.codex_index.insert(id.into(), title.into());
+        }
     }
 
     /// Read whatever was appended since the last poll; return the sessions in the window
@@ -224,6 +255,7 @@ impl Tracker {
         // says whether it is still running; the parent then reports BackgroundWork.
         let current = std::mem::take(&mut self.helpers);
         let mut live_helpers = HashSet::new();
+        let mut live_metas = HashSet::new();
         for (path, (harness, owner)) in &current {
             if !self.filter.shows(*harness) || !live.contains(owner) {
                 continue;
@@ -232,6 +264,7 @@ impl Tracker {
             let Ok(meta) = std::fs::metadata(path) else { continue };
             let Ok(mtime) = meta.modified() else { continue };
             let len = meta.len();
+            let id = path.to_string_lossy();
             let offset = self.helper_offsets.get(path).copied().unwrap_or(0);
             let offset = if len < offset { 0 } else { offset };
             if len > offset {
@@ -243,7 +276,6 @@ impl Tracker {
                 if file.read_to_end(&mut bytes).is_err() {
                     continue;
                 }
-                let id = path.to_string_lossy();
                 let ctx = ChunkCtx { offset, mtime: Timestamp::from(mtime), path };
                 if f.reducer.feed_helper(&id, &bytes, ctx).is_ok() {
                     self.helper_offsets.insert(path.clone(), len);
@@ -251,13 +283,40 @@ impl Tracker {
                     self.helper_offsets.insert(path.clone(), 0);
                 }
             }
+            // Claude Code writes `<agent>.meta.json` beside the helper transcript. Read it
+            // when it changes; `finished`/`stoppedByUser` is a firm end even if the last
+            // transcript entry is still a pending tool.
+            if *harness == Harness::ClaudeCode {
+                let meta_path = path.with_extension("meta.json");
+                if let Ok(meta) = std::fs::metadata(&meta_path)
+                    && let Ok(meta_mtime) = meta.modified()
+                {
+                    let seen = self.helper_metas.get(&meta_path).copied();
+                    if seen != Some((meta_mtime, meta.len()))
+                        && let Ok(bytes) = std::fs::read(&meta_path)
+                    {
+                        f.reducer.feed_helper_meta(&id, &bytes);
+                        self.helper_metas.insert(meta_path.clone(), (meta_mtime, meta.len()));
+                    }
+                    live_metas.insert(meta_path);
+                }
+            }
             live_helpers.insert(path.clone());
         }
         self.helpers = current;
         self.helper_offsets.retain(|p, _| live_helpers.contains(p));
+        self.helper_metas.retain(|p, _| live_metas.contains(p));
         for (owner, t) in helped {
             if let Some(f) = self.sessions.get_mut(&owner) {
                 f.reducer.helper_written(Timestamp::from_secs_f64(t));
+            }
+        }
+
+        self.refresh_codex_index();
+        let index = &self.codex_index;
+        for followed in self.sessions.values_mut() {
+            if followed.reducer.harness() == Harness::Codex {
+                followed.reducer.set_index_title(index.get(followed.reducer.session_id()).map(String::as_str));
             }
         }
 
@@ -773,6 +832,131 @@ mod tests {
         );
         let state = &t.poll(wall())[0].1;
         assert_eq!((state.activity, state.background.len()), (crate::Activity::Done, 0));
+    }
+
+    #[test]
+    fn tracker_links_an_async_agent_to_its_helper_and_meta_end() {
+        let home = tempfile::tempdir().unwrap();
+        let project = home.path().join(".claude/projects/-w-site");
+        std::fs::create_dir_all(project.join("s/subagents")).unwrap();
+        let helper = project.join("s/subagents/agent-a1.jsonl");
+        std::fs::write(
+            &helper,
+            jsonl(&[json!({"type": "assistant", "isSidechain": true, "timestamp": at(1.0),
+                           "message": {"id": "h1", "stop_reason": "tool_use", "usage": {"output_tokens": 1},
+                                       "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "sleep 9"}}]}})]),
+        )
+        .unwrap();
+        let parent = project.join("s.jsonl");
+        std::fs::write(
+            &parent,
+            jsonl(&[
+                claude_prompt("/w/site", "delegate", 5.0),
+                json!({"type": "assistant", "timestamp": at(4.0),
+                       "message": {"id": "m1", "stop_reason": "tool_use", "usage": {"output_tokens": 1},
+                                   "content": [{"type": "tool_use", "id": "toolu_1", "name": "Agent",
+                                                "input": {"description": "look", "prompt": "look"}}]}}),
+                json!({"type": "user", "timestamp": at(3.5), "sourceToolUseID": "toolu_1",
+                       "toolUseResult": {"status": "async_launched", "isAsync": true, "agentId": "a1",
+                                         "outputFile": helper.to_string_lossy(), "backgroundTaskId": "task-a1"},
+                       "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "launched"}]}}),
+                json!({"type": "assistant", "timestamp": at(3.0),
+                       "message": {"id": "m2", "stop_reason": "end_turn", "usage": {"output_tokens": 1},
+                                   "content": [{"type": "text", "text": "started"}]}}),
+            ]),
+        )
+        .unwrap();
+
+        let mut t = Tracker::new(home.path(), hours(1.0));
+        let state = &t.poll(wall())[0].1;
+        assert_eq!(state.activity, crate::Activity::BackgroundWork);
+        assert_eq!(state.certainty, crate::Certainty::Inferred, "the launch alone is not firm");
+        assert_eq!(state.background.len(), 1);
+        assert_eq!(state.background[0].id, helper.to_string_lossy(), "the parent names the helper file");
+
+        let meta = helper.with_extension("meta.json");
+        std::fs::write(&meta, "{not json").unwrap();
+        let state = &t.poll(wall())[0].1;
+        assert_eq!(state.activity, crate::Activity::BackgroundWork, "malformed metadata is ignored");
+        std::fs::write(&meta, "{\"finished\":false}\n").unwrap();
+        let state = &t.poll(wall())[0].1;
+        assert_eq!(state.activity, crate::Activity::BackgroundWork, "finished false is still running");
+        std::fs::write(&meta, "{\"finished\":true}\n").unwrap();
+        let state = &t.poll(wall())[0].1;
+        assert_eq!(
+            (state.activity, state.background.len()),
+            (crate::Activity::Done, 0),
+            "metadata ends a helper whose transcript is still a pending tool"
+        );
+    }
+
+    #[test]
+    fn codex_titles_come_from_the_session_index_after_the_first_prompt() {
+        let home = tempfile::tempdir().unwrap();
+        let day = home.path().join(".codex/sessions/2026/10/14");
+        std::fs::create_dir_all(&day).unwrap();
+        let session = day.join("rollout-x.jsonl");
+        std::fs::write(
+            &session,
+            jsonl(&[
+                json!({"timestamp": at(3.0), "type": "session_meta", "payload": {"id": "thread-1", "cwd": "/w/app"}}),
+                json!({"timestamp": at(2.0), "type": "event_msg",
+                       "payload": {"type": "user_message", "message": "First prompt\nwith detail"}}),
+            ]),
+        )
+        .unwrap();
+
+        // No index yet: the opening prompt is the fallback title.
+        let mut t = Tracker::new(home.path(), hours(1.0));
+        assert_eq!(t.poll(wall())[0].1.meta.title, "First prompt");
+
+        // The index appears and wins, even after the first prompt was already read.
+        std::fs::write(
+            home.path().join(".codex/session_index.jsonl"),
+            "not json\n{\"id\":\"thread-other\",\"thread_name\":\"Someone else\"}\n\
+             {\"id\":\"thread-1\",\"thread_name\":\"Indexed title\",\"updated_at\":\"2026-10-24T12:00:00Z\"}\n",
+        )
+        .unwrap();
+        assert_eq!(t.poll(wall())[0].1.meta.title, "Indexed title");
+
+        // A later prompt changes the activity and log, not an index title.
+        append(
+            &session,
+            &jsonl(&[json!({"timestamp": at(1.0), "type": "event_msg",
+                            "payload": {"type": "user_message", "message": "A later prompt"}})]),
+        );
+        let state = &t.poll(wall())[0].1;
+        assert_eq!(state.meta.title, "Indexed title");
+        assert_eq!(state.recent.last().unwrap().to_string(), "› A later prompt");
+
+        // The index goes away (or becomes unreadable): the opening prompt is the fallback,
+        // not the stale index title.
+        std::fs::write(home.path().join(".codex/session_index.jsonl"), "not json\n").unwrap();
+        assert_eq!(t.poll(wall())[0].1.meta.title, "First prompt");
+    }
+
+    #[test]
+    fn codex_index_sits_beside_its_sessions_root_and_malformed_entries_fall_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let codex_home = dir.path().join("custom-codex");
+        let day = codex_home.join("sessions/2026/10/14");
+        std::fs::create_dir_all(&day).unwrap();
+        std::fs::write(
+            day.join("rollout-x.jsonl"),
+            jsonl(&[
+                json!({"timestamp": at(3.0), "type": "session_meta", "payload": {"id": "thread-1", "cwd": "/w/app"}}),
+                json!({"timestamp": at(2.0), "type": "event_msg",
+                       "payload": {"type": "user_message", "message": "Opening prompt"}}),
+            ]),
+        )
+        .unwrap();
+        std::fs::write(
+            codex_home.join("session_index.jsonl"),
+            "{\"id\":\"thread-1\"}\n{\"thread_name\":\"No id\"}\n{\"id\":\"thread-1\",\"thread_name\":\"  \"}\n",
+        )
+        .unwrap();
+        let mut t = Tracker::with_roots(vec![(Harness::Codex, codex_home.join("sessions"))], hours(1.0));
+        assert_eq!(t.poll(wall())[0].1.meta.title, "Opening prompt", "no usable index title: fallback");
     }
 
     #[test]

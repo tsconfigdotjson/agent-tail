@@ -2,7 +2,7 @@
 //! ("user" / "assistant" messages, plus "ai-title", "cost-state" and bookkeeping we skip).
 
 use super::Adapter;
-use crate::session::{Last, Session, command, file_name, first_line, tool};
+use crate::session::{Last, LaunchedHelper, Session, command, file_name, first_line, tool};
 use crate::state::{ActivityLine, PermissionMode};
 use serde_json::Value;
 
@@ -50,13 +50,18 @@ fn user(s: &mut Session, e: &Value) {
     let content = &e["message"]["content"];
     // The same channel carries subagent completions; they are not prompts.
     if e["origin"]["kind"] == "task-notification" {
-        if let Some(status) = task_status(content) {
+        if let Some(note) = task_notification(content)
+            && ["completed", "failed", "stopped"].contains(&note.status.as_str())
+        {
             // completed, failed or stopped: either way the helper is no longer pending.
-            if ["completed", "failed", "stopped"].contains(&status) {
-                s.background_agent_finished();
-            }
+            s.background_agent_notified(&note.task_id, &note.tool_use_id, &note.output_file);
         }
         return;
+    }
+    // An async Agent result names the subagent it launched (`agentId`, `outputFile`) and
+    // sometimes a `backgroundTaskId`; remember the link even if its file hasn't appeared yet.
+    if let Some(launched) = async_launched(e, t) {
+        s.launch_background(launched);
     }
     // A rejected tool result ends the turn: on 2.1.310 it is followed by the interrupt text
     // and `turn_duration`, but some builds (and a transcript read mid-flush) may show only
@@ -186,15 +191,63 @@ fn result_text(content: &Value) -> Option<&str> {
     }
 }
 
-/// The `<status>` a `task-notification` carries, if it has one.
-fn task_status(content: &Value) -> Option<&str> {
+/// The identities a `task-notification` carries. `<status>` is required; the ids are
+/// optional, so a notification without them still decrements the parent's count.
+struct TaskNotification {
+    status: String,
+    task_id: String,
+    tool_use_id: String,
+    output_file: String,
+}
+
+fn task_notification(content: &Value) -> Option<TaskNotification> {
     let text = match content {
         Value::String(text) => text.as_str(),
         Value::Array(blocks) => blocks.iter().find_map(|b| b["text"].as_str())?,
         _ => return None,
     };
-    let rest = text.split_once("<status>")?.1;
-    rest.split_once("</status>").map(|(status, _)| status.trim())
+    let tag = |name: &str| {
+        let open = format!("<{name}>");
+        let close = format!("</{name}>");
+        text.split_once(&open)?.1.split_once(&close).map(|(value, _)| value.trim().to_string())
+    };
+    Some(TaskNotification {
+        status: tag("status")?,
+        task_id: tag("task-id").unwrap_or_default(),
+        tool_use_id: tag("tool-use-id").unwrap_or_default(),
+        output_file: tag("output-file").unwrap_or_default(),
+    })
+}
+
+/// An async launch in a tool result: `status: async_launched`, `isAsync: true`, or a
+/// `backgroundTaskId`. The agent id, task id, output file and spawning tool id are kept so
+/// the helper transcript, `.meta.json` and completion notification can all be matched back.
+fn async_launched(e: &Value, t: f64) -> Option<LaunchedHelper> {
+    let result = e["toolUseResult"].as_object()?;
+    let field = |name: &str| result.get(name).and_then(Value::as_str).unwrap_or_default();
+    let task_id = field("backgroundTaskId");
+    let is_async = result.get("isAsync").and_then(Value::as_bool) == Some(true);
+    if !is_async && task_id.is_empty() && field("status") != "async_launched" {
+        return None;
+    }
+    let tool_use_id = e["sourceToolUseID"]
+        .as_str()
+        .or_else(|| e["message"]["content"].as_array()?.iter().find_map(|c| c["tool_use_id"].as_str()))
+        .or_else(|| result.get("toolUseId").and_then(Value::as_str))
+        .unwrap_or_default();
+    let helper = LaunchedHelper {
+        agent_id: field("agentId").into(),
+        task_id: task_id.into(),
+        output_file: field("outputFile").into(),
+        tool_use_id: tool_use_id.into(),
+        ended: false,
+        since: t,
+    };
+    (!helper.agent_id.is_empty()
+        || !helper.task_id.is_empty()
+        || !helper.output_file.is_empty()
+        || !helper.tool_use_id.is_empty())
+    .then_some(helper)
 }
 
 fn describe_tool(name: &str, input: &Value) -> ActivityLine {

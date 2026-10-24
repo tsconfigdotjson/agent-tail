@@ -175,9 +175,19 @@ explicitly excluded from prompts via `origin.kind`. `agents_killed` clears the c
 one no longer look alike. The existing fs test now asserts BackgroundWork while the helper
 runs and Done after its `turn_ended`.
 
-Still to do for B5: link parent `Agent` `async_launched` results and `.meta.json`
-`finished: true`/`stoppedByUser` to helper ids, and add a driver scenario for a real
-background `Agent` (the mock needs to answer the subagent's own model request).
+**B5 linkage is done.** A parent `toolUseResult` with `status: async_launched`,
+`isAsync: true`, or a `backgroundTaskId` is remembered by its `agentId`, `outputFile`,
+task id and spawning tool id. The launch alone keeps a finished turn at
+`BackgroundWork` (inferred) until its helper transcript is read, and the transcript's
+path is matched back to the launch by `outputFile`/`agent-<agentId>.jsonl`. A helper's
+sibling `.meta.json` is fed with the same id; `finished: true` or `stoppedByUser: true`
+is a firm end even when the transcript's last entry is still a pending tool. A
+`task-notification` carrying `<task-id>`, `<tool-use-id>` or `<output-file>` ends the
+matching launch and counts it down once; one without ids keeps the old count fallback.
+Missing or malformed metadata, and metadata for another helper, change nothing. The
+`background-link` status fixture covers launch → `BackgroundWork` → `.meta.json` →
+`Done` without relying on `pendingBackgroundAgentCount`. The real background-Agent
+driver scenario is still count-driven: its driver does not tail helpers yet.
 
 ## Phase B6: parser edges (2026-10-24)
 
@@ -211,8 +221,11 @@ StatusWall card convenience and equals `usage.output_tokens.unwrap_or(0)`. Codex
 `token_count.total_token_usage` is a running total, so it replaces the usage instead of
 being summed; `cached_input_tokens` maps to cache-read. Cursor reports none.
 
-Still to do for B7: Codex title from `session_index.jsonl` `thread_name`, and Cursor's title
-from `state.vscdb` (B9).
+**B7 Codex titles are done.** The tracker reads `session_index.jsonl` beside the Codex
+`sessions/` root (so `CODEX_HOME` works), keyed by `session_meta.payload.id`. A non-empty
+`thread_name` wins over the opening prompt; the prompt remains the fallback when the index
+is missing, malformed, empty, or no longer names the thread, and later prompts never
+overwrite either title. Cursor's title from `state.vscdb` is still to do (B9).
 
 ## Phase B8: folder overrides (2026-10-24)
 

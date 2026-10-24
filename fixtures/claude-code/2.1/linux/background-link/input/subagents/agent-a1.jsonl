@@ -1,0 +1,1 @@
+{"type":"assistant","isSidechain":true,"agentId":"a1","timestamp":"2026-10-24T12:00:01.000Z","message":{"id":"h1","stop_reason":"tool_use","usage":{"output_tokens":2},"content":[{"type":"tool_use","id":"toolu_h1","name":"Bash","input":{"command":"sleep 9"}}]}}

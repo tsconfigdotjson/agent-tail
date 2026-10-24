@@ -85,5 +85,5 @@ evidence = "fixtures/legacy/codex-0.160-exec.jsonl; crates/agenttail/src/adapter
 
 [[quirks]]
 id = "a4-not-run"
-summary = "Codex has no real-harness PTY run yet: the roots override, approval policy scenarios, parallel calls, and session_index titles still need #11."
+summary = "Codex has no real-harness PTY run yet: the roots override, approval policy scenarios, and parallel calls still need #11. session_index titles are read, but A4 has not confirmed the index against a live CLI."
 evidence = "https://github.com/tsconfigdotjson/agenttail/issues/11; harness-ci/README.md#remaining-a0a2-work"
