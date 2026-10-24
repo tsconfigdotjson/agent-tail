@@ -80,9 +80,11 @@ agenttail watch [--hours N] [--agents …]                       # each change, 
 
 - **Reads**, read-only: `~/.claude/projects/**.jsonl` (Claude Code; `CLAUDE_CONFIG_DIR`
   moves it),
-  `~/.codex/sessions/YYYY/MM/DD/*.jsonl` (Codex; `CODEX_HOME` moves it; compressed
-  `.jsonl.zst` history is skipped), `~/.cursor/projects/*/agent-transcripts/**.jsonl` (Cursor). Only the bytes
-  appended since the last poll are read; a session's first read goes 1 MB at a time.
+  `~/.codex/sessions/YYYY/MM/DD/*.jsonl` and `~/.codex/session_index.jsonl` (Codex;
+  `CODEX_HOME` moves both; compressed `.jsonl.zst` history is skipped),
+  `~/.cursor/projects/*/agent-transcripts/**.jsonl` (Cursor). Claude Code subagent
+  transcripts and their sibling `.meta.json` are read too. Only the bytes appended since
+  the last poll are read; a session's first read goes 1 MB at a time.
 - **Does not read** `~/.claude/sessions/<pid>.json`: the A3 registry run showed `waiting`
   also covers dialogs and a SIGKILL leaves a stale file, so it is evidence, not a source
   (see DECISIONS.md). No pid liveness probe is made.

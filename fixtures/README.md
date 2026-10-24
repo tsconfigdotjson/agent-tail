@@ -18,5 +18,16 @@ A checkpoint is one JSON object per line:
 
 `after_line` counts entries read after feeding `input/session.jsonl` from the top. `now` for
 that check is the checkpoint line's own timestamp plus `now_offset_s` (so a pending tool is
-checked 30 s after its call). Optional `permission` and `sandbox` fields are compared when
-present. `crates/agenttail/tests/status_fixtures.rs` runs every scenario.
+checked 30 s after its call). Optional `permission`, `sandbox` and `title` fields are
+compared when present. `crates/agenttail/tests/status_fixtures.rs` runs every scenario.
+
+Helpers live under `input/subagents/<agent>.jsonl` with optional
+`input/subagents/<agent>.meta.json`. A checkpoint can feed them, in order, before it checks:
+
+```json
+{"after_line": 4, "helper": "agent-a1", "helper_line": 1, "activity": "background_work"}
+{"after_line": 4, "meta": "agent-a1", "activity": "done"}
+```
+
+`helper_line` is how many lines of that helper have been fed so far (default: all). The
+helper id is `subagents/<agent>.jsonl`, matching a parent `outputFile` of the same name.

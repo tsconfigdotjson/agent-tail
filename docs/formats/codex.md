@@ -70,6 +70,8 @@ Enums seen: `approval_policy: on-request`; `sandbox_policy.type: workspace-write
 - `turn_aborted` maps to `EndTurn` ("done"). Interrupted and aborted are not told apart, and its
   `reason` is unread.
 - `session_index.jsonl`'s `thread_name` is ignored. The title is the first prompt line.
+  This library reads the index (beside `sessions/`, so `CODEX_HOME` works) and uses
+  `thread_name` when present, with the first prompt as the fallback.
 - Skips `.jsonl.zst` (by design).
 
 CLIs on this Mac's PATH: none of `codex`, `gemini`, `opencode`, `copilot` or `cursor-agent`

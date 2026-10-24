@@ -33,6 +33,82 @@ pub(crate) enum Last {
     Errored,
 }
 
+/// A background helper Claude Code launched asynchronously, as its parent's `toolUseResult`
+/// names it. The transcript itself is followed separately; this is the identity link from
+/// the parent (`agentId`, `backgroundTaskId`, `outputFile`) to the helper's file and metadata.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct LaunchedHelper {
+    pub(crate) agent_id: String,
+    pub(crate) task_id: String,
+    pub(crate) output_file: String,
+    pub(crate) tool_use_id: String,
+    /// A completion notification or `.meta.json` said it ended.
+    pub(crate) ended: bool,
+    /// When the launch result was read.
+    pub(crate) since: f64,
+}
+
+impl LaunchedHelper {
+    /// The key a launch is remembered by: the file it names is the most specific identity.
+    pub(crate) fn key(&self) -> String {
+        if !self.output_file.is_empty() {
+            format!("file:{}", self.output_file)
+        } else if !self.agent_id.is_empty() {
+            format!("agent:{}", self.agent_id)
+        } else if !self.task_id.is_empty() {
+            format!("task:{}", self.task_id)
+        } else {
+            format!("tool:{}", self.tool_use_id)
+        }
+    }
+
+    /// Whether this launch is the helper transcript at `id` (a path, or a test's agent id).
+    pub(crate) fn matches_helper(&self, id: &str) -> bool {
+        if !self.output_file.is_empty()
+            && (self.output_file == id || path_file_name(&self.output_file) == path_file_name(id))
+        {
+            return true;
+        }
+        if !self.agent_id.is_empty() {
+            let stem = path_file_stem(id);
+            if stem == self.agent_id || stem == format!("agent-{}", self.agent_id) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Whether a parent `task-notification` names this launch.
+    pub(crate) fn matches_notification(&self, task_id: &str, tool_use_id: &str, output_file: &str) -> bool {
+        (!task_id.is_empty() && (self.task_id == task_id || self.agent_id == task_id))
+            || (!tool_use_id.is_empty() && self.tool_use_id == tool_use_id)
+            || (!output_file.is_empty()
+                && (self.output_file == output_file
+                    || path_file_name(&self.output_file) == path_file_name(output_file)))
+    }
+
+    /// A synthetic state while the launch is known but its transcript hasn't been read yet.
+    pub(crate) fn id(&self) -> String {
+        if !self.output_file.is_empty() {
+            self.output_file.clone()
+        } else if !self.agent_id.is_empty() {
+            self.agent_id.clone()
+        } else if !self.task_id.is_empty() {
+            self.task_id.clone()
+        } else {
+            self.tool_use_id.clone()
+        }
+    }
+}
+
+fn path_file_name(path: &str) -> &str {
+    Path::new(path).file_name().and_then(|name| name.to_str()).unwrap_or(path)
+}
+
+fn path_file_stem(path: &str) -> &str {
+    Path::new(path).file_stem().and_then(|name| name.to_str()).unwrap_or(path)
+}
+
 /// One session's state, built up entry by entry by its harness's adapter. Times are seconds
 /// since the epoch, 0 for none.
 #[derive(Clone, Debug, PartialEq)]
@@ -44,6 +120,10 @@ pub(crate) struct Session {
     pub(crate) folder: String,
     pub(crate) branch: String,
     pub(crate) title: String,
+    /// The opening prompt's first line, kept so an index title can fall back if it goes away.
+    prompt_title: String,
+    /// Whether `title` currently comes from Codex's `session_index.jsonl`.
+    title_from_index: bool,
     pub(crate) cost: Option<f64>,
     pub(crate) out_tokens: u64,
     /// Token counts, deduped by message id where the harness splits one message over rows.
@@ -62,6 +142,10 @@ pub(crate) struct Session {
     pub(crate) error: Option<String>,
     /// Claude Code's `turn_duration.pendingBackgroundAgentCount`, when it records one.
     pub(crate) background_agents: usize,
+    /// Claude Code's async background launches, linked to their helper files.
+    pub(crate) launched_helpers: HashMap<String, LaunchedHelper>,
+    /// The Codex thread id (`session_meta.payload.id`), for `session_index.jsonl` titles.
+    pub(crate) session_id: String,
     /// Whether this is a helper's own session: its records carry `isSidechain: true`.
     pub(crate) is_helper: bool,
     pub(crate) log: VecDeque<ActivityLine>,
@@ -87,6 +171,8 @@ impl Session {
             folder: String::new(),
             branch: String::new(),
             title: String::new(),
+            prompt_title: String::new(),
+            title_from_index: false,
             cost: None,
             out_tokens: 0,
             usage: TokenUsage::default(),
@@ -97,6 +183,8 @@ impl Session {
             approval_reviewer_auto: false,
             error: None,
             background_agents: 0,
+            launched_helpers: HashMap::new(),
+            session_id: String::new(),
             is_helper: false,
             log: VecDeque::with_capacity(log_lines + 1),
             log_lines,
@@ -197,6 +285,7 @@ impl Session {
         }
         if matches!(last, Last::Prompt | Last::Interrupted | Last::Errored) {
             self.background_agents = 0;
+            self.launched_helpers.clear();
         }
     }
 
@@ -242,11 +331,80 @@ impl Session {
     /// Claude Code's firm count of helpers still running when the turn ended.
     pub(crate) fn set_background_agents(&mut self, n: usize) {
         self.background_agents = n;
+        if n == 0 {
+            self.launched_helpers.clear();
+        }
+    }
+
+    /// Remember an async launch from the parent's `toolUseResult`.
+    pub(crate) fn launch_background(&mut self, helper: LaunchedHelper) {
+        self.launched_helpers.insert(helper.key(), helper);
+    }
+
+    /// A `task-notification` arrived for one helper. If it names a launch we know, mark that
+    /// launch ended and count it down once; otherwise fall back to the parent's old count.
+    pub(crate) fn background_agent_notified(&mut self, task_id: &str, tool_use_id: &str, output_file: &str) {
+        if let Some(helper) = self
+            .launched_helpers
+            .values_mut()
+            .find(|helper| helper.matches_notification(task_id, tool_use_id, output_file))
+        {
+            if !helper.ended {
+                helper.ended = true;
+                self.background_agents = self.background_agents.saturating_sub(1);
+            }
+        } else {
+            self.background_agent_finished();
+        }
+    }
+
+    /// A helper's `.meta.json` said it finished (or was stopped). End the linked launch once.
+    pub(crate) fn background_helper_meta_finished(&mut self, id: &str) {
+        if let Some(helper) = self.launched_helpers.values_mut().find(|helper| helper.matches_helper(id))
+            && !helper.ended
+        {
+            helper.ended = true;
+            self.background_agents = self.background_agents.saturating_sub(1);
+        }
     }
 
     /// A `task-notification` arrived for one helper: one fewer background agent.
     pub(crate) fn background_agent_finished(&mut self) {
         self.background_agents = self.background_agents.saturating_sub(1);
+    }
+
+    /// Codex's thread id from `session_meta`, for matching `session_index.jsonl`.
+    pub(crate) fn set_session_id(&mut self, id: &str) {
+        if !id.is_empty() {
+            self.session_id = id.into();
+        }
+    }
+
+    /// The opening prompt, kept as the fallback title even after an index title wins.
+    pub(crate) fn set_title_from_prompt(&mut self, first: String) {
+        if self.prompt_title.is_empty() {
+            self.prompt_title = first.clone();
+        }
+        if !self.title_from_index && self.title.is_empty() {
+            self.title = first;
+        }
+    }
+
+    /// A title from Codex's `session_index.jsonl`; it wins over the opening prompt. Without
+    /// one (the index is absent, malformed, or no longer names this thread), fall back to
+    /// that opening prompt rather than keeping a stale index title.
+    pub(crate) fn set_index_title(&mut self, title: Option<&str>) {
+        match title.map(str::trim).filter(|title| !title.is_empty()) {
+            Some(title) => {
+                self.title_from_index = true;
+                self.title = title.into();
+            }
+            None if self.title_from_index => {
+                self.title_from_index = false;
+                self.title = self.prompt_title.clone();
+            }
+            None => {}
+        }
     }
 
     /// When entry `e` happened: its RFC 3339 `timestamp`, or (with none) when the transcript

@@ -1,0 +1,4 @@
+{"after_line":1,"now_offset_s":0.0,"activity":"thinking","certainty":"firm","reason":"prompt_sent"}
+{"after_line":4,"now_offset_s":0.0,"activity":"background_work","certainty":"inferred","reason":"background_helpers"}
+{"after_line":4,"helper":"agent-a1","helper_line":1,"now_offset_s":0.0,"activity":"background_work","certainty":"inferred","reason":"background_helpers"}
+{"after_line":4,"meta":"agent-a1","now_offset_s":0.0,"activity":"done","certainty":"firm","reason":"turn_ended"}

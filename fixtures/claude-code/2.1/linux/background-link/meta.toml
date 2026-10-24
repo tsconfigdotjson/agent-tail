@@ -1,0 +1,6 @@
+harness = "claude_code"
+version = "2.1.310"
+os = "linux"
+capture = "handmade"
+date = "2026-10-24"
+description = "A parent Agent's async_launched result names agent-a1.jsonl; the launch keeps BackgroundWork without pendingBackgroundAgentCount, and finished:true in its .meta.json ends it while the transcript still has a pending tool."

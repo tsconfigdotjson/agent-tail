@@ -4,6 +4,7 @@
 
 use agenttail::{ChunkCtx, Harness, ReducerOptions, SessionReducer, Timestamp};
 use serde_json::Value;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -61,6 +62,12 @@ fn every_expected_status_checkpoint_holds() {
             .map(|l| serde_json::from_str(l).unwrap())
             .collect();
 
+        // Optional helper transcripts and `.meta.json` live under input/subagents; a
+        // checkpoint can feed them before it checks the parent's state.
+        let helpers = helper_files(&input);
+        let mut helper_offsets: HashMap<String, u64> = HashMap::new();
+        let mut helper_lines: HashMap<String, usize> = HashMap::new();
+
         let mut reducer = SessionReducer::new(harness, ReducerOptions::default());
         let mut offset = 0u64;
         let mut line_no = 0u64;
@@ -83,10 +90,42 @@ fn every_expected_status_checkpoint_holds() {
                 if checkpoint["after_line"].as_u64() != Some(line_no) {
                     continue;
                 }
+                if let Some(key) = checkpoint["helper"].as_str() {
+                    let text = helpers
+                        .transcripts
+                        .get(key)
+                        .unwrap_or_else(|| panic!("{}: no helper {key}", scenario.display()));
+                    let lines: Vec<&[u8]> = text.as_bytes().split_inclusive(|&b| b == b'\n').collect();
+                    let want = checkpoint["helper_line"].as_u64().map_or(lines.len(), |line| line as usize);
+                    let fed = helper_lines.entry(key.into()).or_default();
+                    let id = format!("subagents/{key}.jsonl");
+                    for raw in &lines[*fed..want.min(lines.len())] {
+                        let entry: Option<Value> = serde_json::from_slice(raw.trim_ascii()).ok();
+                        let time = entry
+                            .as_ref()
+                            .and_then(|e| e["timestamp"].as_str())
+                            .and_then(Timestamp::parse_rfc3339)
+                            .unwrap_or(last_time);
+                        let helper_offset = helper_offsets.entry(key.into()).or_default();
+                        let ctx = ChunkCtx { offset: *helper_offset, mtime: time, path: file };
+                        reducer
+                            .feed_helper(&id, raw, ctx)
+                            .unwrap_or_else(|e| panic!("{} helper {key}: {e}", scenario.display()));
+                        *helper_offset += raw.len() as u64;
+                    }
+                    *fed = want.min(lines.len());
+                }
+                if let Some(key) = checkpoint["meta"].as_str() {
+                    let bytes = helpers
+                        .metas
+                        .get(key)
+                        .unwrap_or_else(|| panic!("{}: no helper metadata {key}", scenario.display()));
+                    reducer.feed_helper_meta(&format!("subagents/{key}.jsonl"), bytes);
+                }
                 seen[index] = true;
                 let now = time + std::time::Duration::from_secs_f64(checkpoint["now_offset_s"].as_f64().unwrap());
                 let state = serde_json::to_value(reducer.state(now)).unwrap();
-                for key in ["activity", "certainty", "reason", "permission", "sandbox"] {
+                for key in ["activity", "certainty", "reason", "permission", "sandbox", "title"] {
                     let Some(want) = checkpoint.get(key) else { continue };
                     assert_eq!(state.get(key), Some(want), "{} after line {line_no}: {key}", scenario.display());
                 }
@@ -101,4 +140,29 @@ fn every_expected_status_checkpoint_holds() {
             );
         }
     }
+}
+struct HelperFiles {
+    transcripts: BTreeMap<String, String>,
+    metas: BTreeMap<String, Vec<u8>>,
+}
+
+/// Helper files from `input/subagents/`, keyed by the `<agent>` in `agent-<agent>.jsonl`.
+fn helper_files(input: &Path) -> HelperFiles {
+    let mut transcripts = BTreeMap::new();
+    let mut metas = BTreeMap::new();
+    let dir = input.join("subagents");
+    for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else { continue };
+        if let Some(key) = name.strip_suffix(".meta.json") {
+            if let Ok(bytes) = fs::read(&path) {
+                metas.insert(key.to_string(), bytes);
+            }
+        } else if let Some(key) = name.strip_suffix(".jsonl")
+            && let Ok(text) = fs::read_to_string(&path)
+        {
+            transcripts.insert(key.to_string(), text);
+        }
+    }
+    HelperFiles { transcripts, metas }
 }
