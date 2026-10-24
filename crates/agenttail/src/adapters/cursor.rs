@@ -12,8 +12,8 @@
 //! alike): the project's name is found in the transcript where it can be (a path in a tool
 //! call or a prompt that is in the workspace), and until then is the folder's last part.
 
-use super::Adapter;
-use crate::session::{Last, Session, command, file_name, first_line, tool};
+use super::{Adapter, EventSeed};
+use crate::session::{Session, command, file_name, first_line, tool};
 use crate::state::ActivityLine;
 use crate::time::{days_from_civil, valid_date};
 use serde_json::Value;
@@ -36,28 +36,54 @@ impl Adapter for Cursor {
         }
     }
 
-    fn apply(&self, s: &mut Session, e: &Value) {
-        let t = s.mtime;
+    fn parse(&self, _state: &mut crate::event::ParseState, e: &Value) -> Vec<EventSeed> {
+        use crate::event::{EventKind, TurnEndReason};
+        let mut out = Vec::new();
         if e["type"] == "turn_ended" {
             let status = e["status"].as_str().unwrap_or_default();
             let error = e["error"].as_str().unwrap_or_default();
-            if status == "aborted" || (status == "error" && user_stopped(error)) {
-                s.set(Last::Interrupted, t);
-            } else if status == "error" {
-                s.set_error(if error.is_empty() { "error" } else { error }, t);
-            } else {
-                s.set(Last::EndTurn, t);
-            }
-            return;
+            out.push(EventSeed::new(EventKind::TurnEnd {
+                reason: if status == "aborted" || (status == "error" && user_stopped(error)) {
+                    TurnEndReason::Interrupted
+                } else if status == "error" {
+                    TurnEndReason::Error
+                } else {
+                    TurnEndReason::EndTurn
+                },
+                error: (status == "error").then(|| if error.is_empty() { "error".into() } else { error.into() }),
+                background_agents: None,
+            }));
+            return out;
         }
         let role = e["role"].as_str().or(e["message"]["role"].as_str());
         let content = &e["message"]["content"];
         match role {
-            Some("user") => user(s, content, t),
-            Some("assistant") => assistant(s, content, t),
-            _ => {}
+            Some("user") => user(content, &mut out),
+            Some("assistant") => assistant(content, &mut out),
+            Some(role) => out.push(EventSeed::new(EventKind::Unknown {
+                record_type: Some("role".into()),
+                reason: format!("unknown Cursor role \"{role}\""),
+                record: e.clone(),
+            })),
+            None => out.push(EventSeed::new(EventKind::Unknown {
+                record_type: e["type"].as_str().map(String::from),
+                reason: "unknown Cursor record".into(),
+                record: e.clone(),
+            })),
         }
+        if out.is_empty() {
+            out.push(meta(e));
+        }
+        out
     }
+}
+
+fn meta(e: &Value) -> EventSeed {
+    EventSeed::new(crate::event::EventKind::Meta {
+        record_type: e["type"].as_str().or(e["role"].as_str()).unwrap_or_default().into(),
+        subtype: None,
+        record: e.clone(),
+    })
 }
 
 /// Cursor writes a user stop as `turn_ended` with `status: "error"` and a phrase such as
@@ -67,26 +93,74 @@ fn user_stopped(error: &str) -> bool {
     ["abort", "cancel", "interrupt", "stopped by user", "user stopped"].iter().any(|s| error.contains(s))
 }
 
-fn user(s: &mut Session, content: &Value, t: f64) {
+fn user(content: &Value, out: &mut Vec<EventSeed>) {
+    use crate::event::EventKind;
     let items: Vec<&Value> = match content {
         Value::Array(items) => items.iter().collect(),
         text @ Value::String(_) => vec![text],
         _ => return,
     };
-    if items.iter().any(|c| c["type"] == "tool_result") {
-        s.set(Last::ToolResult, t);
+    let results: Vec<&Value> = items.iter().filter(|c| c["type"] == "tool_result").copied().collect();
+    if !results.is_empty() {
+        for result in results {
+            out.push(EventSeed::new(EventKind::ToolResult {
+                call_id: result["tool_use_id"].as_str().filter(|id| !id.is_empty()).map(String::from),
+                is_error: result["is_error"].as_bool() == Some(true),
+                size: result["content"].as_str().map_or(0, |text| text.len() as u64),
+            }));
+        }
         return;
     }
     let texts: Vec<&str> = items.iter().filter_map(|c| c.as_str().or(c["text"].as_str())).collect();
-    // Sent when its <timestamp> says, though no later than the file was written.
-    let t = texts.iter().find_map(|text| sent_at(text)).map_or(t, |sent| sent.min(t));
-    for text in &texts {
-        find_project(s, text.split(|c: char| c.is_whitespace() || "\"'`()<>,;".contains(c)));
-    }
-    let typed = texts.iter().find_map(|t| typed(t)).unwrap_or_default();
-    if let Some(first) = s.prompt_in_order(typed, t) {
-        // Cursor's titles aren't in the transcript; the opening prompt is the best summary.
-        s.set_title_from_prompt(first);
+    // Sent when its <timestamp> says, though no later than the file was written. The event
+    // carries the timestamp; the reducer applies the mtime cap.
+    let at = texts.iter().find_map(|text| sent_at(text));
+    let raw = texts.join("\n");
+    let wrappers: Vec<crate::event::PromptWrapper> =
+        texts.iter().flat_map(|text| crate::event::prompt_wrappers(text)).collect();
+    let text = texts.iter().find_map(|t| typed(t)).unwrap_or_default().to_string();
+    out.push(EventSeed::new(EventKind::UserPrompt { text, raw, wrappers, starts_turn: true }).at(at));
+}
+
+fn assistant(content: &Value, out: &mut Vec<EventSeed>) {
+    use crate::event::{EventKind, ToolKind};
+    for c in content.as_array().into_iter().flatten() {
+        match c["type"].as_str() {
+            Some("tool_use") => {
+                let name = c["name"].as_str().unwrap_or_default();
+                let parsed;
+                let input = match c["input"].as_str() {
+                    Some(json) => {
+                        parsed = serde_json::from_str(json).unwrap_or(Value::Null);
+                        &parsed
+                    }
+                    None => &c["input"],
+                };
+                out.push(EventSeed::new(EventKind::ToolCall {
+                    name: name.into(),
+                    call_id: c["id"].as_str().filter(|id| !id.is_empty()).map(String::from),
+                    kind: ToolKind::of(name, input),
+                    input: input.clone(),
+                    asks_user: crate::Harness::Cursor.discovery().asks_user(name),
+                    line: (!name.is_empty()).then(|| describe_tool(name, input)),
+                }));
+            }
+            // Cursor doesn't record tools' results: the model writing again means they're in.
+            Some("text") => out
+                .push(EventSeed::new(EventKind::AssistantText { text: c["text"].as_str().unwrap_or_default().into() })),
+            Some("thinking" | "reasoning") => out.push(EventSeed::new(EventKind::Reasoning { signature: None })),
+            Some(kind) if known_content(kind) => out.push(EventSeed::new(EventKind::Meta {
+                record_type: "content".into(),
+                subtype: Some(kind.into()),
+                record: c.clone(),
+            })),
+            Some(kind) => out.push(EventSeed::new(EventKind::Unknown {
+                record_type: Some("content".into()),
+                reason: format!("unknown Cursor content type \"{kind}\""),
+                record: c.clone(),
+            })),
+            None => {}
+        }
     }
 }
 
@@ -198,38 +272,18 @@ fn utc_offset(zone: &str) -> Option<i64> {
     (h <= 14 && m < 60).then_some(sign * i64::from(h * 3600 + m * 60))
 }
 
-fn assistant(s: &mut Session, content: &Value, t: f64) {
-    for c in content.as_array().into_iter().flatten() {
-        match c["type"].as_str() {
-            Some("tool_use") => {
-                let name = c["name"].as_str().unwrap_or_default();
-                let parsed;
-                let input = match c["input"].as_str() {
-                    Some(json) => {
-                        parsed = serde_json::from_str(json).unwrap_or(Value::Null);
-                        &parsed
-                    }
-                    None => &c["input"],
-                };
-                find_project(s, strings(input));
-                let asks_user = s.harness.discovery().asks_user(name);
-                s.tool_call(asks_user, (!name.is_empty()).then(|| describe_tool(name, input)), t);
-            }
-            // Cursor doesn't record tools' results: the model writing again means they're in.
-            Some("text" | "thinking" | "reasoning") => s.set(Last::ToolResult, t),
-            _ => {}
-        }
-    }
+fn known_content(kind: &str) -> bool {
+    matches!(kind, "text" | "thinking" | "reasoning" | "tool_use" | "tool_result" | "image" | "document" | "resource")
 }
 
 /// A tool call's string arguments, and those in lists.
-fn strings(input: &Value) -> impl Iterator<Item = &str> {
+pub(crate) fn strings(input: &Value) -> impl Iterator<Item = &str> {
     let values = input.as_object().into_iter().flat_map(|o| o.values());
     values.flat_map(|v| v.as_str().into_iter().chain(v.as_array().into_iter().flatten().filter_map(Value::as_str)))
 }
 
 /// Name the project after the workspace folder, if one of `words` is a path in it.
-fn find_project<'a>(s: &mut Session, words: impl Iterator<Item = &'a str>) {
+pub(crate) fn find_project<'a>(s: &mut Session, words: impl Iterator<Item = &'a str>) {
     if s.folder.is_empty() || s.seen.contains("project") {
         return;
     }
@@ -308,6 +362,7 @@ mod tests {
     use crate::StatusClass as Status;
     use crate::harness::Harness;
     use crate::reducer::LOG_LINES;
+    use crate::session::{Last, Session};
     use crate::testutil::{NOW, log, status};
     use crate::time::{civil_from_days, parse_rfc3339};
     use serde_json::json;

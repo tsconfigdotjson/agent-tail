@@ -4,8 +4,10 @@
 //!       One poll of this machine's sessions, printed as JSON lines, most urgent first.
 //!   agenttail watch [--hours N] [--agents …]
 //!       Polls every second and prints each change of a session's activity, with its reason.
+//!   agenttail events [--agent ID] <path>
+//!       Prints one transcript's normalized events, one JSON object per line.
 
-use agenttail::{Filter, Harness, SessionKey, SessionState, Timestamp, Tracker};
+use agenttail::{Filter, Harness, ParseMode, SessionKey, SessionState, Timestamp, Tracker, parse_lines};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -14,9 +16,12 @@ use std::time::{Duration, SystemTime};
 
 const USAGE: &str = "usage: agenttail ls [--hours N] [--agents ID,…]
        agenttail watch [--hours N] [--agents ID,…]
+       agenttail events [--agent ID] <path>
 
   --hours N     sessions written in the last N hours (default 24)
-  --agents IDS  only these harnesses: claude_code, codex, cursor (default: all)";
+  --agents IDS  only these harnesses: claude_code, codex, cursor (default: all)
+  --agent ID    the harness for an events path when it can't be told from the path
+  events <path> prints normalized events as JSON lines";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -31,22 +36,93 @@ fn main() -> ExitCode {
 
 fn run(args: &[String]) -> Result<(), String> {
     let (command, rest) = args.split_first().ok_or("no command")?;
-    let filter = filter(rest)?;
-    let home = std::env::var_os("HOME").map(PathBuf::from).ok_or("HOME isn't set")?;
-    let mut tracker = Tracker::from_env(&home, filter);
     match command.as_str() {
-        "ls" => {
-            for (key, state) in tracker.poll(now()) {
-                println!("{}", session(&key, &state));
+        "ls" | "watch" => {
+            let filter = filter(rest)?;
+            let home = std::env::var_os("HOME").map(PathBuf::from).ok_or("HOME isn't set")?;
+            let mut tracker = Tracker::from_env(&home, filter);
+            if command == "ls" {
+                for (key, state) in tracker.poll(now()) {
+                    println!("{}", session(&key, &state));
+                }
+                Ok(())
+            } else {
+                watch(&mut tracker)
             }
-            Ok(())
         }
-        "watch" => watch(&mut tracker),
+        "events" => events(rest),
         "-h" | "--help" | "help" => {
             println!("{USAGE}");
             Ok(())
         }
         other => Err(format!("no command \"{other}\"")),
+    }
+}
+
+/// `agenttail events [--agent ID] <path>`: a transcript's events as JSON lines.
+fn events(args: &[String]) -> Result<(), String> {
+    let mut agent = None;
+    let mut path = None;
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--agent" => {
+                let id = args.next().ok_or("--agent needs a value")?;
+                agent = Some(id.parse::<Harness>().map_err(|e| e.to_string())?);
+            }
+            other if other.starts_with('-') => return Err(format!("no option \"{other}\"")),
+            other if path.is_some() => return Err(format!("events takes one path, not \"{other}\"")),
+            other => path = Some(PathBuf::from(other)),
+        }
+    }
+    let path = path.ok_or("events needs a path")?;
+    let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let harness = agent.or_else(|| harness_for(&path)).or_else(|| harness_from_bytes(&bytes)).ok_or_else(|| {
+        format!("can't tell which harness wrote {}; pass --agent claude_code|codex|cursor", path.display())
+    })?;
+    for event in parse_lines(harness, &bytes, ParseMode::Full) {
+        println!("{}", serde_json::to_string(&event).map_err(|e| e.to_string())?);
+    }
+    Ok(())
+}
+
+/// Tell a harness from the path conventions each one uses. A file name or path segment
+/// with the harness's name is enough for fixture dumps; real paths match their roots.
+fn harness_for(path: &std::path::Path) -> Option<Harness> {
+    let text = path.to_string_lossy().to_ascii_lowercase().replace('\\', "/");
+    let file = path.file_name()?.to_string_lossy().to_ascii_lowercase();
+    if text.contains("/.cursor/") || text.contains("/agent-transcripts/") || file.contains("cursor") {
+        Some(Harness::Cursor)
+    } else if text.contains("/.codex/")
+        || text.contains("/sessions/") && file.starts_with("rollout-")
+        || text.contains("codex")
+    {
+        Some(Harness::Codex)
+    } else if text.contains("/.claude/") || text.contains("claude") {
+        Some(Harness::ClaudeCode)
+    } else {
+        None
+    }
+}
+
+/// A last resort for files outside a harness's usual folders: the record shapes are
+/// distinctive enough for a debugging dump. An explicit `--agent` still wins.
+fn harness_from_bytes(bytes: &[u8]) -> Option<Harness> {
+    let text = String::from_utf8_lossy(&bytes[..bytes.len().min(64 << 10)]);
+    if text.contains(r#""type":"session_meta""#) || text.contains(r#""type": "session_meta""#) {
+        Some(Harness::Codex)
+    } else if text.contains("turn_ended") {
+        Some(Harness::Cursor)
+    } else if text.contains(r#""type":"permission-mode""#)
+        || text.contains(r#""type":"assistant""#)
+        || text.contains(r#""type":"user""#)
+        || text.contains(r#""type":"system""#)
+    {
+        Some(Harness::ClaudeCode)
+    } else if text.contains(r#""role":"user""#) || text.contains(r#""role":"assistant""#) {
+        Some(Harness::Cursor)
+    } else {
+        None
     }
 }
 
