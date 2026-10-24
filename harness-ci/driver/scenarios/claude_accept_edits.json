@@ -1,0 +1,14 @@
+{
+  "name": "claude_accept_edits",
+  "description": "acceptEdits without --bare, so Write is actually offered. Write should be auto-approved; a curl may still prompt. Up to two prompts are approved so the turn can finish. tool_permissions.source config means no prompt; user_temporary means the user answered one.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/accept_edits.json",
+  "command": ["claude", "--model", "claude-sonnet-4-5", "--permission-mode", "acceptEdits"],
+  "prompt": "update the note",
+  "keys": [
+    { "on": "permission_prompt", "send": "\r", "after_ms": 1500, "occurrence": 1 },
+    { "on": "permission_prompt", "send": "\r", "after_ms": 1500, "occurrence": 2 }
+  ],
+  "run_for_ms": 40000,
+  "expected_activity": [{ "activity": "done", "when": "end", "screen": "idle" }]
+}

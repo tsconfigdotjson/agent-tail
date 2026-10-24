@@ -1,0 +1,22 @@
+{
+  "name": "claude_plan_exit",
+  "description": "plan mode without --bare. Read, then a Bash touch (approved if it prompts; denying it ends the turn before the plan dialog), then ToolSearch loads the deferred ExitPlanMode schema, then ExitPlanMode is left on screen. The run ends AwaitingAnswer (firm) on that dialog.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/plan_exit.json",
+  "command": ["claude", "--model", "claude-sonnet-4-5", "--permission-mode", "plan"],
+  "prompt": "plan the change",
+  "files": { "note.txt": "seed\n" },
+  "keys": [
+    { "on": "permission_prompt", "send": "\r", "after_ms": 1200, "occurrence": 1 },
+    { "on": "permission_prompt", "send": "\r", "after_ms": 1200, "occurrence": 2 }
+  ],
+  "run_for_ms": 45000,
+  "expected_activity": [
+    {
+      "activity": "awaiting_answer",
+      "certainty": "firm",
+      "when": "end",
+      "screen": "ask_user_question"
+    }
+  ]
+}

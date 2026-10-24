@@ -1,7 +1,7 @@
 use agenttail::Harness;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ScreenState {
     Starting,
@@ -106,6 +106,10 @@ fn line_ask(line: &str) -> bool {
     phrase_near_start(line, "enter to select")
         || phrase_near_start(line, "type something.")
         || phrase_near_start(line, "would you like to proceed?")
+        || phrase_near_start(line, "ready to code?")
+        || phrase_near_start(line, "exit plan mode?")
+        || phrase_near_start(line, "here is claude's plan:")
+        || line.contains("claude has written up a plan and is ready to execute")
 }
 
 fn phrase_near_start(line: &str, phrase: &str) -> bool {
@@ -173,7 +177,11 @@ fn line_idle(line: &str) -> bool {
     if line_interrupt(line) {
         return false;
     }
-    line.contains("? for shortcuts") || line.contains("bypass permissions on") || line.contains("auto mode on")
+    line.contains("? for shortcuts")
+        || line.contains("bypass permissions on")
+        || line.contains("auto mode on")
+        || line.contains("accept edits on")
+        || line.contains("plan mode on")
 }
 
 fn line_background(line: &str) -> bool {
@@ -452,6 +460,85 @@ mod tests {
     fn detects_auto_mode_as_idle() {
         let screen = "auto mode on (shift+tab to cycle)\n";
         assert_eq!(claude(screen).state, ScreenState::Idle);
+    }
+
+    #[test]
+    fn accept_edits_and_plan_footers_are_idle_until_they_can_be_interrupted() {
+        assert_eq!(claude("⏵⏵ accept edits on (shift+tab to cycle)\n").state, ScreenState::Idle);
+        assert_eq!(claude("plan mode on (shift+tab to cycle)\n").state, ScreenState::Idle);
+        let working = "accept edits on (shift+tab to cycle) · esc to interrupt\n";
+        assert_eq!(claude(working).state, ScreenState::Working);
+        let quoted = "The notes say to leave plan mode on while reading.\n❯\n? for shortcuts\n";
+        assert_eq!(claude(quoted).state, ScreenState::Idle);
+    }
+
+    #[test]
+    fn detects_the_plan_exit_dialog() {
+        let screen = r#"
+            Ready to code?
+            Here is Claude's plan:
+            No plan found. Please write your plan to the plan file first.
+            Claude has written up a plan and is ready to execute. Would you like to proceed?
+            ❯ 1. Yes, and auto-accept edits
+              2. Yes, and manually approve edits
+              3. No, keep planning
+        "#;
+        assert_eq!(claude(screen).state, ScreenState::AskUserQuestion);
+    }
+
+    #[test]
+    fn detects_the_captured_exit_plan_mode_dialog() {
+        let screen = r#"
+            Read 1 file, ran 1 shell command
+
+            Exit plan mode?
+
+              Claude wants to exit plan mode
+
+              ❯ 1. Yes, and switch to default (ask each time) for this session
+                2. No
+        "#;
+        assert_eq!(claude(screen).state, ScreenState::AskUserQuestion);
+    }
+
+    #[test]
+    fn a_quoted_exit_plan_mode_above_the_idle_footer_is_idle() {
+        let screen = "\
+Exit plan mode?
+The assistant quoted that title and then stopped.
+❯
+? for shortcuts
+";
+        assert_eq!(claude(screen).state, ScreenState::Idle);
+    }
+
+    #[test]
+    fn a_wrapped_plan_question_is_still_an_ask() {
+        let screen = "\
+│ Claude has written up a plan and is ready to execute.
+│ Would you like to proceed?
+";
+        assert_eq!(claude(screen).state, ScreenState::AskUserQuestion);
+    }
+
+    #[test]
+    fn a_quoted_plan_question_above_the_idle_footer_is_idle() {
+        let screen = "\
+The assistant wrote: Claude has written up a plan and is ready to execute.
+❯
+? for shortcuts
+";
+        assert_eq!(claude(screen).state, ScreenState::Idle);
+    }
+
+    #[test]
+    fn a_quoted_plan_question_above_the_working_footer_is_working() {
+        let screen = "\
+Claude has written up a plan and is ready to execute. Would you like to proceed?
+✶ Working… (4s · ↓ 88 tokens)
+esc to interrupt
+";
+        assert_eq!(claude(screen).state, ScreenState::Working);
     }
 
     #[test]

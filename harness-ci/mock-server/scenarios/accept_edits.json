@@ -1,0 +1,48 @@
+{
+  "name": "accept_edits",
+  "description": "A Write that acceptEdits should auto-approve, then a curl that may still prompt.",
+  "steps": [
+    {
+      "expect": { "user_contains": "update the note" },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "Write",
+            "input": {
+              "file_path": "{{workspace}}/note.txt",
+              "content": "hello from acceptEdits\n"
+            }
+          }
+        ],
+        "usage": { "input_tokens": 10, "output_tokens": 20 },
+        "fault": { "type": "slow_first_token", "delay_ms": 1000 }
+      }
+    },
+    {
+      "expect": { "tool_result_id": "toolu_mock_0_0" },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "curl -fsS --max-time 2 -o /dev/null https://example.com",
+              "description": "Fetch a page header"
+            }
+          }
+        ],
+        "usage": { "input_tokens": 30, "output_tokens": 20 },
+        "fault": { "type": "slow_first_token", "delay_ms": 1000 }
+      }
+    },
+    {
+      "expect": { "tool_result_id": "toolu_mock_1_0" },
+      "reply": {
+        "content": [{ "type": "text", "text": "Both changes are in." }],
+        "usage": { "input_tokens": 40, "output_tokens": 10 },
+        "fault": { "type": "slow_first_token", "delay_ms": 500 }
+      }
+    }
+  ]
+}

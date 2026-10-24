@@ -49,6 +49,10 @@ struct DriverScenario {
     #[serde(default, deserialize_with = "score::deserialize_expected")]
     expected_activity: Vec<score::ExpectedOne>,
     #[serde(default)]
+    min_screen_ms: BTreeMap<String, u64>,
+    #[serde(default)]
+    files: BTreeMap<String, String>,
+    #[serde(default)]
     env: BTreeMap<String, String>,
 }
 
@@ -59,9 +63,14 @@ struct KeyAction {
     /// Send only once (the default), or every time the state is seen.
     #[serde(default)]
     repeat: bool,
-    /// Wait this long after entering the state before sending.
     #[serde(default)]
     after_ms: u64,
+    #[serde(default = "default_occurrence")]
+    occurrence: u32,
+}
+
+fn default_occurrence() -> u32 {
+    1
 }
 
 fn default_run_for_ms() -> u64 {
@@ -123,7 +132,16 @@ async fn run(args: Args) -> Result<(), String> {
         return Err(format!("{} harness is not wired up yet (Claude Code first)", harness.name()));
     }
     let mock_path = scenario_path.parent().unwrap_or(Path::new(".")).join(&scenario.mock);
-    let mock_scenario = MockScenario::from_path(&mock_path)?;
+    let temp = tempfile::tempdir().map_err(|e| format!("temp dir: {e}"))?;
+    let home = temp.path().join("home");
+    let work = temp.path().join("work");
+    std::fs::create_dir_all(&home).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
+    let home = std::fs::canonicalize(&home).map_err(|e| e.to_string())?;
+    let work = std::fs::canonicalize(&work).map_err(|e| e.to_string())?;
+    let mock_text = std::fs::read_to_string(&mock_path).map_err(|e| format!("read {}: {e}", mock_path.display()))?;
+    let mock_text = substitute_workspace(&mock_text, &work);
+    let mock_scenario = MockScenario::parse(&mock_text).map_err(|e| format!("parse {}: {e}", mock_path.display()))?;
 
     let out = args.out.unwrap_or_else(|| {
         let stamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_secs());
@@ -149,9 +167,11 @@ async fn run(args: Args) -> Result<(), String> {
     let run_state = state.clone();
     let scenario_name = scenario.name.clone();
     let run_out = out.clone();
-    let outcome = tokio::task::spawn_blocking(move || run_pty(scenario, harness, addr.to_string(), run_state, run_out))
-        .await
-        .map_err(|e| format!("driver task: {e}"))?;
+    let outcome = tokio::task::spawn_blocking(move || {
+        run_pty(scenario, harness, addr.to_string(), run_state, run_out, &home, &work)
+    })
+    .await
+    .map_err(|e| format!("driver task: {e}"))?;
     server.abort();
 
     let score = outcome?;
@@ -172,21 +192,19 @@ fn run_pty(
     addr: String,
     mock: std::sync::Arc<MockState>,
     out: PathBuf,
+    home: &Path,
+    work: &Path,
 ) -> Result<Score, String> {
-    let temp = tempfile::tempdir().map_err(|e| format!("temp dir: {e}"))?;
-    let home = temp.path().join("home");
-    let work = temp.path().join("work");
-    std::fs::create_dir_all(&home).map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
-    seed_claude(&home, &work)?;
+    seed_claude(home, work)?;
+    seed_files(work, &scenario.files)?;
 
     let command = if scenario.command.is_empty() { default_command(harness) } else { scenario.command.clone() };
     let mut builder = CommandBuilder::new(&command[0]);
     for arg in &command[1..] {
         builder.arg(arg);
     }
-    builder.cwd(&work);
-    builder.env("HOME", &home);
+    builder.cwd(work);
+    builder.env("HOME", home);
     builder.env("CLAUDE_CONFIG_DIR", home.join(".claude"));
     builder.env("ANTHROPIC_BASE_URL", format!("http://{addr}"));
     builder.env("ANTHROPIC_API_KEY", DUMMY_KEY);
@@ -231,9 +249,9 @@ fn run_pty(
     let mut samples = Vec::new();
     let mut final_screen = String::new();
     let mut keys_sent = vec![false; scenario.keys.len()];
+    let mut keys_clock = KeyClock::new(ScreenState::Starting);
     let mut prompt_sent = false;
     let mut screen_state = ScreenState::Starting;
-    let mut state_since = Instant::now();
     let mut last_sample = Instant::now();
     let start = Instant::now();
     let run_for = Duration::from_millis(scenario.run_for_ms);
@@ -246,9 +264,10 @@ fn run_pty(
         let reading = screen::read_screen(harness, &screen);
         if reading.state != screen_state {
             screen_state = reading.state;
-            state_since = Instant::now();
         }
         final_screen = screen;
+        let now_ms = start.elapsed().as_millis() as u64;
+        let (key_state, occurrence, key_elapsed_ms) = keys_clock.tick(reading.state, now_ms);
 
         if screen_state == ScreenState::Idle
             && !prompt_sent
@@ -260,17 +279,19 @@ fn run_pty(
             eprintln!("driver: prompt sent");
         }
 
-        for (i, action) in scenario.keys.iter().enumerate() {
-            let due = action.on == screen_state && state_since.elapsed() >= Duration::from_millis(action.after_ms);
-            if due && (action.repeat || !keys_sent[i]) {
-                write_keys(&mut writer, action.send.as_bytes())?;
-                keys_sent[i] = true;
-                eprintln!("driver: sent {:?} on {}", action.send, action.on.id());
-            }
+        for index in due_keys(&scenario.keys, &keys_sent, key_state, occurrence, Duration::from_millis(key_elapsed_ms))
+        {
+            write_keys(&mut writer, scenario.keys[index].send.as_bytes())?;
+            keys_sent[index] = true;
+            eprintln!(
+                "driver: sent {:?} on {} occurrence {occurrence}",
+                scenario.keys[index].send,
+                scenario.keys[index].on.id()
+            );
         }
 
         if last_sample.elapsed() >= SAMPLE_EVERY {
-            let library = library_state(&mut tail, harness, &home, Timestamp::from(SystemTime::now()));
+            let library = library_state(&mut tail, harness, home, Timestamp::from(SystemTime::now()));
             samples.push(Sample {
                 elapsed_ms: start.elapsed().as_millis() as u64,
                 screen: screen_state.id(),
@@ -284,6 +305,7 @@ fn run_pty(
 
     let _ = child.kill();
     let transcript = tail.as_ref().map(|tail| tail.path.clone());
+    let transcript_text = transcript.as_ref().and_then(|path| std::fs::read_to_string(path).ok());
     let expectations: Vec<score::Expectation> =
         scenario.expected_activity.iter().map(score::ExpectedOne::expectation).collect();
     let score = score::score(&score::ScoreRequest {
@@ -296,6 +318,8 @@ fn run_pty(
         mock_requests: mock.requests(),
         remaining_mock_steps: mock.remaining(),
         transcript: transcript.as_deref().map(|path| path.display().to_string()),
+        min_screen_ms: &scenario.min_screen_ms,
+        transcript_jsonl: transcript_text.as_deref(),
     });
 
     let timeline = out.join("timeline.jsonl");
@@ -312,6 +336,75 @@ fn run_pty(
         std::fs::write(out.join("transcript.jsonl"), bytes).map_err(|e| e.to_string())?;
     }
     Ok(score)
+}
+
+const KEY_STABLE_MS: u64 = 300;
+
+struct KeyClock {
+    state: ScreenState,
+    since_ms: u64,
+    counts: BTreeMap<ScreenState, u32>,
+    gap: Option<(ScreenState, u64)>,
+}
+
+impl KeyClock {
+    fn new(state: ScreenState) -> Self {
+        Self { state, since_ms: 0, counts: BTreeMap::new(), gap: None }
+    }
+
+    fn tick(&mut self, raw: ScreenState, now_ms: u64) -> (ScreenState, u32, u64) {
+        if raw == self.state {
+            self.gap = None;
+        } else {
+            match self.gap {
+                Some((pending, at)) if pending == raw && now_ms.saturating_sub(at) >= KEY_STABLE_MS => {
+                    self.state = raw;
+                    self.since_ms = at;
+                    self.gap = None;
+                    *self.counts.entry(raw).or_default() += 1;
+                }
+                Some((pending, _)) if pending == raw => {}
+                _ => self.gap = Some((raw, now_ms)),
+            }
+        }
+        let occurrence = self.counts.get(&self.state).copied().unwrap_or(0);
+        (self.state, occurrence, now_ms.saturating_sub(self.since_ms))
+    }
+}
+
+fn due_keys(keys: &[KeyAction], sent: &[bool], screen: ScreenState, occurrence: u32, elapsed: Duration) -> Vec<usize> {
+    keys.iter()
+        .enumerate()
+        .filter(|(index, action)| {
+            action.on == screen
+                && action.occurrence == occurrence
+                && elapsed >= Duration::from_millis(action.after_ms)
+                && (action.repeat || !sent[*index])
+        })
+        .map(|(index, _)| index)
+        .collect()
+}
+
+fn substitute_workspace(scenario: &str, workspace: &Path) -> String {
+    let encoded = serde_json::to_string(&workspace.display().to_string()).expect("a path encodes as a json string");
+    let encoded = &encoded[1..encoded.len() - 1];
+    scenario.replace("{{workspace}}", encoded)
+}
+
+fn seed_files(work: &Path, files: &BTreeMap<String, String>) -> Result<(), String> {
+    for (rel, contents) in files {
+        let relative = Path::new(rel);
+        if relative.is_absolute() || relative.components().any(|component| component == std::path::Component::ParentDir)
+        {
+            return Err(format!("scenario file {rel:?} escapes the workspace"));
+        }
+        let path = work.join(relative);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
+        }
+        std::fs::write(&path, contents).map_err(|e| format!("write {}: {e}", path.display()))?;
+    }
+    Ok(())
 }
 
 fn write_keys(writer: &mut Box<dyn Write + Send>, bytes: &[u8]) -> Result<(), String> {
@@ -433,6 +526,7 @@ mod tests {
         let approval = scenario("claude_bash_approval.json");
         assert_eq!(approval.keys.len(), 1);
         assert_eq!(approval.keys[0].on, ScreenState::PermissionPrompt);
+        assert_eq!(approval.keys[0].occurrence, 1);
         let pending = scenario("claude_bash_approval_pending.json");
         assert!(pending.keys.is_empty());
         let bypass = scenario("claude_bash_bypass.json");
@@ -453,5 +547,143 @@ mod tests {
         assert_eq!(scenario.expected_activity[0].expectation().activity, "done");
         assert_eq!(scenario.expected_activity[1].expectation().when, score::ExpectWhen::Ever);
         assert_eq!(scenario.expected_activity[1].expectation().screen.as_deref(), Some("idle"));
+    }
+
+    fn key(on: ScreenState, occurrence: u32, after_ms: u64, repeat: bool) -> KeyAction {
+        KeyAction { on, send: "x".into(), repeat, after_ms, occurrence }
+    }
+
+    #[test]
+    fn a_short_flicker_does_not_open_the_next_permission_prompt() {
+        let mut clock = KeyClock::new(ScreenState::Starting);
+        assert_eq!(clock.tick(ScreenState::Starting, 0).1, 0);
+        assert_eq!(clock.tick(ScreenState::PermissionPrompt, 1_000).0, ScreenState::Starting);
+        let (state, occurrence, elapsed) = clock.tick(ScreenState::PermissionPrompt, 1_300);
+        assert_eq!(state, ScreenState::PermissionPrompt);
+        assert_eq!(occurrence, 1);
+        assert_eq!(elapsed, 300);
+        let keys = vec![
+            key(ScreenState::PermissionPrompt, 1, 1_500, false),
+            key(ScreenState::PermissionPrompt, 2, 1_500, false),
+        ];
+        let sent = vec![false, false];
+        assert!(due_keys(&keys, &sent, state, occurrence, Duration::from_millis(elapsed)).is_empty());
+        let (state, occurrence, elapsed) = clock.tick(ScreenState::PermissionPrompt, 2_500);
+        assert_eq!(due_keys(&keys, &sent, state, occurrence, Duration::from_millis(elapsed)), vec![0]);
+
+        assert_eq!(clock.tick(ScreenState::Working, 2_600).0, ScreenState::PermissionPrompt);
+        let (state, occurrence, _) = clock.tick(ScreenState::PermissionPrompt, 2_700);
+        assert_eq!((state, occurrence), (ScreenState::PermissionPrompt, 1));
+
+        clock.tick(ScreenState::Working, 3_000);
+        let (state, occurrence, elapsed) = clock.tick(ScreenState::Working, 3_300);
+        assert_eq!((state, occurrence), (ScreenState::Working, 1));
+        assert_eq!(elapsed, 300);
+        clock.tick(ScreenState::PermissionPrompt, 4_000);
+        let (state, occurrence, elapsed) = clock.tick(ScreenState::PermissionPrompt, 4_300);
+        assert_eq!((state, occurrence), (ScreenState::PermissionPrompt, 2));
+        assert_eq!(elapsed, 300);
+        assert_eq!(due_keys(&keys, &sent, state, occurrence, Duration::from_millis(1_500)), vec![1]);
+    }
+
+    #[test]
+    fn the_second_permission_prompt_gets_its_own_key() {
+        let keys = vec![
+            key(ScreenState::PermissionPrompt, 1, 1_500, false),
+            key(ScreenState::PermissionPrompt, 2, 1_500, false),
+        ];
+        let sent = vec![false, false];
+        let first = due_keys(&keys, &sent, ScreenState::PermissionPrompt, 1, Duration::from_millis(1_500));
+        assert_eq!(first, vec![0]);
+        let early = due_keys(&keys, &sent, ScreenState::PermissionPrompt, 1, Duration::from_millis(1_499));
+        assert!(early.is_empty());
+        let mut sent = vec![true, false];
+        let still_first = due_keys(&keys, &sent, ScreenState::PermissionPrompt, 1, Duration::from_millis(5_000));
+        assert!(still_first.is_empty());
+        let second = due_keys(&keys, &sent, ScreenState::PermissionPrompt, 2, Duration::from_millis(1_500));
+        assert_eq!(second, vec![1]);
+        sent[1] = true;
+        assert!(due_keys(&keys, &sent, ScreenState::PermissionPrompt, 2, Duration::from_millis(9_000)).is_empty());
+        let repeat = vec![key(ScreenState::AskUserQuestion, 1, 0, true)];
+        let sent = vec![true];
+        assert_eq!(due_keys(&repeat, &sent, ScreenState::AskUserQuestion, 1, Duration::ZERO), vec![0]);
+    }
+
+    #[test]
+    fn the_a3_scenarios_parse() {
+        let denied = scenario("claude_bash_approval_denied.json");
+        assert_eq!(denied.keys.len(), 2);
+        assert_eq!(denied.keys[0].occurrence, 1);
+        assert_eq!(denied.keys[1].occurrence, 2);
+        assert_eq!(denied.keys[0].send, "\r");
+        assert!(denied.keys[1].send.contains('\u{1b}'));
+        let denied_end = denied.expected_activity[0].expectation();
+        assert_eq!(denied_end.activity, "done");
+        assert_eq!(denied_end.certainty.as_deref(), Some("firm"));
+        assert_eq!(denied_end.screen.as_deref(), Some("idle"));
+
+        let edits = scenario("claude_accept_edits.json");
+        assert!(edits.command.iter().any(|arg| arg == "acceptEdits"));
+        assert_eq!(edits.keys.len(), 2);
+        assert_eq!(edits.expected_activity[0].expectation().activity, "done");
+
+        let plan = scenario("claude_plan_exit.json");
+        assert!(plan.command.iter().any(|arg| arg == "plan"));
+        assert_eq!(plan.files.get("note.txt").map(String::as_str), Some("seed\n"));
+        let exit = plan.expected_activity[0].expectation();
+        assert_eq!(exit.activity, "awaiting_answer");
+        assert_eq!(exit.certainty.as_deref(), Some("firm"));
+        assert_eq!(exit.when, score::ExpectWhen::End);
+        assert_eq!(exit.screen.as_deref(), Some("ask_user_question"));
+
+        let ask = scenario("claude_ask_user.json");
+        assert_eq!(ask.keys[0].on, ScreenState::AskUserQuestion);
+        assert_eq!(ask.keys[0].after_ms, 30_000);
+        assert_eq!(ask.min_screen_ms.get("ask_user_question"), Some(&25_000));
+        let waiting = ask.expected_activity[0].expectation();
+        assert_eq!(waiting.activity, "awaiting_answer");
+        assert_eq!(waiting.certainty.as_deref(), Some("firm"));
+        assert_eq!(waiting.when, score::ExpectWhen::Ever);
+        assert_eq!(ask.expected_activity[1].expectation().activity, "done");
+
+        for name in [
+            "claude_bash_approval_denied.json",
+            "claude_accept_edits.json",
+            "claude_plan_exit.json",
+            "claude_ask_user.json",
+        ] {
+            let driver = scenario(name);
+            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scenarios").join(name);
+            let mock_path = path.parent().unwrap().join(&driver.mock);
+            let text =
+                std::fs::read_to_string(&mock_path).unwrap_or_else(|e| panic!("read {}: {e}", mock_path.display()));
+            let text = substitute_workspace(&text, Path::new("/tmp/a3 work\""));
+            mock_server::scenario::Scenario::parse(&text)
+                .unwrap_or_else(|e| panic!("parse {}: {e}", mock_path.display()));
+        }
+    }
+
+    #[test]
+    fn workspace_substitution_stays_inside_json_strings() {
+        let raw = r#"{"file_path":"{{workspace}}/note.txt","untouched":"{{workspace}}"}"#;
+        let got = substitute_workspace(raw, Path::new("/tmp/a3 work\""));
+        let value: serde_json::Value = serde_json::from_str(&got).unwrap();
+        assert_eq!(value["file_path"], "/tmp/a3 work\"/note.txt");
+    }
+
+    #[test]
+    fn seeded_files_stay_inside_the_workspace() {
+        let work = tempfile::tempdir().unwrap();
+        let mut files = BTreeMap::new();
+        files.insert("note.txt".into(), "seed\n".into());
+        files.insert("nested/plan.md".into(), "plan\n".into());
+        seed_files(work.path(), &files).unwrap();
+        assert_eq!(std::fs::read_to_string(work.path().join("note.txt")).unwrap(), "seed\n");
+        assert_eq!(std::fs::read_to_string(work.path().join("nested/plan.md")).unwrap(), "plan\n");
+        files.insert("../outside.txt".into(), "no".into());
+        assert!(seed_files(work.path(), &files).is_err());
+        files.remove("../outside.txt");
+        files.insert("/tmp/outside.txt".into(), "no".into());
+        assert!(seed_files(work.path(), &files).is_err());
     }
 }

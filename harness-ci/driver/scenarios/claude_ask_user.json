@@ -1,0 +1,20 @@
+{
+  "name": "claude_ask_user",
+  "description": "AskUserQuestion without --bare, so the tool is offered. The question stays up for 30s. While it is on screen the library should be AwaitingAnswer (firm); answering then ends the turn.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/ask_user.json",
+  "command": ["claude", "--model", "claude-sonnet-4-5"],
+  "prompt": "ask which library",
+  "keys": [{ "on": "ask_user_question", "send": "\r", "after_ms": 30000 }],
+  "run_for_ms": 70000,
+  "min_screen_ms": { "ask_user_question": 25000 },
+  "expected_activity": [
+    {
+      "activity": "awaiting_answer",
+      "certainty": "firm",
+      "when": "ever",
+      "screen": "ask_user_question"
+    },
+    { "activity": "done", "when": "end", "screen": "idle" }
+  ]
+}
