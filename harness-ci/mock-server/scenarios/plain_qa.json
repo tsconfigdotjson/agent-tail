@@ -1,0 +1,14 @@
+{
+  "name": "plain_qa",
+  "description": "One prompt, one text answer, end_turn.",
+  "steps": [
+    {
+      "expect": { "user_contains": "say hello" },
+      "reply": {
+        "content": [{ "type": "text", "text": "Hello from the mock." }],
+        "usage": { "input_tokens": 10, "output_tokens": 5 },
+        "fault": { "type": "slow_first_token", "delay_ms": 1000 }
+      }
+    }
+  ]
+}

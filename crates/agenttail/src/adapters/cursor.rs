@@ -51,9 +51,15 @@ impl Adapter for Cursor {
     fn apply(&self, s: &mut Session, e: &Value) {
         let t = s.mtime;
         if e["type"] == "turn_ended" {
-            // Finished, failed or stopped: the turn is over either way, and nothing waits on
-            // the user that a face could tell apart from any finished turn.
-            s.set(Last::EndTurn, t);
+            let status = e["status"].as_str().unwrap_or_default();
+            let error = e["error"].as_str().unwrap_or_default();
+            if status == "aborted" || (status == "error" && user_stopped(error)) {
+                s.set(Last::Interrupted, t);
+            } else if status == "error" {
+                s.set_error(if error.is_empty() { "error" } else { error }, t);
+            } else {
+                s.set(Last::EndTurn, t);
+            }
             return;
         }
         let role = e["role"].as_str().or(e["message"]["role"].as_str());
@@ -64,6 +70,13 @@ impl Adapter for Cursor {
             _ => {}
         }
     }
+}
+
+/// Cursor writes a user stop as `turn_ended` with `status: "error"` and a phrase such as
+/// "User aborted request"; a genuine failure carries an error message instead.
+fn user_stopped(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    ["abort", "cancel", "interrupt", "stopped by user", "user stopped"].iter().any(|s| error.contains(s))
 }
 
 fn user(s: &mut Session, content: &Value, t: f64) {
@@ -371,13 +384,21 @@ mod tests {
     }
 
     #[test]
-    fn every_turn_end_is_done() {
-        for status_ in ["success", "error", "aborted", ""] {
-            let s = session(&[prompt("go"), tool_call("Shell", json!({"command": "make"})), turn_ended(status_)]);
-            assert_eq!(status(&s), (Status::Done, "done"), "{status_:?}");
+    fn every_turn_end_is_told_apart() {
+        for (event, last) in [
+            (turn_ended("success"), Last::EndTurn),
+            (turn_ended(""), Last::EndTurn),
+            (turn_ended("aborted"), Last::Interrupted),
+            (json!({"type": "turn_ended", "status": "error", "error": "User aborted request"}), Last::Interrupted),
+            (json!({"type": "turn_ended", "status": "error", "error": "Connection failed"}), Last::Errored),
+            (json!({"type": "turn_ended"}), Last::EndTurn),
+        ] {
+            let s = session(&[prompt("go"), tool_call("Shell", json!({"command": "make"})), event]);
+            assert_eq!(status(&s), (Status::Done, "done"));
+            assert_eq!(s.last, last);
         }
-        let s = session(&[prompt("go"), json!({"type": "turn_ended"})]);
-        assert_eq!(status(&s), (Status::Done, "done"), "with no status at all");
+        let s = session(&[json!({"type": "turn_ended", "status": "error", "error": "Connection failed"})]);
+        assert_eq!(s.error.as_deref(), Some("Connection failed"));
     }
 
     #[test]

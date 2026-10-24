@@ -4,7 +4,7 @@
 use super::Adapter;
 use crate::harness::Layout;
 use crate::session::{Last, Session, command, file_name, first_line, tool};
-use crate::state::ActivityLine;
+use crate::state::{ActivityLine, PermissionMode};
 use serde_json::Value;
 
 /// Tools that stop and ask the user something.
@@ -29,6 +29,14 @@ impl Adapter for ClaudeCode {
         if let Some(b) = e["gitBranch"].as_str().filter(|b| !b.is_empty()) {
             s.branch = b.into();
         }
+        if let Some(entrypoint) = e["entrypoint"].as_str() {
+            s.set_entrypoint(entrypoint);
+        }
+        // A `permission-mode` record and a prompt both carry the current mode; `mode`
+        // records carry something else (`normal`), so only `permissionMode` is read.
+        if let Some(mode) = e["permissionMode"].as_str() {
+            s.set_permission(Some(PermissionMode::parse(mode)));
+        }
         match e["type"].as_str() {
             Some("ai-title") => s.title = e["aiTitle"].as_str().unwrap_or_default().into(),
             Some("cost-state") => {
@@ -40,6 +48,7 @@ impl Adapter for ClaudeCode {
             }
             Some("user") if e["isSidechain"] != true => user(s, e),
             Some("assistant") if e["isSidechain"] != true => assistant(s, e),
+            Some("system") => system(s, e),
             _ => {}
         }
     }
@@ -54,7 +63,7 @@ fn user(s: &mut Session, e: &Value) {
     let content = &e["message"]["content"];
     if let Some(text) = content.as_str() {
         if interrupted(text) {
-            s.set(Last::EndTurn, t);
+            s.set(Last::Interrupted, t);
         } else if e["isMeta"] != true && !text.starts_with('<') {
             s.prompt(text, t);
         }
@@ -63,7 +72,7 @@ fn user(s: &mut Session, e: &Value) {
         if items.iter().any(|c| c["type"] == "tool_result") {
             s.set(Last::ToolResult, t);
         } else if texts().any(interrupted) {
-            s.set(Last::EndTurn, t);
+            s.set(Last::Interrupted, t);
         } else if e["isMeta"] != true {
             // A prompt in blocks: text with a pasted image, say.
             if let Some(text) = texts().find(|t| !t.starts_with('<')) {
@@ -78,6 +87,13 @@ fn user(s: &mut Session, e: &Value) {
 fn assistant(s: &mut Session, e: &Value) {
     let t = s.time_of(e);
     let msg = &e["message"];
+    // A synthetic assistant row recording an API failure is the firm Errored signal. Its
+    // `stop_reason` is `stop_sequence`, which is not a turn end.
+    if e["isApiErrorMessage"] == true || e["error"].is_string() {
+        let error = e["error"].as_str().filter(|e| !e.is_empty()).unwrap_or("api_error");
+        s.set_error(error, t);
+        return;
+    }
     // One API message can span several transcript entries; count its usage once.
     let id = msg["id"].as_str().unwrap_or_default().to_string();
     if s.seen.insert(id) {
@@ -91,6 +107,16 @@ fn assistant(s: &mut Session, e: &Value) {
     }
     if msg["stop_reason"] == "end_turn" {
         s.set(Last::EndTurn, t);
+    }
+}
+
+fn system(s: &mut Session, e: &Value) {
+    let t = s.time_of(e);
+    match e["subtype"].as_str() {
+        // The firmest turn end, written once after the hooks. `agents_killed` marks a
+        // session exiting with its helpers: the turn is over.
+        Some("turn_duration" | "agents_killed") => s.set(Last::EndTurn, t),
+        _ => {}
     }
 }
 
@@ -168,6 +194,43 @@ mod tests {
     }
 
     #[test]
+    fn a_no_approval_mode_runs_the_tool_instead_of_stalling() {
+        // The headline B1 rule: bypass/dontAsk cannot put a prompt in front of a human.
+        for mode in ["bypassPermissions", "dontAsk"] {
+            let mut events = vec![json!({"type": "permission-mode", "timestamp": at(31.0), "permissionMode": mode})];
+            events.push(tool_use("Bash", json!({"command": "sleep 60"}), STALL_AFTER + 10.0, "m1"));
+            let s = session(&events);
+            assert_eq!(status(&s), (Status::Working, "working"), "{mode}");
+            let st = s.state(
+                crate::time::Timestamp::from_secs_f64(crate::testutil::NOW),
+                &crate::ReducerOptions::default(),
+                crate::Diagnostics::default(),
+            );
+            assert_eq!(
+                (st.activity, st.certainty, st.reason),
+                (crate::Activity::RunningTool, crate::Certainty::Firm, crate::Reason::ToolCallPending)
+            );
+            assert_eq!(st.permission, Some(PermissionMode::parse(mode)));
+        }
+    }
+
+    #[test]
+    fn a_default_mode_keeps_the_inferred_stall() {
+        let events = [
+            json!({"type": "permission-mode", "timestamp": at(31.0), "permissionMode": "default"}),
+            tool_use("Bash", json!({"command": "sleep 60"}), STALL_AFTER + 10.0, "m1"),
+        ];
+        assert_eq!(status(&session(&events)), (Status::NeedsYou, "may need approval"));
+    }
+
+    #[test]
+    fn an_sdk_entrypoint_has_no_human_to_ask() {
+        let mut tool = tool_use("Bash", json!({"command": "sleep 60"}), STALL_AFTER + 10.0, "m1");
+        tool["entrypoint"] = json!("sdk-cli");
+        assert_eq!(status(&session(&[tool])), (Status::Working, "working"));
+    }
+
+    #[test]
     fn questions_and_plans_wait_for_the_user() {
         for tool in ASKS_USER {
             let s = session(&[tool_use(tool, json!({}), 1.0, "m1")]);
@@ -176,7 +239,7 @@ mod tests {
     }
 
     #[test]
-    fn interruptions_end_the_turn() {
+    fn interruptions_are_their_own_activity() {
         let plain = json!({"type": "user", "timestamp": at(1.0),
                            "message": {"content": "[Request interrupted by user]"}});
         let listed = json!({"type": "user", "timestamp": at(1.0),
@@ -184,8 +247,36 @@ mod tests {
         for e in [plain, listed] {
             let s = session(&[tool_use("Bash", json!({}), 2.0, "m1"), e]);
             assert_eq!(status(&s), (Status::Done, "done"));
+            assert_eq!(s.last, Last::Interrupted);
             assert_eq!(s.log.len(), 1, "an interruption isn't a prompt");
         }
+    }
+
+    #[test]
+    fn turn_duration_and_agents_killed_end_the_turn() {
+        for subtype in ["turn_duration", "agents_killed"] {
+            let s = session(&[json!({"type": "system", "subtype": subtype, "timestamp": at(1.0)})]);
+            assert_eq!(status(&s), (Status::Done, "done"), "{subtype}");
+            assert_eq!(s.last, Last::EndTurn);
+        }
+    }
+
+    #[test]
+    fn an_api_error_is_errored_and_keeps_the_kind() {
+        let error = json!({"type": "assistant", "timestamp": at(1.0),
+                           "isApiErrorMessage": true, "error": "server_error",
+                           "message": {"id": "m1", "stop_reason": "stop_sequence",
+                                       "usage": {"output_tokens": 0},
+                                       "content": [{"type": "text", "text": "API error"}]}});
+        let s = session(&[error]);
+        let st = s.state(
+            crate::time::Timestamp::from_secs_f64(crate::testutil::NOW),
+            &crate::ReducerOptions::default(),
+            crate::Diagnostics::default(),
+        );
+        assert_eq!((st.activity, st.reason), (crate::Activity::Errored, crate::Reason::Errored));
+        assert_eq!(st.error.as_deref(), Some("server_error"));
+        assert_eq!(status(&s), (Status::Done, "done"));
     }
 
     #[test]

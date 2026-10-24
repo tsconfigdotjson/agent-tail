@@ -7,7 +7,7 @@
 use super::Adapter;
 use crate::harness::Layout;
 use crate::session::{Last, Session, command, file_name, tool};
-use crate::state::ActivityLine;
+use crate::state::{ActivityLine, PermissionMode};
 use serde_json::Value;
 
 /// Tools that stop and ask the user something.
@@ -44,6 +44,10 @@ impl Adapter for Codex {
                 if let Some(cwd) = p["cwd"].as_str() {
                     s.set_cwd(cwd);
                 }
+                if let Some(policy) = p["approval_policy"].as_str() {
+                    s.set_permission(Some(PermissionMode::parse(policy)));
+                }
+                s.set_approval_reviewer_auto(p["approvals_reviewer"].as_str() == Some("auto_review"));
             }
             // What the user typed: a `user_message` event in older rollouts, a completed
             // `UserMessage` item in 0.160. (The `response_item` copy also holds the
@@ -61,7 +65,14 @@ impl Adapter for Codex {
                 }
             }
             ("event_msg", "task_started" | "turn_started") => s.set(Last::Prompt, t),
-            ("event_msg", "task_complete" | "turn_complete" | "turn_aborted") => s.set(Last::EndTurn, t),
+            ("event_msg", "task_complete" | "turn_complete") => {
+                if let Some(error) = p["error"].as_str().filter(|e| !e.is_empty()) {
+                    s.set_error(error, t);
+                } else {
+                    s.set(Last::EndTurn, t);
+                }
+            }
+            ("event_msg", "turn_aborted") => s.set(Last::Interrupted, t),
             ("event_msg", "token_count") => {
                 // A running total for the session.
                 if let Some(n) = p["info"]["total_token_usage"]["output_tokens"].as_u64() {
@@ -223,6 +234,52 @@ mod tests {
     }
 
     #[test]
+    fn a_never_approval_policy_runs_the_tool_instead_of_stalling() {
+        let events = [
+            event("turn_context", json!({"cwd": "/w", "approval_policy": "never"})),
+            event(
+                "response_item",
+                json!({"type": "function_call", "name": "exec_command", "arguments": "{\"cmd\":\"sleep 60\"}"}),
+            ),
+        ];
+        let mut s = session(&events);
+        s.last_at -= STALL_AFTER * 2.0;
+        assert_eq!(status(&s), (Status::Working, "working"));
+        assert_eq!(s.permission, Some(PermissionMode::Never));
+    }
+
+    #[test]
+    fn an_on_request_policy_keeps_the_inferred_stall() {
+        let events = [
+            event("turn_context", json!({"cwd": "/w", "approval_policy": "on-request"})),
+            event(
+                "response_item",
+                json!({"type": "function_call", "name": "exec_command", "arguments": "{\"cmd\":\"sleep 60\"}"}),
+            ),
+        ];
+        let mut s = session(&events);
+        s.last_at -= STALL_AFTER * 2.0;
+        assert_eq!(status(&s), (Status::NeedsYou, "may need approval"));
+    }
+
+    #[test]
+    fn an_ai_reviewer_is_not_a_human() {
+        let events = [
+            event(
+                "turn_context",
+                json!({"cwd": "/w", "approval_policy": "on-request", "approvals_reviewer": "auto_review"}),
+            ),
+            event(
+                "response_item",
+                json!({"type": "function_call", "name": "exec_command", "arguments": "{\"cmd\":\"sleep 60\"}"}),
+            ),
+        ];
+        let mut s = session(&events);
+        s.last_at -= STALL_AFTER * 2.0;
+        assert_eq!(status(&s), (Status::Working, "working"));
+    }
+
+    #[test]
     fn asking_the_user_waits_for_them() {
         let ask =
             event("response_item", json!({"type": "function_call", "name": "request_user_input", "arguments": "{}"}));
@@ -233,15 +290,26 @@ mod tests {
 
     #[test]
     fn turns_end_however_they_end() {
-        for kind in ["task_complete", "turn_complete", "turn_aborted"] {
+        for (kind, last) in
+            [("task_complete", Last::EndTurn), ("turn_complete", Last::EndTurn), ("turn_aborted", Last::Interrupted)]
+        {
             let s = session(&[
                 event("event_msg", json!({"type": "task_started"})),
                 event("event_msg", json!({"type": kind})),
             ]);
             assert_eq!(status(&s), (Status::Done, "done"), "{kind}");
+            assert_eq!(s.last, last, "{kind}");
         }
         let s = session(&[event("event_msg", json!({"type": "turn_started"}))]);
         assert_eq!(status(&s), (Status::Working, "thinking"));
+    }
+
+    #[test]
+    fn a_task_error_is_errored() {
+        let s = session(&[event("event_msg", json!({"type": "task_complete", "error": "stream disconnected"}))]);
+        assert_eq!(s.last, Last::Errored);
+        assert_eq!(s.error.as_deref(), Some("stream disconnected"));
+        assert_eq!(status(&s), (Status::Done, "done"));
     }
 
     #[test]

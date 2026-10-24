@@ -1,0 +1,8 @@
+{
+  "name": "claude_plain_qa",
+  "description": "One prompt, one text answer, the TUI ends idle.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/plain_qa.json",
+  "prompt": "say hello",
+  "run_for_ms": 10000
+}

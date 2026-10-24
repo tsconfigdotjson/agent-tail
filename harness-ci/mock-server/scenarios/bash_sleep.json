@@ -1,0 +1,49 @@
+{
+  "name": "bash_sleep",
+  "description": "A long Bash tool call that must never stall into awaiting approval under bypass.",
+  "steps": [
+    {
+      "expect": {
+        "user_contains": "sleep"
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "sleep 60",
+              "description": "Wait a minute",
+              "timeout": 120000
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 20
+        },
+        "fault": {
+          "type": "slow_first_token",
+          "delay_ms": 1000
+        }
+      }
+    },
+    {
+      "expect": {
+        "tool_result_id": "toolu_mock_0_0"
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "text",
+            "text": "The wait is over."
+          }
+        ],
+        "usage": {
+          "input_tokens": 30,
+          "output_tokens": 10
+        }
+      }
+    }
+  ]
+}
