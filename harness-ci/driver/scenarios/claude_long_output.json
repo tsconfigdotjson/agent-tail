@@ -1,0 +1,17 @@
+{
+  "name": "claude_long_output",
+  "description": "Bypass-mode Bash prints 30000 Z bytes. Lean and full parses of that tool result must agree, and the result must be at least 20000 bytes.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/long_output.json",
+  "command": ["claude", "--bare", "--model", "claude-sonnet-4-5", "--dangerously-skip-permissions"],
+  "prompt": "show the long run",
+  "run_for_ms": 25000,
+  "no_approval": true,
+  "expected_activity": [
+    { "activity": "done", "certainty": "firm", "when": "end", "screen": "idle" }
+  ],
+  "expect_observations": {
+    "lean_agrees": true,
+    "min_tool_result_bytes": 20000
+  }
+}

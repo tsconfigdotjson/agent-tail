@@ -54,9 +54,52 @@ struct DriverScenario {
     files: BTreeMap<String, String>,
     #[serde(default)]
     env: BTreeMap<String, String>,
+    #[serde(default)]
+    settings: serde_json::Map<String, serde_json::Value>,
+    #[serde(default)]
+    phases: Vec<Phase>,
+    #[serde(default)]
+    exit: ExitMode,
+    #[serde(default)]
+    expect_registry: Option<score::RegistryExpect>,
+    #[serde(default)]
+    expect_observations: Option<score::ObserveExpect>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
+struct Phase {
+    #[serde(default)]
+    command: Vec<String>,
+    #[serde(default)]
+    prompt: Option<String>,
+    #[serde(default)]
+    keys: Vec<KeyAction>,
+    #[serde(default)]
+    run_for_ms: Option<u64>,
+    #[serde(default)]
+    exit: Option<ExitMode>,
+    #[serde(default)]
+    env: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum ExitMode {
+    #[default]
+    Kill,
+    Graceful,
+}
+
+struct PhaseSpec {
+    command: Vec<String>,
+    prompt: Option<String>,
+    keys: Vec<KeyAction>,
+    run_for_ms: u64,
+    exit: ExitMode,
+    env: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 struct KeyAction {
     on: ScreenState,
     send: String,
@@ -195,126 +238,53 @@ fn run_pty(
     home: &Path,
     work: &Path,
 ) -> Result<Score, String> {
-    seed_claude(home, work)?;
+    seed_claude(home, work, &scenario.settings)?;
     seed_files(work, &scenario.files)?;
 
-    let command = if scenario.command.is_empty() { default_command(harness) } else { scenario.command.clone() };
-    let mut builder = CommandBuilder::new(&command[0]);
-    for arg in &command[1..] {
-        builder.arg(arg);
-    }
-    builder.cwd(work);
-    builder.env("HOME", home);
-    builder.env("CLAUDE_CONFIG_DIR", home.join(".claude"));
-    builder.env("ANTHROPIC_BASE_URL", format!("http://{addr}"));
-    builder.env("ANTHROPIC_API_KEY", DUMMY_KEY);
-    builder.env("DISABLE_AUTOUPDATER", "1");
-    builder.env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1");
-    builder.env("DISABLE_TELEMETRY", "1");
-    builder.env("DISABLE_ERROR_REPORTING", "1");
-    builder.env("CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY", "1");
-    builder.env("TERM", "xterm-256color");
-    builder.env("COLUMNS", COLS.to_string());
-    builder.env("LINES", ROWS.to_string());
-    for (key, value) in &scenario.env {
-        builder.env(key, value);
-    }
-
-    let pty_system = native_pty_system();
-    let pair = pty_system
-        .openpty(PtySize { rows: ROWS, cols: COLS, pixel_width: 0, pixel_height: 0 })
-        .map_err(|e| format!("open pty: {e}"))?;
-    let mut child = pair.slave.spawn_command(builder).map_err(|e| format!("spawn {}: {e}", command[0]))?;
-    drop(pair.slave);
-    let mut reader = pair.master.try_clone_reader().map_err(|e| format!("pty reader: {e}"))?;
-    let mut writer = pair.master.take_writer().map_err(|e| format!("pty writer: {e}"))?;
-
-    let (tx, rx) = mpsc::channel::<Vec<u8>>();
-    std::thread::spawn(move || {
-        let mut buf = [0u8; 65536];
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => {
-                    if tx.send(buf[..n].to_vec()).is_err() {
-                        break;
-                    }
-                }
-            }
-        }
-    });
-
-    let mut parser = vt100::Parser::new(ROWS, COLS, 0);
+    let phases = materialize_phases(&scenario);
+    let origin = Instant::now();
     let mut tail: Option<Tail> = None;
     let mut samples = Vec::new();
+    let mut registry = Vec::new();
+    let mut registry_fields = BTreeSet::new();
     let mut final_screen = String::new();
-    let mut keys_sent = vec![false; scenario.keys.len()];
-    let mut keys_clock = KeyClock::new(ScreenState::Starting);
-    let mut prompt_sent = false;
-    let mut screen_state = ScreenState::Starting;
-    let mut last_sample = Instant::now();
-    let start = Instant::now();
-    let run_for = Duration::from_millis(scenario.run_for_ms);
-
-    while start.elapsed() < run_for {
-        while let Ok(bytes) = rx.try_recv() {
-            parser.process(&bytes);
+    let mut session_id = None;
+    for phase in &phases {
+        let command = resolve_command(&phase.command, harness, session_id.as_deref())?;
+        drive_phase(DrivePhase {
+            phase,
+            command: &command,
+            harness,
+            addr: &addr,
+            home,
+            work,
+            origin,
+            tail: &mut tail,
+            samples: &mut samples,
+            registry: &mut registry,
+            registry_fields: &mut registry_fields,
+            final_screen: &mut final_screen,
+        })?;
+        std::thread::sleep(Duration::from_millis(200));
+        if let Some(id) = read_session_id(home) {
+            session_id = Some(id);
         }
-        let screen = parser.screen().contents();
-        let reading = screen::read_screen(harness, &screen);
-        if reading.state != screen_state {
-            screen_state = reading.state;
-        }
-        final_screen = screen;
-        let now_ms = start.elapsed().as_millis() as u64;
-        let (key_state, occurrence, key_elapsed_ms) = keys_clock.tick(reading.state, now_ms);
-
-        let prompt_pending = scenario.prompt.is_some() && !prompt_sent;
-        if !prompt_pending {
-            for index in
-                due_keys(&scenario.keys, &keys_sent, key_state, occurrence, Duration::from_millis(key_elapsed_ms))
-            {
-                write_keys(&mut writer, scenario.keys[index].send.as_bytes())?;
-                keys_sent[index] = true;
-                eprintln!(
-                    "driver: sent {:?} on {} occurrence {occurrence}",
-                    scenario.keys[index].send,
-                    scenario.keys[index].on.id()
-                );
-            }
-        }
-
-        if screen_state == ScreenState::Idle
-            && !prompt_sent
-            && let Some(prompt) = &scenario.prompt
-        {
-            write_keys(&mut writer, prompt.as_bytes())?;
-            write_keys(&mut writer, b"\r")?;
-            prompt_sent = true;
-            keys_clock.reset(ScreenState::Idle, now_ms);
-            eprintln!("driver: prompt sent");
-        }
-
-        if last_sample.elapsed() >= SAMPLE_EVERY {
-            let library = library_state(&mut tail, harness, home, Timestamp::from(SystemTime::now()));
-            samples.push(Sample {
-                elapsed_ms: start.elapsed().as_millis() as u64,
-                screen: screen_state.id(),
-                background_agents: reading.background_agents,
-                library: library.as_ref().map(score::library_point),
-            });
-            last_sample = Instant::now();
-        }
-        std::thread::sleep(Duration::from_millis(10));
     }
 
-    let _ = child.kill();
+    std::thread::sleep(Duration::from_millis(300));
+    let files_after = read_registry(home).len();
+    let saw_registry = registry.iter().any(|sample| sample.status.is_some());
+    let registry_files_after_exit = if saw_registry || files_after > 0 { Some(files_after) } else { None };
+    kill_registry_pids(home);
+
     let transcript = tail.as_ref().map(|tail| tail.path.clone());
-    let transcript_text = transcript.as_ref().and_then(|path| std::fs::read_to_string(path).ok());
+    let dumps = collect_transcript_dumps(home);
+    copy_transcripts(&dumps, &out)?;
     let helpers = collect_helpers(home);
     copy_helpers(&helpers, &out)?;
     let expectations: Vec<score::Expectation> =
         scenario.expected_activity.iter().map(score::ExpectedOne::expectation).collect();
+    let registry_fields: Vec<String> = registry_fields.into_iter().collect();
     let score = score::score(&score::ScoreRequest {
         scenario: &scenario.name,
         description: scenario.description.clone(),
@@ -326,8 +296,13 @@ fn run_pty(
         remaining_mock_steps: mock.remaining(),
         transcript: transcript.as_deref().map(|path| path.display().to_string()),
         min_screen_ms: &scenario.min_screen_ms,
-        transcript_jsonl: transcript_text.as_deref(),
+        transcripts: &dumps,
         helpers: &helpers,
+        registry: &registry,
+        registry_fields: &registry_fields,
+        registry_files_after_exit,
+        expect_registry: scenario.expect_registry.as_ref(),
+        expect_observations: scenario.expect_observations.as_ref(),
     });
 
     let timeline = out.join("timeline.jsonl");
@@ -424,6 +399,394 @@ fn write_keys(writer: &mut Box<dyn Write + Send>, bytes: &[u8]) -> Result<(), St
     writer.flush().map_err(|e| format!("flush pty: {e}"))
 }
 
+fn materialize_phases(scenario: &DriverScenario) -> Vec<PhaseSpec> {
+    if scenario.phases.is_empty() {
+        return vec![PhaseSpec {
+            command: scenario.command.clone(),
+            prompt: scenario.prompt.clone(),
+            keys: scenario.keys.clone(),
+            run_for_ms: scenario.run_for_ms,
+            exit: scenario.exit,
+            env: scenario.env.clone(),
+        }];
+    }
+    scenario
+        .phases
+        .iter()
+        .map(|phase| {
+            let mut env = scenario.env.clone();
+            env.extend(phase.env.clone());
+            PhaseSpec {
+                command: if phase.command.is_empty() { scenario.command.clone() } else { phase.command.clone() },
+                prompt: phase.prompt.clone(),
+                keys: phase.keys.clone(),
+                run_for_ms: phase.run_for_ms.unwrap_or(scenario.run_for_ms),
+                exit: phase.exit.unwrap_or(scenario.exit),
+                env,
+            }
+        })
+        .collect()
+}
+
+fn resolve_command(command: &[String], harness: Harness, session_id: Option<&str>) -> Result<Vec<String>, String> {
+    let command = if command.is_empty() { default_command(harness) } else { command.to_vec() };
+    let mut resolved = Vec::with_capacity(command.len());
+    for arg in command {
+        if arg.contains("{{session_id}}") {
+            let id = session_id.ok_or("{{session_id}} needs a session from the previous phase")?;
+            resolved.push(arg.replace("{{session_id}}", id));
+        } else {
+            resolved.push(arg);
+        }
+    }
+    if resolved.is_empty() {
+        return Err("scenario command is empty".into());
+    }
+    Ok(resolved)
+}
+
+struct DrivePhase<'a> {
+    phase: &'a PhaseSpec,
+    command: &'a [String],
+    harness: Harness,
+    addr: &'a str,
+    home: &'a Path,
+    work: &'a Path,
+    origin: Instant,
+    tail: &'a mut Option<Tail>,
+    samples: &'a mut Vec<Sample>,
+    registry: &'a mut Vec<score::RegistrySample>,
+    registry_fields: &'a mut BTreeSet<String>,
+    final_screen: &'a mut String,
+}
+
+fn drive_phase(drive: DrivePhase<'_>) -> Result<(), String> {
+    let DrivePhase {
+        phase,
+        command,
+        harness,
+        addr,
+        home,
+        work,
+        origin,
+        tail,
+        samples,
+        registry,
+        registry_fields,
+        final_screen,
+    } = drive;
+    let mut builder = CommandBuilder::new(&command[0]);
+    for arg in &command[1..] {
+        builder.arg(arg);
+    }
+    builder.cwd(work);
+    builder.env("HOME", home);
+    builder.env("CLAUDE_CONFIG_DIR", home.join(".claude"));
+    builder.env("ANTHROPIC_BASE_URL", format!("http://{addr}"));
+    builder.env("ANTHROPIC_API_KEY", DUMMY_KEY);
+    builder.env("DISABLE_AUTOUPDATER", "1");
+    builder.env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1");
+    builder.env("DISABLE_TELEMETRY", "1");
+    builder.env("DISABLE_ERROR_REPORTING", "1");
+    builder.env("CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY", "1");
+    builder.env("TERM", "xterm-256color");
+    builder.env("COLUMNS", COLS.to_string());
+    builder.env("LINES", ROWS.to_string());
+    for (key, value) in &phase.env {
+        builder.env(key, value);
+    }
+
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(PtySize { rows: ROWS, cols: COLS, pixel_width: 0, pixel_height: 0 })
+        .map_err(|e| format!("open pty: {e}"))?;
+    let mut child = pair.slave.spawn_command(builder).map_err(|e| format!("spawn {}: {e}", command[0]))?;
+    drop(pair.slave);
+    let mut reader = pair.master.try_clone_reader().map_err(|e| format!("pty reader: {e}"))?;
+    let mut writer = pair.master.take_writer().map_err(|e| format!("pty writer: {e}"))?;
+    let (tx, rx) = mpsc::channel::<Vec<u8>>();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 65536];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    if tx.send(buf[..n].to_vec()).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
+    let mut parser = vt100::Parser::new(ROWS, COLS, 0);
+    let mut keys_sent = vec![false; phase.keys.len()];
+    let mut keys_clock = KeyClock::new(ScreenState::Starting);
+    let mut prompt_sent = false;
+    let mut screen_state = ScreenState::Starting;
+    let mut last_sample = Instant::now() - SAMPLE_EVERY;
+    let phase_start = Instant::now();
+    keys_clock.reset(ScreenState::Starting, origin.elapsed().as_millis() as u64);
+    let run_for = Duration::from_millis(phase.run_for_ms);
+
+    while phase_start.elapsed() < run_for {
+        while let Ok(bytes) = rx.try_recv() {
+            parser.process(&bytes);
+        }
+        let screen = parser.screen().contents();
+        let reading = screen::read_screen(harness, &screen);
+        if reading.state != screen_state {
+            screen_state = reading.state;
+        }
+        *final_screen = screen;
+        let now_ms = origin.elapsed().as_millis() as u64;
+        let (key_state, occurrence, key_elapsed_ms) = keys_clock.tick(reading.state, now_ms);
+        let prompt_pending = phase.prompt.is_some() && !prompt_sent;
+        if !prompt_pending {
+            for index in due_keys(&phase.keys, &keys_sent, key_state, occurrence, Duration::from_millis(key_elapsed_ms))
+            {
+                write_keys(&mut writer, phase.keys[index].send.as_bytes())?;
+                keys_sent[index] = true;
+                eprintln!(
+                    "driver: sent {:?} on {} occurrence {occurrence}",
+                    phase.keys[index].send,
+                    phase.keys[index].on.id()
+                );
+            }
+        }
+        if screen_state == ScreenState::Idle
+            && !prompt_sent
+            && let Some(prompt) = &phase.prompt
+        {
+            write_keys(&mut writer, prompt.as_bytes())?;
+            write_keys(&mut writer, b"\r")?;
+            prompt_sent = true;
+            keys_clock.reset(ScreenState::Idle, now_ms);
+            eprintln!("driver: prompt sent");
+        }
+        if last_sample.elapsed() >= SAMPLE_EVERY {
+            sample_once(
+                harness,
+                home,
+                &mut SampleSink { tail, samples, registry, registry_fields },
+                screen_state,
+                reading.background_agents,
+                now_ms,
+            );
+            last_sample = Instant::now();
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    if phase.exit == ExitMode::Graceful {
+        let _ = write_keys(&mut writer, b"/exit\r");
+        if !wait_for_child(&mut child, Duration::from_secs(6), &rx, &mut parser) {
+            let _ = write_keys(&mut writer, b"\x04");
+            let _ = wait_for_child(&mut child, Duration::from_secs(3), &rx, &mut parser);
+        }
+        let now_ms = origin.elapsed().as_millis() as u64;
+        let reading = screen::read_screen(harness, &parser.screen().contents());
+        sample_once(
+            harness,
+            home,
+            &mut SampleSink { tail, samples, registry, registry_fields },
+            reading.state,
+            reading.background_agents,
+            now_ms,
+        );
+    }
+    let pid = child.process_id();
+    let _ = child.kill();
+    stop_pid(pid);
+    Ok(())
+}
+
+fn wait_for_child(
+    child: &mut Box<dyn portable_pty::Child + Send + Sync>,
+    limit: Duration,
+    rx: &mpsc::Receiver<Vec<u8>>,
+    parser: &mut vt100::Parser,
+) -> bool {
+    let deadline = Instant::now() + limit;
+    while Instant::now() < deadline {
+        while let Ok(bytes) = rx.try_recv() {
+            parser.process(&bytes);
+        }
+        if child.try_wait().ok().flatten().is_some() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    false
+}
+
+fn stop_pid(pid: Option<u32>) {
+    let Some(pid) = pid else { return };
+    if pid == std::process::id() {
+        return;
+    }
+    if let Some(group) = process_group(pid)
+        && group != 0
+        && process_group(std::process::id()) != Some(group)
+    {
+        let _ = std::process::Command::new("kill").args(["-KILL", &format!("-{group}")]).status();
+    }
+    let _ = std::process::Command::new("kill").args(["-KILL", &pid.to_string()]).status();
+}
+
+fn process_group(pid: u32) -> Option<u32> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let rest = stat.split_once(')')?.1;
+    rest.split_whitespace().nth(2)?.parse().ok()
+}
+
+struct SampleSink<'a> {
+    tail: &'a mut Option<Tail>,
+    samples: &'a mut Vec<Sample>,
+    registry: &'a mut Vec<score::RegistrySample>,
+    registry_fields: &'a mut BTreeSet<String>,
+}
+
+fn sample_once(
+    harness: Harness,
+    home: &Path,
+    sink: &mut SampleSink<'_>,
+    screen: ScreenState,
+    background_agents: bool,
+    now_ms: u64,
+) {
+    let library = library_state(sink.tail, harness, home, Timestamp::from(SystemTime::now()));
+    sink.samples.push(Sample {
+        elapsed_ms: now_ms,
+        screen: screen.id(),
+        background_agents,
+        library: library.as_ref().map(score::library_point),
+    });
+    for snap in read_registry(home) {
+        sink.registry_fields.extend(snap.keys.iter().cloned());
+        sink.registry.push(score::RegistrySample {
+            elapsed_ms: now_ms,
+            screen: screen.id().to_string(),
+            pid: snap.pid,
+            session_id: snap.session_id,
+            status: snap.status,
+            waiting_for: snap.waiting_for,
+        });
+    }
+}
+
+struct RegistrySnap {
+    pid: Option<u64>,
+    session_id: Option<String>,
+    status: Option<String>,
+    waiting_for: Option<String>,
+    keys: BTreeSet<String>,
+}
+
+fn read_registry(home: &Path) -> Vec<RegistrySnap> {
+    let dir = home.join(".claude").join("sessions");
+    let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
+    let mut snaps = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+        let serde_json::Value::Object(map) = value else { continue };
+        snaps.push(RegistrySnap {
+            pid: map.get("pid").and_then(serde_json::Value::as_u64),
+            session_id: map.get("sessionId").and_then(serde_json::Value::as_str).map(str::to_string),
+            status: map
+                .get("status")
+                .and_then(serde_json::Value::as_str)
+                .filter(|status| !status.is_empty())
+                .map(str::to_string),
+            waiting_for: map
+                .get("waitingFor")
+                .and_then(serde_json::Value::as_str)
+                .filter(|waiting| !waiting.is_empty())
+                .map(str::to_string),
+            keys: map.keys().cloned().collect(),
+        });
+    }
+    snaps.sort_by_key(|snap| snap.pid.unwrap_or(0));
+    snaps
+}
+
+fn kill_registry_pids(home: &Path) {
+    for snap in read_registry(home) {
+        let Some(pid) = snap.pid else { continue };
+        let _ = std::process::Command::new("kill").args(["-KILL", &pid.to_string()]).status();
+    }
+}
+
+fn read_session_id(home: &Path) -> Option<String> {
+    let path = find_claude_transcript(home)?;
+    let text = std::fs::read_to_string(path).ok()?;
+    session_id_in(&text)
+}
+
+fn session_id_in(jsonl: &str) -> Option<String> {
+    for line in jsonl.lines() {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+        if let Some(id) = value.get("sessionId").and_then(serde_json::Value::as_str).filter(|id| !id.is_empty()) {
+            return Some(id.to_string());
+        }
+    }
+    None
+}
+
+fn collect_transcript_dumps(home: &Path) -> Vec<score::TranscriptDump> {
+    let mut found = Vec::new();
+    walk_transcripts(&home.join(".claude").join("projects"), 0, &mut found);
+    found.sort_by(|left, right| left.0.cmp(&right.0));
+    found
+        .into_iter()
+        .filter_map(|(_, path)| {
+            let name = path.file_name()?.to_str()?.to_string();
+            let jsonl = std::fs::read_to_string(&path).ok()?;
+            Some(score::TranscriptDump { name, jsonl })
+        })
+        .collect()
+}
+
+fn walk_transcripts(dir: &Path, depth: usize, found: &mut Vec<(String, PathBuf)>) {
+    if depth > 3 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(file_type) = entry.file_type() else { continue };
+        if file_type.is_dir() {
+            if path.file_name().is_some_and(|name| name == "subagents") {
+                continue;
+            }
+            walk_transcripts(&path, depth + 1, found);
+        } else if path.extension().is_some_and(|ext| ext == "jsonl") {
+            found.push((path.display().to_string(), path));
+        }
+    }
+}
+
+fn copy_transcripts(dumps: &[score::TranscriptDump], out: &Path) -> Result<(), String> {
+    if dumps.is_empty() {
+        return Ok(());
+    }
+    let dir = out.join("transcripts");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    for dump in dumps {
+        if dump.name.contains('/') || dump.name.contains('\\') || dump.name == "." || dump.name == ".." {
+            continue;
+        }
+        let path = dir.join(&dump.name);
+        std::fs::write(&path, &dump.jsonl).map_err(|e| format!("write {}: {e}", path.display()))?;
+    }
+    Ok(())
+}
+
 fn default_command(harness: Harness) -> Vec<String> {
     match harness {
         Harness::ClaudeCode => vec!["claude".into(), "--bare".into(), "--model".into(), "claude-sonnet-4-5".into()],
@@ -431,7 +794,7 @@ fn default_command(harness: Harness) -> Vec<String> {
     }
 }
 
-fn seed_claude(home: &Path, work: &Path) -> Result<(), String> {
+fn seed_claude(home: &Path, work: &Path, extra: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
     let config_dir = home.join(".claude");
     std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
     let work = std::fs::canonicalize(work).unwrap_or_else(|_| work.to_path_buf());
@@ -452,7 +815,12 @@ fn seed_claude(home: &Path, work: &Path) -> Result<(), String> {
     });
     std::fs::write(config_dir.join(".claude.json"), serde_json::to_vec_pretty(&config).expect("config serializes"))
         .map_err(|e| format!("seed .claude.json: {e}"))?;
-    std::fs::write(config_dir.join("settings.json"), br#"{"skipDangerousModePermissionPrompt": true}"#)
+    let mut settings = serde_json::json!({ "skipDangerousModePermissionPrompt": true });
+    let object = settings.as_object_mut().expect("settings object");
+    for (key, value) in extra {
+        object.insert(key.clone(), value.clone());
+    }
+    std::fs::write(config_dir.join("settings.json"), serde_json::to_vec_pretty(&settings).expect("settings serialize"))
         .map_err(|e| format!("seed settings.json: {e}"))
 }
 
@@ -902,5 +1270,175 @@ mod tests {
         files.remove("../outside.txt");
         files.insert("/tmp/outside.txt".into(), "no".into());
         assert!(seed_files(work.path(), &files).is_err());
+    }
+
+    #[test]
+    fn process_group_reads_this_process_and_skips_a_missing_pid() {
+        let group = process_group(std::process::id()).unwrap();
+        assert!(group > 0);
+        assert_eq!(process_group(u32::MAX), None);
+    }
+
+    #[test]
+    fn resolve_command_fills_the_session_and_the_default() {
+        let command = resolve_command(&[], Harness::ClaudeCode, None).unwrap();
+        assert_eq!(command, vec!["claude".to_string(), "--bare".into(), "--model".into(), "claude-sonnet-4-5".into()]);
+        let resumed = resolve_command(
+            &["claude".into(), "--resume".into(), "{{session_id}}".into()],
+            Harness::ClaudeCode,
+            Some("abc"),
+        )
+        .unwrap();
+        assert_eq!(resumed, vec!["claude".to_string(), "--resume".into(), "abc".into()]);
+        let err = resolve_command(&["{{session_id}}".into()], Harness::ClaudeCode, None).unwrap_err();
+        assert!(err.contains("previous phase"), "{err}");
+    }
+
+    #[test]
+    fn partial_registry_json_is_skipped() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(".claude/sessions");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("1.json"), r#"{"pid":1,"status":"busy","sessionId":"s","waitingFor":""}"#).unwrap();
+        std::fs::write(dir.join("2.json"), "{not json").unwrap();
+        std::fs::write(dir.join("note.txt"), r#"{"status":"idle"}"#).unwrap();
+        let snaps = read_registry(home.path());
+        assert_eq!(snaps.len(), 1);
+        assert_eq!(snaps[0].status.as_deref(), Some("busy"));
+        assert_eq!(snaps[0].pid, Some(1));
+        assert!(snaps[0].waiting_for.is_none());
+        assert!(snaps[0].keys.contains("pid"));
+    }
+
+    #[test]
+    fn session_id_comes_from_the_first_non_empty_record() {
+        let jsonl = "\nnot json\n{\"type\":\"user\"}\n{\"sessionId\":\"abc\",\"type\":\"user\"}\n";
+        assert_eq!(session_id_in(jsonl).as_deref(), Some("abc"));
+        assert_eq!(session_id_in(r#"{"sessionId":""}"#), None);
+    }
+
+    #[test]
+    fn materialize_phases_keeps_a_single_phase_scenario() {
+        let plain = scenario("claude_plain_qa.json");
+        let phases = materialize_phases(&plain);
+        assert_eq!(phases.len(), 1);
+        assert_eq!(phases[0].prompt.as_deref(), Some("say hello"));
+        assert_eq!(phases[0].run_for_ms, 10_000);
+        assert_eq!(phases[0].exit, ExitMode::Kill);
+        assert!(phases[0].command.is_empty());
+    }
+
+    #[test]
+    fn the_continuity_scenarios_parse() {
+        let manual = scenario("claude_compact_manual.json");
+        assert_eq!(manual.keys.len(), 2);
+        assert_eq!(manual.keys[0].send, "/compact\r");
+        assert_eq!(manual.keys[0].occurrence, 1);
+        assert_eq!(manual.keys[1].occurrence, 1);
+        assert_eq!(manual.keys[1].after_ms, 4_500);
+        assert_eq!(manual.expect_observations.as_ref().unwrap().compaction_triggers, vec!["manual".to_string()]);
+        assert_eq!(manual.expect_observations.as_ref().unwrap().compaction_same_file, Some(true));
+        assert_eq!(manual.expected_activity[0].expectation().activity, "done");
+
+        let auto = scenario("claude_compact_auto.json");
+        assert_eq!(auto.env.get("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE").map(String::as_str), Some("1"));
+        assert_eq!(auto.env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW").map(String::as_str), Some("100000"));
+        assert!(auto.no_approval);
+        assert!(auto.command.iter().any(|arg| arg == "--dangerously-skip-permissions"));
+        assert!(auto.command.iter().all(|arg| arg != "--bare"));
+        assert_eq!(auto.settings.get("bashOutputMaxChars").and_then(serde_json::Value::as_u64), Some(120_000));
+        assert!(auto.keys.is_empty());
+        assert_eq!(auto.expect_observations.as_ref().unwrap().compaction_triggers, vec!["auto".to_string()]);
+
+        let mode = scenario("claude_mode_model.json");
+        assert!(mode.command.iter().all(|arg| arg != "--bare"));
+        assert_eq!(mode.keys[0].send, "\u{1b}[Z");
+        assert_eq!(mode.keys[1].send, "/model haiku\r");
+        assert_eq!(mode.keys[2].occurrence, 1);
+        let expect = mode.expect_observations.as_ref().unwrap();
+        assert_eq!(expect.model_switch, Some(true));
+        assert_eq!(expect.permission_modes, vec!["default".to_string(), "acceptEdits".to_string()]);
+
+        let continued = scenario("claude_continue.json");
+        assert_eq!(continued.exit, ExitMode::Graceful);
+        assert_eq!(continued.phases.len(), 2);
+        assert!(continued.phases[1].command.iter().any(|arg| arg == "--continue"));
+        assert_eq!(continued.expect_observations.as_ref().unwrap().continued_in, Some(false));
+        assert_eq!(continued.expect_observations.as_ref().unwrap().same_file_resume, Some(true));
+        let phases = materialize_phases(&continued);
+        assert_eq!(phases[0].exit, ExitMode::Graceful);
+        assert!(phases[0].command.is_empty());
+        assert_eq!(phases[1].prompt.as_deref(), Some("what word did I ask you to remember?"));
+
+        let resume = scenario("claude_resume.json");
+        assert!(resume.phases[1].command.iter().any(|arg| arg.contains("{{session_id}}")));
+        let resolved = resolve_command(&resume.phases[1].command, Harness::ClaudeCode, Some("sess-1")).unwrap();
+        assert!(resolved.iter().any(|arg| arg == "sess-1"));
+
+        let fork = scenario("claude_continued_in.json");
+        assert_eq!(fork.keys[0].send, "/background\r");
+        assert_eq!(fork.exit, ExitMode::Kill);
+        assert_eq!(fork.expect_observations.as_ref().unwrap().continued_in, Some(true));
+        assert_eq!(fork.expected_activity[0].expectation().activity, "done");
+        assert_eq!(fork.expected_activity[0].expectation().when, score::ExpectWhen::Ever);
+        assert_eq!(fork.expected_activity[1].expectation().activity, "idle");
+
+        let long = scenario("claude_long_output.json");
+        assert!(long.no_approval);
+        assert_eq!(long.expect_observations.as_ref().unwrap().lean_agrees, Some(true));
+        assert_eq!(long.expect_observations.as_ref().unwrap().min_tool_result_bytes, Some(20_000));
+
+        let text = scenario("claude_non_ascii.json");
+        assert!(text.prompt.as_ref().unwrap().contains('🎉'));
+        assert!(text.files.keys().any(|path| path.contains('📝')));
+        assert_eq!(text.expect_observations.as_ref().unwrap().non_ascii_path, Some(true));
+
+        let registry = scenario("claude_sessions_registry.json");
+        assert_eq!(registry.exit, ExitMode::Graceful);
+        assert_eq!(registry.min_screen_ms.get("permission_prompt"), Some(&4_000));
+        let registry_expect = registry.expect_registry.as_ref().unwrap();
+        assert_eq!(registry_expect.statuses, vec!["busy".to_string(), "idle".to_string(), "waiting".to_string()]);
+        assert_eq!(registry_expect.waiting_for.as_deref(), Some("permission prompt"));
+        assert_eq!(registry_expect.waiting_during_screen.as_deref(), Some("permission_prompt"));
+        assert_eq!(registry_expect.removed_on_exit, Some(true));
+        assert!(registry.expected_activity[0].expectation().screen.is_none());
+
+        for name in [
+            "claude_compact_manual.json",
+            "claude_compact_auto.json",
+            "claude_mode_model.json",
+            "claude_continue.json",
+            "claude_resume.json",
+            "claude_continued_in.json",
+            "claude_long_output.json",
+            "claude_non_ascii.json",
+            "claude_sessions_registry.json",
+        ] {
+            let driver = scenario(name);
+            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scenarios").join(name);
+            let mock_path = path.parent().unwrap().join(&driver.mock);
+            let text =
+                std::fs::read_to_string(&mock_path).unwrap_or_else(|e| panic!("read {}: {e}", mock_path.display()));
+            let text = substitute_workspace(&text, Path::new("/tmp/a3 work\""));
+            let mock = mock_server::scenario::Scenario::parse(&text)
+                .unwrap_or_else(|e| panic!("parse {}: {e}", mock_path.display()));
+            if name == "claude_continued_in.json" {
+                assert_eq!(mock.steps.len(), 4);
+            }
+            if name == "claude_non_ascii.json" {
+                assert_eq!(mock.title.as_deref(), Some("絵文字タイトル 🎉"));
+                let path = mock.steps.iter().find_map(|step| match &step.reply.content[0] {
+                    mock_server::scenario::Block::ToolUse { input, .. } => {
+                        input.get("file_path").and_then(|value| value.as_str()).map(str::to_string)
+                    }
+                    _ => None,
+                });
+                assert_eq!(path.as_deref(), Some("/tmp/a3 work\"/notes/café-📝.txt"));
+            }
+            if name == "claude_compact_auto.json" {
+                assert!(mock.steps.iter().any(|step| step.reply.usage.input_tokens == 20_000));
+                assert_eq!(mock.steps.len(), 6);
+            }
+        }
     }
 }

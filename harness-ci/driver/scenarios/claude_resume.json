@@ -1,0 +1,25 @@
+{
+  "name": "claude_resume",
+  "description": "The same remembered word, then --resume of that session id in the same home. Expect the same file and no continued-in record.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/resume_word.json",
+  "exit": "graceful",
+  "phases": [
+    {
+      "prompt": "remember the word RESUME-WORD-GAMMA",
+      "run_for_ms": 14000
+    },
+    {
+      "command": ["claude", "--bare", "--model", "claude-sonnet-4-5", "--resume", "{{session_id}}"],
+      "prompt": "what word did I ask you to remember?",
+      "run_for_ms": 18000
+    }
+  ],
+  "expected_activity": [
+    { "activity": "done", "certainty": "firm", "when": "end" }
+  ],
+  "expect_observations": {
+    "continued_in": false,
+    "same_file_resume": true
+  }
+}

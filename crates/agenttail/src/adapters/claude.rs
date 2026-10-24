@@ -75,7 +75,7 @@ fn user(s: &mut Session, e: &Value) {
     if let Some(text) = content.as_str() {
         if interrupted(text) {
             s.set(Last::Interrupted, t);
-        } else if e["isMeta"] != true && !text.starts_with('<') {
+        } else if e["isMeta"] != true && e["isCompactSummary"] != true && !text.starts_with('<') {
             s.prompt(text, t);
         }
     } else if let Some(items) = content.as_array() {
@@ -84,7 +84,7 @@ fn user(s: &mut Session, e: &Value) {
             s.set(Last::ToolResult, t);
         } else if texts().any(interrupted) {
             s.set(Last::Interrupted, t);
-        } else if e["isMeta"] != true {
+        } else if e["isMeta"] != true && e["isCompactSummary"] != true {
             // A prompt in blocks: text with a pasted image, say.
             if let Some(text) = texts().find(|t| !t.starts_with('<')) {
                 s.prompt(text, t);
@@ -436,6 +436,27 @@ mod tests {
         s.apply(&json!({"type": "cost-state", "totalCostUSD": "n/a"}));
         assert_eq!(s.cost, Some(2.5), "unparseable cost keeps the last good value");
         assert_eq!(session(&[]).cost, None, "none recorded: none, not zero");
+    }
+
+    #[test]
+    fn a_compact_summary_does_not_start_a_turn() {
+        let s = session(&[
+            prompt("remember the token", 5.0),
+            end_turn(4.0, "m1"),
+            json!({"type": "system", "subtype": "compact_boundary", "timestamp": at(3.0),
+                   "compactMetadata": {"trigger": "manual", "preTokens": 100, "postTokens": 10}}),
+            json!({"type": "user", "isCompactSummary": true, "timestamp": at(2.0),
+                   "message": {"role": "user", "content": "summary of the token"}}),
+        ]);
+        assert_eq!(status(&s), (Status::Done, "done"));
+        assert!(log(&s).iter().all(|line| !line.contains("summary of the token")));
+        let blocks = session(&[
+            prompt("remember the token", 5.0),
+            end_turn(4.0, "m1"),
+            json!({"type": "user", "isCompactSummary": true, "timestamp": at(2.0),
+                   "message": {"role": "user", "content": [{"type": "text", "text": "summary in blocks"}]}}),
+        ]);
+        assert_eq!(status(&blocks), (Status::Done, "done"));
     }
 
     #[test]

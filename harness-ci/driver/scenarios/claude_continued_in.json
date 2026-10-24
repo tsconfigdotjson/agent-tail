@@ -1,0 +1,18 @@
+{
+  "name": "claude_continued_in",
+  "description": "After the token is remembered, /background forks the session. Expect a continued-in record and the target session file. The foreground is killed; detached registry pids are stopped after the transcripts are copied.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/continued_in.json",
+  "prompt": "remember CONTINUED-TOKEN-THETA",
+  "keys": [
+    { "on": "idle", "send": "/background\r", "after_ms": 800, "occurrence": 1 }
+  ],
+  "run_for_ms": 28000,
+  "expected_activity": [
+    { "activity": "done", "certainty": "firm", "when": "ever" },
+    { "activity": "idle", "certainty": "firm", "when": "end" }
+  ],
+  "expect_observations": {
+    "continued_in": true
+  }
+}

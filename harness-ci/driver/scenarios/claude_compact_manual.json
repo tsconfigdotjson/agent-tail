@@ -1,0 +1,19 @@
+{
+  "name": "claude_compact_manual",
+  "description": "Manual /compact after a remembered token, then a follow-up in the same transcript. Expect a manual compact_boundary, the compact summary, and another turn in that file.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/compact_manual.json",
+  "prompt": "remember COMPACT-TOKEN-ALPHA",
+  "keys": [
+    { "on": "idle", "send": "/compact\r", "after_ms": 800, "occurrence": 1 },
+    { "on": "idle", "send": "what token did I ask you to remember?\r", "after_ms": 4500, "occurrence": 1 }
+  ],
+  "run_for_ms": 16000,
+  "expected_activity": [
+    { "activity": "done", "certainty": "firm", "when": "end", "screen": "idle" }
+  ],
+  "expect_observations": {
+    "compaction_triggers": ["manual"],
+    "compaction_same_file": true
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "claude_compact_auto",
+  "description": "Auto-compact after three inline Bash results of 110000 bytes. The default inline cap is 30000 and the ceiling is 128000, so settings.bashOutputMaxChars is 120000 and --bare is omitted (it skips settings). The window is 100000 and the threshold is about effectiveWindow-13000 tokens. A 20k-character prompt stayed near 95% of that window on Claude Code 2.1.310: CLAUDE_AUTOCOMPACT_PCT_OVERRIDE did not lower it. The assistant reply after the summary is the continuity in the same file.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/compact_auto.json",
+  "command": ["claude", "--model", "claude-sonnet-4-5", "--dangerously-skip-permissions"],
+  "settings": { "bashOutputMaxChars": 120000 },
+  "prompt": "remember FILL-TOKEN-DELTA",
+  "env": {
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "100000",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "1"
+  },
+  "run_for_ms": 45000,
+  "no_approval": true,
+  "expected_activity": [
+    {
+      "activity": "done",
+      "certainty": "firm",
+      "when": "end",
+      "screen": "idle"
+    }
+  ],
+  "expect_observations": {
+    "compaction_triggers": ["auto"],
+    "compaction_same_file": true
+  }
+}

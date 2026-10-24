@@ -1,0 +1,19 @@
+{
+  "name": "claude_non_ascii",
+  "description": "The prompt, the Read path, and the session title each contain non-ASCII text.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/non_ascii.json",
+  "prompt": "read notes/café-📝.txt and reply こんにちは 🎉",
+  "files": {
+    "notes/café-📝.txt": "bonjour café\n"
+  },
+  "run_for_ms": 22000,
+  "expected_activity": [
+    { "activity": "done", "certainty": "firm", "when": "end", "screen": "idle" }
+  ],
+  "expect_observations": {
+    "non_ascii_prompt": true,
+    "non_ascii_title": true,
+    "non_ascii_path": true
+  }
+}

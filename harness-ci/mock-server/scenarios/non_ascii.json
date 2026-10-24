@@ -1,0 +1,30 @@
+{
+  "name": "non_ascii",
+  "description": "Read a non-ASCII path, then answer. The title override is what the transcript should store.",
+  "dispatch": "first_match",
+  "title": "絵文字タイトル 🎉",
+  "steps": [
+    {
+      "expect": { "user_contains": "こんにちは", "has_tool_result": true },
+      "reply": {
+        "content": [{ "type": "text", "text": "The note says bonjour café. こんにちは 🎉" }],
+        "usage": { "input_tokens": 30, "output_tokens": 16 },
+        "fault": { "type": "slow_first_token", "delay_ms": 600 }
+      }
+    },
+    {
+      "expect": { "user_contains": "こんにちは", "has_tool_result": false },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": { "file_path": "{{workspace}}/notes/café-📝.txt" }
+          }
+        ],
+        "usage": { "input_tokens": 20, "output_tokens": 20 },
+        "fault": { "type": "slow_first_token", "delay_ms": 800 }
+      }
+    }
+  ]
+}
