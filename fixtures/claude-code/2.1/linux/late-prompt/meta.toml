@@ -1,0 +1,6 @@
+harness = "claude_code"
+version = "2.1.310"
+os = "linux"
+capture = "handmade"
+date = "2026-10-24"
+description = "A prompt flushed after an API error, with an earlier timestamp, does not rewind Errored."

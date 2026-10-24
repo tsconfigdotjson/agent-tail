@@ -1,0 +1,3 @@
+{"type":"assistant","timestamp":"2026-10-24T12:00:01.000Z","isApiErrorMessage":true,"error":"server_error","message":{"id":"m1","stop_reason":"stop_sequence","usage":{"output_tokens":0},"content":[{"type":"text","text":"API error"}]}}
+{"type":"system","subtype":"turn_duration","timestamp":"2026-10-24T12:00:01.100Z","durationMs":100}
+{"type":"user","timestamp":"2026-10-24T12:00:00.000Z","message":{"content":"trigger an error"}}

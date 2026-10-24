@@ -6,7 +6,7 @@
 
 use super::Adapter;
 use crate::session::{Last, Session, command, file_name, tool};
-use crate::state::{ActivityLine, PermissionMode};
+use crate::state::{ActivityLine, PermissionMode, SandboxPolicy};
 use serde_json::Value;
 
 pub(crate) struct Codex;
@@ -29,8 +29,28 @@ impl Adapter for Codex {
                 if let Some(cwd) = p["cwd"].as_str() {
                     s.set_cwd(cwd);
                 }
-                if let Some(policy) = p["approval_policy"].as_str() {
-                    s.set_permission(Some(PermissionMode::parse(policy)));
+                match &p["approval_policy"] {
+                    Value::String(policy) => s.set_permission(Some(PermissionMode::parse(policy))),
+                    Value::Object(policy) => {
+                        // `granular` is either the object itself or one key inside it.
+                        let config = policy.get("granular").unwrap_or(&p["approval_policy"]);
+                        let categories =
+                            ["sandbox_approval", "rules", "skill_approval", "request_permissions", "mcp_elicitations"];
+                        if !categories.iter().any(|key| config.get(*key).is_some()) {
+                            // A shape this version hasn't seen: keep the timing guess rather than
+                            // inventing a firm no-human answer.
+                            s.set_permission(Some(PermissionMode::Unknown));
+                        } else {
+                            let asks =
+                                categories.iter().any(|key| config.get(*key).and_then(Value::as_bool).unwrap_or(false));
+                            let mode = if asks { PermissionMode::GranularAsk } else { PermissionMode::GranularNoAsk };
+                            s.set_permission(Some(mode));
+                        }
+                    }
+                    _ => {}
+                }
+                if let Some(kind) = p["sandbox_policy"]["type"].as_str() {
+                    s.set_sandbox(Some(SandboxPolicy::parse(kind)));
                 }
                 s.set_approval_reviewer_auto(p["approvals_reviewer"].as_str() == Some("auto_review"));
             }
@@ -237,23 +257,40 @@ mod tests {
 
     #[test]
     fn a_never_approval_policy_runs_the_tool_instead_of_stalling() {
-        let events = [
-            event("turn_context", json!({"cwd": "/w", "approval_policy": "never"})),
-            event(
-                "response_item",
-                json!({"type": "function_call", "name": "exec_command", "arguments": "{\"cmd\":\"sleep 60\"}"}),
-            ),
-        ];
-        let mut s = session(&events);
-        s.last_at -= STALL_AFTER * 2.0;
-        assert_eq!(status(&s), (Status::Working, "working"));
-        assert_eq!(s.permission, Some(PermissionMode::Never));
+        for sandbox in ["read-only", "workspace-write", "danger-full-access"] {
+            let events = [
+                event(
+                    "turn_context",
+                    json!({"cwd": "/w", "approval_policy": "never", "approvals_reviewer": "user",
+                           "sandbox_policy": {"type": sandbox}}),
+                ),
+                event(
+                    "response_item",
+                    json!({"type": "function_call", "name": "exec_command", "arguments": "{\"cmd\":\"sleep 60\"}"}),
+                ),
+            ];
+            let mut s = session(&events);
+            s.last_at -= STALL_AFTER * 2.0;
+            let st = s.state(
+                crate::time::Timestamp::from_secs_f64(crate::testutil::NOW),
+                &crate::ReducerOptions::default(),
+                crate::Diagnostics::default(),
+            );
+            assert_eq!((st.activity, st.certainty), (crate::Activity::RunningTool, crate::Certainty::Firm));
+            assert_eq!(st.permission, Some(PermissionMode::Never));
+            assert_eq!(s.sandbox, Some(SandboxPolicy::parse(sandbox)));
+            assert_eq!(status(&s), (Status::Working, "working"), "{sandbox}");
+        }
     }
 
     #[test]
     fn an_on_request_policy_keeps_the_inferred_stall() {
         let events = [
-            event("turn_context", json!({"cwd": "/w", "approval_policy": "on-request"})),
+            event(
+                "turn_context",
+                json!({"cwd": "/w", "approval_policy": "on-request", "approvals_reviewer": "user",
+                       "sandbox_policy": {"type": "read-only"}}),
+            ),
             event(
                 "response_item",
                 json!({"type": "function_call", "name": "exec_command", "arguments": "{\"cmd\":\"sleep 60\"}"}),
@@ -261,6 +298,14 @@ mod tests {
         ];
         let mut s = session(&events);
         s.last_at -= STALL_AFTER * 2.0;
+        let st = s.state(
+            crate::time::Timestamp::from_secs_f64(crate::testutil::NOW),
+            &crate::ReducerOptions::default(),
+            crate::Diagnostics::default(),
+        );
+        assert_eq!((st.activity, st.certainty), (crate::Activity::AwaitingApproval, crate::Certainty::Inferred));
+        assert_eq!(st.permission, Some(PermissionMode::OnRequest));
+        assert_eq!(st.sandbox, Some(SandboxPolicy::ReadOnly));
         assert_eq!(status(&s), (Status::NeedsYou, "may need approval"));
     }
 
@@ -269,7 +314,8 @@ mod tests {
         let events = [
             event(
                 "turn_context",
-                json!({"cwd": "/w", "approval_policy": "on-request", "approvals_reviewer": "auto_review"}),
+                json!({"cwd": "/w", "approval_policy": "on-request", "approvals_reviewer": "auto_review",
+                       "sandbox_policy": {"type": "workspace-write"}}),
             ),
             event(
                 "response_item",
@@ -278,7 +324,89 @@ mod tests {
         ];
         let mut s = session(&events);
         s.last_at -= STALL_AFTER * 2.0;
+        let st = s.state(
+            crate::time::Timestamp::from_secs_f64(crate::testutil::NOW),
+            &crate::ReducerOptions::default(),
+            crate::Diagnostics::default(),
+        );
+        assert_eq!((st.activity, st.certainty), (crate::Activity::RunningTool, crate::Certainty::Firm));
+        assert_eq!(st.permission, Some(PermissionMode::OnRequest));
+        assert_eq!(st.sandbox, Some(SandboxPolicy::WorkspaceWrite));
+        assert!(!s.can_ask_human(), "the reviewer is an AI, not a person");
+    }
+
+    #[test]
+    fn a_later_user_reviewer_restores_the_stall() {
+        let events = [
+            event(
+                "turn_context",
+                json!({"approval_policy": "on-request", "approvals_reviewer": "auto_review",
+                       "sandbox_policy": {"type": "workspace-write"}}),
+            ),
+            event(
+                "turn_context",
+                json!({"approval_policy": "on-request", "approvals_reviewer": "user",
+                       "sandbox_policy": {"type": "workspace-write"}}),
+            ),
+            event(
+                "response_item",
+                json!({"type": "function_call", "name": "exec_command", "arguments": "{\"cmd\":\"sleep 60\"}"}),
+            ),
+        ];
+        let mut s = session(&events);
+        s.last_at -= STALL_AFTER * 2.0;
+        assert!(s.can_ask_human());
+        assert_eq!(status(&s), (Status::NeedsYou, "may need approval"));
+    }
+
+    #[test]
+    fn granular_approval_modes_say_whether_they_can_ask() {
+        let granular = |config: Value| {
+            event(
+                "turn_context",
+                json!({"approval_policy": {"granular": config},
+                       "approvals_reviewer": "user", "sandbox_policy": {"type": "workspace-write"}}),
+            )
+        };
+        let call = || {
+            event(
+                "response_item",
+                json!({"type": "function_call", "name": "exec_command", "arguments": "{\"cmd\":\"sleep 60\"}"}),
+            )
+        };
+        let no_asks = granular(json!({"sandbox_approval": false, "rules": false, "skill_approval": false,
+                                      "request_permissions": false, "mcp_elicitations": false}));
+        let mut s = session(&[no_asks, call()]);
+        s.last_at -= STALL_AFTER * 2.0;
+        assert_eq!(s.permission, Some(PermissionMode::GranularNoAsk));
         assert_eq!(status(&s), (Status::Working, "working"));
+
+        let rules = granular(json!({"sandbox_approval": false, "rules": true}));
+        let mut s = session(&[rules, call()]);
+        s.last_at -= STALL_AFTER * 2.0;
+        assert_eq!(s.permission, Some(PermissionMode::GranularAsk));
+        assert_eq!(status(&s), (Status::NeedsYou, "may need approval"));
+
+        let unknown = granular(json!({"something_new": true}));
+        let mut s = session(&[unknown, call()]);
+        s.last_at -= STALL_AFTER * 2.0;
+        assert_eq!(s.permission, Some(PermissionMode::Unknown));
+        assert_eq!(s.sandbox, Some(SandboxPolicy::WorkspaceWrite), "the rest of turn_context is still read");
+        assert_eq!(status(&s), (Status::NeedsYou, "may need approval"));
+    }
+
+    #[test]
+    fn approval_aliases_and_sandboxes_are_parsed() {
+        assert_eq!(PermissionMode::parse("on-failure"), PermissionMode::OnRequest);
+        for (policy, want) in [
+            ("danger-full-access", SandboxPolicy::DangerFullAccess),
+            ("read-only", SandboxPolicy::ReadOnly),
+            ("external-sandbox", SandboxPolicy::ExternalSandbox),
+            ("workspace-write", SandboxPolicy::WorkspaceWrite),
+            ("something-new", SandboxPolicy::Unknown),
+        ] {
+            assert_eq!(SandboxPolicy::parse(policy), want, "{policy}");
+        }
     }
 
     #[test]

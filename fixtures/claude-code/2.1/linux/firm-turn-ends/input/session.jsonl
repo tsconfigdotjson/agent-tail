@@ -1,0 +1,6 @@
+{"type":"user","timestamp":"2026-10-24T11:59:59.000Z","cwd":"/work/app","message":{"content":"go"}}
+{"type":"assistant","timestamp":"2026-10-24T12:00:00.000Z","message":{"id":"m1","stop_reason":"end_turn","usage":{"output_tokens":2},"content":[{"type":"text","text":"done"}]}}
+{"type":"system","subtype":"stop_hook_summary","timestamp":"2026-10-24T12:00:00.060Z","hookCount":1,"preventedContinuation":false}
+{"type":"system","subtype":"turn_duration","timestamp":"2026-10-24T12:00:00.120Z","durationMs":120,"pendingBackgroundAgentCount":1}
+{"type":"last-prompt","lastPrompt":"go","timestamp":"2026-10-24T12:00:00.200Z"}
+{"type":"system","subtype":"agents_killed","timestamp":"2026-10-24T12:00:00.300Z"}

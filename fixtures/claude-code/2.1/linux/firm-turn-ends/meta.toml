@@ -1,0 +1,6 @@
+harness = "claude_code"
+version = "2.1.310"
+os = "linux"
+capture = "handmade"
+date = "2026-10-24"
+description = "A normal turn closes in order: end_turn, stop_hook_summary, turn_duration. last-prompt is metadata and agents_killed clears background helpers."

@@ -4,7 +4,8 @@
 use crate::harness::Harness;
 use crate::reducer::ReducerOptions;
 use crate::state::{
-    Activity, ActivityLine, Certainty, Diagnostics, PermissionMode, Reason, SessionMeta, SessionState, TokenUsage,
+    Activity, ActivityLine, Certainty, Diagnostics, PermissionMode, Reason, SandboxPolicy, SessionMeta, SessionState,
+    TokenUsage,
 };
 use crate::time::{Timestamp, parse_rfc3339};
 use serde_json::Value;
@@ -51,6 +52,8 @@ pub(crate) struct Session {
     message_usage: HashMap<String, TokenUsage>,
     /// The permission mode the harness last recorded, if any.
     pub(crate) permission: Option<PermissionMode>,
+    /// The sandbox policy the harness last recorded, if any (Codex).
+    pub(crate) sandbox: Option<SandboxPolicy>,
     /// Claude Code: `entrypoint: sdk-cli` has no human at the keyboard.
     pub(crate) entrypoint_sdk: bool,
     /// Codex: an AI reviewer, not a human, handles approval requests.
@@ -89,6 +92,7 @@ impl Session {
             usage: TokenUsage::default(),
             message_usage: HashMap::new(),
             permission: None,
+            sandbox: None,
             entrypoint_sdk: false,
             approval_reviewer_auto: false,
             error: None,
@@ -136,6 +140,7 @@ impl Session {
             last_write: some(self.active_at()),
             background: Vec::new(),
             permission: self.permission,
+            sandbox: self.sandbox,
             error: self.error.clone(),
             meta: SessionMeta {
                 project: self.project.clone(),
@@ -255,6 +260,11 @@ impl Session {
         self.permission = mode;
     }
 
+    /// The harness recorded a sandbox policy (`None`: it doesn't record one).
+    pub(crate) fn set_sandbox(&mut self, policy: Option<SandboxPolicy>) {
+        self.sandbox = policy;
+    }
+
     /// Claude Code: whether this session came from an SDK host with no human attached.
     pub(crate) fn set_entrypoint(&mut self, entrypoint: &str) {
         self.entrypoint_sdk = entrypoint == "sdk-cli";
@@ -290,6 +300,13 @@ impl Session {
         if t < self.last_at {
             return None;
         }
+        self.prompt_in_order(text, t)
+    }
+
+    /// A prompt for a harness whose non-prompt records carry no times of their own (Cursor):
+    /// the record order is the only clock, so a prompt's own timestamp can be older than the
+    /// file mtime of the activity before it and still start the next turn.
+    pub(crate) fn prompt_in_order(&mut self, text: &str, t: f64) -> Option<String> {
         self.set(Last::Prompt, t);
         let first = text.lines().map(str::trim).find(|l| !l.is_empty())?.to_string();
         self.push_log(ActivityLine::Prompt { text: first.clone() });

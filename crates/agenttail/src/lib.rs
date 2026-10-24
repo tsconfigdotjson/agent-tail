@@ -55,7 +55,7 @@ pub use fs::{Filter, READ_CHUNK, SWEEP_EVERY, SessionKey, Tracker, read_from};
 pub use harness::{Harness, Layout, Role};
 pub use reducer::{ChunkCtx, ParseMode, ReducerOptions, SessionReducer};
 pub use state::{
-    Activity, ActivityLine, Certainty, Diagnostics, PermissionMode, Reason, SessionMeta, SessionState, StatusClass,
-    TokenUsage,
+    Activity, ActivityLine, Certainty, Diagnostics, PermissionMode, Reason, SandboxPolicy, SessionMeta, SessionState,
+    StatusClass, TokenUsage,
 };
 pub use time::Timestamp;

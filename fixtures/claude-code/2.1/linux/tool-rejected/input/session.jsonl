@@ -1,0 +1,4 @@
+{"type":"assistant","timestamp":"2026-10-24T12:00:00.000Z","message":{"id":"m1","stop_reason":"tool_use","usage":{"output_tokens":2},"content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"rm -rf build"}}]}}
+{"type":"user","timestamp":"2026-10-24T12:00:01.000Z","permissionMode":"default","toolUseResult":"User rejected tool use","toolDenialKind":"user-rejected","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"The user doesn't want to proceed with this tool use. The tool use was rejected."}]}}
+{"type":"user","timestamp":"2026-10-24T12:00:01.100Z","message":{"content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}
+{"type":"system","subtype":"turn_duration","timestamp":"2026-10-24T12:00:01.200Z","durationMs":200}

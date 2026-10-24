@@ -84,7 +84,7 @@ fn user(s: &mut Session, content: &Value, t: f64) {
         find_project(s, text.split(|c: char| c.is_whitespace() || "\"'`()<>,;".contains(c)));
     }
     let typed = texts.iter().find_map(|t| typed(t)).unwrap_or_default();
-    if let Some(first) = s.prompt(typed, t)
+    if let Some(first) = s.prompt_in_order(typed, t)
         && s.title.is_empty()
     {
         // Cursor's titles aren't in the transcript; the opening prompt is the best summary.
@@ -629,16 +629,13 @@ mod tests {
         let events: Vec<Value> = SYNTHETIC.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
         let s = in_folder("Users-sam-Work-demo-app", &events);
         assert_eq!((s.project.as_str(), s.title.as_str()), ("demo-app", "Add a health check to the API"));
-        // The fixture's second prompt has an explicit 9:41 timestamp, but its assistant
-        // rows are dated by this test's fixed file mtime (a week later). A prompt older than
-        // recorded activity is a late flush and is ignored, as it is for Claude Code.
         assert_eq!(
             log(&s),
             [
-                "Read routes.ts",
                 "Task Find the existing tests",
                 "StrReplace routes.ts",
                 "$ npm test",
+                "› Now deploy it",
                 "$ npm run deploy"
             ]
         );
@@ -647,14 +644,12 @@ mod tests {
         let shell = events.iter().position(|e| e["message"]["content"][0]["name"] == "Shell").unwrap();
         let s = in_folder("Users-sam-Work-demo-app", &events[..=shell]);
         assert_eq!(status(&s), (Status::Working, "working"));
-        // The opening prompt is dated by its timestamp. The second one is older than the
-        // fixture's artificial file mtime, so it is ignored as a late flush; the earlier
-        // turn end stays the last event.
+        // Each prompt is dated by its timestamp, the opening one and the one after a turn.
         let at = |s: &str| parse_rfc3339(s).unwrap();
         let s = in_folder("Users-sam-Work-demo-app", &events[..1]);
         assert_eq!((s.last_at, s.last), (at("2026-10-16T16:05:00Z"), Last::Prompt));
         let again = events.iter().rposition(|e| e["role"] == "user").unwrap();
         let s = in_folder("Users-sam-Work-demo-app", &events[..=again]);
-        assert_eq!((s.last_at, s.last), (NOW, Last::EndTurn));
+        assert_eq!((s.last_at, s.last), (at("2026-10-16T16:41:00Z"), Last::Prompt));
     }
 }

@@ -1,0 +1,6 @@
+harness = "codex"
+version = "0.160.1"
+os = "linux"
+capture = "handmade"
+date = "2026-10-24"
+description = "approval_policy on-request with a human reviewer keeps the inferred stall after 20 s."
