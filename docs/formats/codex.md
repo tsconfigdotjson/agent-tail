@@ -46,6 +46,9 @@ Enums seen: `approval_policy: on-request`; `sandbox_policy.type: workspace-write
 - **Turn end:** `event_msg/task_complete` (same `turn_id`). Firm. `turn_aborted` and
   `turn_complete` were not in this sample. tvdash handles them from its 0.160 fixtures.
 - **Approval:** `turn_context.approval_policy` is firm for "can't ask" when it is `never`.
+  `approvals_reviewer: auto_review` also means no human; `on-failure` is the older name for
+  `on-request`. `sandbox_policy.type` is recorded in `SessionState.sandbox` but does not by
+  itself prove no human can be asked (full access is `danger-full-access` with `never`).
   This sample is `on-request` with a `workspace-write` sandbox, but **no approval event appeared**
   (no `exec_approval_request` or `apply_patch_approval_request`), so whether rollouts record approval
   requests at all is **unverified**. *Inference:* approvals travel over the app-server

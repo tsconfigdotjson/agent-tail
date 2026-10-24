@@ -72,6 +72,13 @@ fn user(s: &mut Session, e: &Value) {
         }
         return;
     }
+    // A rejected tool result ends the turn: on 2.1.310 it is followed by the interrupt text
+    // and `turn_duration`, but some builds (and a transcript read mid-flush) may show only
+    // the rejection. CDT treats the same string as an ending event.
+    if tool_rejected(e) {
+        s.set(Last::EndTurn, t);
+        return;
+    }
     if let Some(text) = content.as_str() {
         if interrupted(text) {
             s.set(Last::Interrupted, t);
@@ -131,24 +138,64 @@ fn assistant(s: &mut Session, e: &Value) {
 fn system(s: &mut Session, e: &Value) {
     let t = s.time_of(e);
     match e["subtype"].as_str() {
-        // The firmest turn end, written once after the hooks. It also carries a firm count
-        // of helpers still running when the turn ended.
-        Some("turn_duration") => {
-            if s.last == Last::Errored {
-                s.last_at = t;
-            } else {
-                s.set(Last::EndTurn, t);
-            }
-            if let Some(n) = e["pendingBackgroundAgentCount"].as_u64() {
+        // A normal turn's firm end in order: assistant `end_turn`, then `stop_hook_summary`
+        // when hooks ran, then `turn_duration` (about 0.06 s later). The duration record is
+        // the firmest and also carries a firm count of helpers still running.
+        Some("stop_hook_summary" | "turn_duration") => {
+            end_turn(s, t);
+            if e["subtype"] == "turn_duration"
+                && let Some(n) = e["pendingBackgroundAgentCount"].as_u64()
+            {
                 s.set_background_agents(n as usize);
             }
         }
         // A session exiting with its helpers: the turn is over, nothing is left running.
         Some("agents_killed") => {
-            s.set(Last::EndTurn, t);
+            end_turn(s, t);
             s.set_background_agents(0);
         }
         _ => {}
+    }
+}
+
+/// A `system` record ends the turn, but never replaces a recorded API error: that row is the
+/// error, and these records only timestamp the close.
+fn end_turn(s: &mut Session, t: f64) {
+    if s.last == Last::Errored {
+        s.last_at = t;
+    } else {
+        s.set(Last::EndTurn, t);
+    }
+}
+
+/// Whether this user record is Claude Code's record of a rejected tool use (`toolUseResult`
+/// "User rejected tool use", `toolDenialKind` user-rejected, or the result text).
+fn tool_rejected(e: &Value) -> bool {
+    if e["toolDenialKind"].as_str() == Some("user-rejected")
+        || e["toolUseResult"].as_str() == Some("User rejected tool use")
+    {
+        return true;
+    }
+    // Only tool results count here. A user's own prompt may quote the phrase (and the
+    // driver's own tests do), which must not end the turn.
+    let texts = e["message"]["content"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|c| c["type"] == "tool_result")
+        .filter_map(|c| result_text(&c["content"]))
+        .collect::<Vec<_>>();
+    texts.into_iter().any(|text| {
+        text.starts_with("User rejected tool use")
+            || text.starts_with("The user doesn't want to proceed with this tool use")
+    })
+}
+
+fn result_text(content: &Value) -> Option<&str> {
+    match content {
+        Value::String(text) => Some(text),
+        Value::Array(parts) => parts.iter().find_map(|part| part["text"].as_str()),
+        _ => None,
     }
 }
 
@@ -297,11 +344,95 @@ mod tests {
 
     #[test]
     fn turn_duration_and_agents_killed_end_the_turn() {
-        for subtype in ["turn_duration", "agents_killed"] {
+        for subtype in ["stop_hook_summary", "turn_duration", "agents_killed"] {
             let s = session(&[json!({"type": "system", "subtype": subtype, "timestamp": at(1.0)})]);
             assert_eq!(status(&s), (Status::Done, "done"), "{subtype}");
             assert_eq!(s.last, Last::EndTurn);
         }
+    }
+
+    #[test]
+    fn a_turn_ends_in_order_and_last_prompt_is_not_an_end() {
+        let mut s = session(&[prompt("go", 5.0)]);
+        assert_eq!(s.last, Last::Prompt);
+
+        s.apply(&end_turn(4.0, "m1"));
+        assert_eq!((s.last, s.last_at), (Last::EndTurn, crate::time::parse_rfc3339(&at(4.0)).unwrap()));
+        let after_end = s.last_at;
+
+        // The hook summary and the duration record close the same turn, later.
+        s.apply(&json!({"type": "system", "subtype": "stop_hook_summary", "timestamp": at(3.94)}));
+        let after_hooks = s.last_at;
+        assert!(after_hooks > after_end);
+        assert_eq!(s.last, Last::EndTurn);
+        s.apply(&json!({"type": "system", "subtype": "turn_duration", "timestamp": at(3.88)}));
+        let after_duration = s.last_at;
+        assert!(after_duration > after_hooks);
+        assert_eq!(s.last, Last::EndTurn);
+
+        // A metadata flush, not a turn marker: it moves nothing.
+        s.apply(&json!({"type": "last-prompt", "lastPrompt": "go", "timestamp": at(3.8)}));
+        assert_eq!((s.last, s.last_at), (Last::EndTurn, after_duration));
+        assert_eq!(status(&s), (Status::Done, "done"));
+    }
+
+    #[test]
+    fn stop_hook_summary_after_an_api_error_stays_errored() {
+        let error = json!({"type": "assistant", "timestamp": at(2.0),
+                           "isApiErrorMessage": true, "error": "server_error",
+                           "message": {"id": "m1", "stop_reason": "stop_sequence",
+                                       "content": [{"type": "text", "text": "API error"}]}});
+        let hooks = json!({"type": "system", "subtype": "stop_hook_summary", "timestamp": at(1.9)});
+        let s = session(&[error, hooks]);
+        let st = s.state(
+            crate::time::Timestamp::from_secs_f64(crate::testutil::NOW),
+            &crate::ReducerOptions::default(),
+            crate::Diagnostics::default(),
+        );
+        assert_eq!((st.activity, st.reason), (crate::Activity::Errored, crate::Reason::Errored));
+        assert_eq!(st.error.as_deref(), Some("server_error"));
+    }
+
+    #[test]
+    fn a_rejected_tool_use_ends_the_turn() {
+        let denied = |content: Value| {
+            json!({"type": "user", "timestamp": at(1.0), "permissionMode": "default",
+                   "toolUseResult": "User rejected tool use", "toolDenialKind": "user-rejected",
+                   "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": content}]}})
+        };
+        for content in [
+            json!("The user doesn't want to proceed with this tool use. The tool use was rejected."),
+            json!([{"type": "text", "text": "User rejected tool use"}]),
+        ] {
+            let s = session(&[tool_use("Bash", json!({"command": "rm -rf build"}), 2.0, "m1"), denied(content)]);
+            assert_eq!(status(&s), (Status::Done, "done"));
+            assert_eq!(s.last, Last::EndTurn, "a rejection is a firm end");
+        }
+
+        // The A3 transcript closes the rejected turn with its interrupt and duration, too.
+        let s = session(&[
+            tool_use("Bash", json!({"command": "rm -rf build"}), 4.0, "m1"),
+            denied(json!("The user doesn't want to proceed with this tool use.")),
+            json!({"type": "user", "timestamp": at(0.9), "message": {"content": [
+                {"type": "text", "text": "[Request interrupted by user for tool use]"}]}}),
+            json!({"type": "system", "subtype": "turn_duration", "timestamp": at(0.8)}),
+        ]);
+        assert_eq!(status(&s), (Status::Done, "done"));
+        assert_eq!(s.last, Last::EndTurn);
+
+        // A model that merely says the words in its own reply does not end a turn.
+        let quoted = json!({"type": "assistant", "timestamp": at(1.0),
+                            "message": {"id": "m2", "stop_reason": "tool_use",
+                                        "content": [{"type": "text", "text": "The transcript says User rejected tool use"}]}});
+        let s = session(&[tool_use("Bash", json!({}), 2.0, "m1"), quoted]);
+        assert_eq!(s.last, Last::ToolUse);
+
+        let typed = prompt("User rejected tool use is what the docs say", 1.0);
+        let s = session(&[end_turn(2.0, "m1"), typed]);
+        assert_eq!(
+            (s.last, log(&s)),
+            (Last::Prompt, vec!["› User rejected tool use is what the docs say".to_string()])
+        );
     }
 
     #[test]
@@ -358,6 +489,17 @@ mod tests {
         );
         assert_eq!((st.activity, st.reason), (crate::Activity::Errored, crate::Reason::Errored));
         assert!(s.log.is_empty());
+    }
+
+    #[test]
+    fn a_late_flushed_prompt_does_not_rewind_done() {
+        let s = session(&[end_turn(1.0, "m1"), prompt("late flush", 2.0)]);
+        assert_eq!(status(&s), (Status::Done, "done"));
+        assert_eq!(s.last, Last::EndTurn);
+        assert!(s.log.is_empty(), "an older prompt is not a new turn");
+
+        let s = session(&[end_turn(2.0, "m1"), prompt("next turn", 1.0)]);
+        assert_eq!(status(&s), (Status::Working, "thinking"));
     }
 
     #[test]

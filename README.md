@@ -20,14 +20,15 @@ For each session you get a `SessionState`:
 | `awaiting_approval` | a tool call has had no result for 20 s **and the mode can ask a human**: perhaps a permission prompt | **inferred** |
 | `running_tool` | a tool call is waiting for its result, including under bypass/`dontAsk`/`never`, an SDK entrypoint or an AI approval reviewer | firm |
 | `thinking` | a prompt was sent, or a tool's result came back | firm |
-| `done` | the turn ended normally (Claude `end_turn`/`turn_duration`/`agents_killed`; Codex `task_complete`/`turn_complete`; Cursor `turn_ended`) | firm |
+| `done` | the turn ended normally (Claude `end_turn`/`stop_hook_summary`/`turn_duration`/`agents_killed`, or a rejected tool use; Codex `task_complete`/`turn_complete`; Cursor `turn_ended`) | firm |
 | `interrupted` | the user interrupted or aborted (Claude's interrupt text, Codex `turn_aborted`, Cursor's abort status/user-stop string) | firm |
 | `errored` | the harness recorded an error ending the turn (Claude's synthetic API row, Codex `task_complete.error`, Cursor's error status and message) | firm |
 | `background_work` | the turn ended, but a subagent or background task is still writing (Claude's `pendingBackgroundAgentCount` makes this firm; a helper's own transcript makes it inferred) | firm / **inferred** |
 | `idle` | nothing written for 15 min, or nothing read yet | firm |
 
-Each state also carries the harness's last `permission` mode (Claude Code and Codex), the
-`background` helpers still running, and, for `errored`, the harness's `error` kind/message.
+Each state also carries the harness's last `permission` mode (Claude Code and Codex) and
+Codex `sandbox` policy, the `background` helpers still running, and, for `errored`, the
+harness's `error` kind/message.
 
 Each state also says *why* (`reason`, one value per rule), and carries the project, branch,
 title, cost (where the harness records it), token usage (`input`, `output`, cache read and

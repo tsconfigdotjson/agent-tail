@@ -239,3 +239,41 @@ On an instant failure, Claude Code 2.1.310 can flush the user prompt *after* tha
 an earlier timestamp. A prompt older than activity already recorded does not start a new turn,
 so the session stays `Errored` (the same rule keeps an instant `Done` from rewinding to
 `Thinking`). A prompt newer than that activity still does.
+
+## Firm turn ends and Codex policies (2026-10-24)
+
+**Claude's `system` ends are one turn.** A normal turn is `assistant(stop_reason=end_turn)`,
+then `system/stop_hook_summary` when hooks ran, then `system/turn_duration` about 0.06 s
+later. All three are firm ends here, and `turn_duration` is still the firmest: it is written
+once after the hooks and carries `pendingBackgroundAgentCount`. `last-prompt` is a metadata
+flush written mid-turn as well as at its end, so it is not read as an end. `agents_killed`
+ends the turn and clears the pending-helper count. A system end after an API-error row only
+moves its timestamp; the session stays `Errored`.
+
+**"User rejected tool use" ends the turn.** Claude Code's A3 denial scenario records the
+rejection as a tool result (`toolUseResult: "User rejected tool use"`, `toolDenialKind:
+user-rejected`, or the "doesn't want to proceed" result text), followed by the interrupt
+text and `turn_duration`. The rejection itself is now a firm end too, so a transcript read
+between those records does not sit at `Thinking`; the interrupt then makes it `Interrupted`
+until the duration closes it as `Done`. The exact top-level fields and tool-result text are
+matched, not a phrase quoted in a prompt or assistant reply.
+
+**Codex's sandbox is recorded, but never substitutes for an approval policy.**
+`turn_context.sandbox_policy.type` becomes `SessionState.sandbox` (`danger-full-access`,
+`read-only`, `external-sandbox`, `workspace-write`, or `unknown`). The sandbox bounds what a
+command may do; `approval_policy` says when Codex may stop and ask. Full access is the
+combination of `danger-full-access` with `approval_policy: never`, so `danger-full-access`
+alone does not make a pending tool firm. `never`, `approvals_reviewer: auto_review`, and an
+SDK entrypoint are the firm no-human cases; `on-failure` is read as Codex's older name for
+`on-request`, and a `granular` policy counts as asking only when one of its interactive
+categories is enabled.
+
+**Cursor's record order is its clock for prompts.** Cursor puts timestamps only in prompts;
+assistant and `turn_ended` records are dated by the file mtime. Comparing a later prompt's
+timestamp with that mtime made a legitimate second turn look like a late flush and dropped
+it from the log. Cursor prompts now use record order, while Claude and Codex keep the
+older-timestamp guard that stops a late-flushed prompt from rewinding `Done`/`Errored`.
+
+Fixtures with `expected/status.jsonl` checkpoints live under
+`fixtures/<harness>/<version>/<os>/<scenario>/`; `crates/agenttail/tests/status_fixtures.rs`
+runs them. The denial scenario is also scored by the existing A3 harness run.

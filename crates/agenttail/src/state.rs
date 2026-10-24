@@ -27,6 +27,8 @@ pub struct SessionState {
     pub background: Vec<HelperState>,
     /// The permission mode the harness last recorded, if it records one.
     pub permission: Option<PermissionMode>,
+    /// The sandbox policy the harness last recorded (Codex), if it records one.
+    pub sandbox: Option<SandboxPolicy>,
     /// The error the harness recorded, when the turn ended with one (e.g. `server_error`,
     /// `Connection failed`). Cleared when another activity takes over.
     pub error: Option<String>,
@@ -129,6 +131,10 @@ pub enum PermissionMode {
     OnRequest,
     /// Codex: ask for commands outside the trusted set.
     Untrusted,
+    /// Codex's fine-grained policy, with at least one interactive approval category.
+    GranularAsk,
+    /// Codex's fine-grained policy, with every interactive category denied.
+    GranularNoAsk,
     /// A value this version hasn't seen. Keep the inference, don't assume a human.
     Unknown,
 }
@@ -147,7 +153,8 @@ impl PermissionMode {
             "manual" => PermissionMode::Manual,
             "normal" => PermissionMode::Normal,
             "never" => PermissionMode::Never,
-            "on-request" | "on_request" => PermissionMode::OnRequest,
+            // `on-failure` is Codex's older name for `on-request`.
+            "on-request" | "on_request" | "on-failure" | "on_failure" => PermissionMode::OnRequest,
             "untrusted" => PermissionMode::Untrusted,
             _ => PermissionMode::Unknown,
         }
@@ -155,7 +162,43 @@ impl PermissionMode {
 
     /// Whether this mode can put a permission prompt in front of a human.
     pub fn can_ask_human(self) -> bool {
-        !matches!(self, PermissionMode::BypassPermissions | PermissionMode::DontAsk | PermissionMode::Never)
+        !matches!(
+            self,
+            PermissionMode::BypassPermissions
+                | PermissionMode::DontAsk
+                | PermissionMode::Never
+                | PermissionMode::GranularNoAsk
+        )
+    }
+}
+
+/// A harness's sandbox policy, as Codex records it in `turn_context.sandbox_policy.type`.
+///
+/// The sandbox bounds what a command can do; the approval policy says when Codex may stop to
+/// ask. Full access is `danger-full-access` together with `approval_policy: never`, so a
+/// sandbox alone never proves that no human can be asked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum SandboxPolicy {
+    DangerFullAccess,
+    ReadOnly,
+    ExternalSandbox,
+    WorkspaceWrite,
+    /// A value this version hasn't seen.
+    Unknown,
+}
+
+impl SandboxPolicy {
+    /// Parse Codex's `sandbox_policy.type` vocabulary.
+    pub fn parse(policy: &str) -> SandboxPolicy {
+        match policy {
+            "danger-full-access" => SandboxPolicy::DangerFullAccess,
+            "read-only" => SandboxPolicy::ReadOnly,
+            "external-sandbox" => SandboxPolicy::ExternalSandbox,
+            "workspace-write" => SandboxPolicy::WorkspaceWrite,
+            _ => SandboxPolicy::Unknown,
+        }
     }
 }
 

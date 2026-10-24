@@ -97,7 +97,7 @@ fn user(s: &mut Session, content: &Value, t: f64) {
         find_project(s, text.split(|c: char| c.is_whitespace() || "\"'`()<>,;".contains(c)));
     }
     let typed = texts.iter().find_map(|t| typed(t)).unwrap_or_default();
-    if let Some(first) = s.prompt(typed, t)
+    if let Some(first) = s.prompt_in_order(typed, t)
         && s.title.is_empty()
     {
         // Cursor's titles aren't in the transcript; the opening prompt is the best summary.
