@@ -1,163 +1,467 @@
 //! Claude Code: `~/.claude/projects/<project>/<session id>.jsonl`, one JSON entry per line
 //! ("user" / "assistant" messages, plus "ai-title", "cost-state" and bookkeeping we skip).
 
-use super::Adapter;
-use crate::session::{Last, LaunchedHelper, Session, command, file_name, first_line, tool};
+use super::{Adapter, EventSeed};
+use crate::session::{LaunchedHelper, command, file_name, first_line, tool};
 use crate::state::{ActivityLine, PermissionMode};
 use serde_json::Value;
 
 pub(crate) struct ClaudeCode;
 
 impl Adapter for ClaudeCode {
-    fn apply(&self, s: &mut Session, e: &Value) {
-        if let Some(cwd) = e["cwd"].as_str() {
-            s.set_cwd(cwd);
+    fn parse(&self, state: &mut crate::event::ParseState, e: &Value) -> Vec<EventSeed> {
+        use crate::event::{EventKind, TitleSource};
+        let at = e["timestamp"].as_str().and_then(crate::time::parse_rfc3339);
+        let mut out = Vec::new();
+        if let Some(info) = session_info(e) {
+            out.push(EventSeed::new(info).at(at));
         }
-        if let Some(b) = e["gitBranch"].as_str().filter(|b| !b.is_empty()) {
-            s.branch = b.into();
-        }
-        if let Some(entrypoint) = e["entrypoint"].as_str() {
-            s.set_entrypoint(entrypoint);
-        }
-        // A `permission-mode` record and a prompt both carry the current mode; `mode`
-        // records carry something else (`normal`), so only `permissionMode` is read.
         if let Some(mode) = e["permissionMode"].as_str() {
-            s.set_permission(Some(PermissionMode::parse(mode)));
+            out.push(EventSeed::new(EventKind::PermissionMode { mode: PermissionMode::parse(mode) }).at(at));
         }
-        match e["type"].as_str() {
-            Some("ai-title") => s.title = e["aiTitle"].as_str().unwrap_or_default().into(),
-            Some("cost-state") => {
+        match e["type"].as_str().unwrap_or_default() {
+            "ai-title" => out.push(
+                EventSeed::new(EventKind::Title {
+                    title: e["aiTitle"].as_str().unwrap_or_default().into(),
+                    source: TitleSource::Generated,
+                })
+                .at(at),
+            ),
+            "cost-state" => {
                 // Written as a string or a number depending on version.
                 let c = &e["totalCostUSD"];
                 if let Some(cost) = c.as_f64().or_else(|| c.as_str()?.parse().ok()) {
-                    s.cost = Some(cost);
+                    out.push(EventSeed::new(EventKind::Cost { usd: cost }).at(at));
                 }
             }
-            Some("user") if s.is_helper || e["isSidechain"] != true => user(s, e),
-            Some("assistant") if s.is_helper || e["isSidechain"] != true => assistant(s, e),
-            Some("system") => system(s, e),
-            _ => {}
+            "user" if state.is_helper || e["isSidechain"] != true => user(state, e, at, &mut out),
+            "assistant" if state.is_helper || e["isSidechain"] != true => assistant(state, e, at, &mut out),
+            "system" => system(e, at, &mut out),
+            "permission-mode" if e["permissionMode"].is_null() => {}
+            kind if known_record(kind) => {
+                out.push(meta(e).at(at));
+            }
+            kind => out.push(
+                EventSeed::new(EventKind::Unknown {
+                    record_type: (!kind.is_empty()).then(|| kind.into()),
+                    reason: "unknown Claude Code record type".into(),
+                    record: e.clone(),
+                })
+                .at(at),
+            ),
         }
+        if out.is_empty() {
+            out.push(meta(e).at(at));
+        }
+        out
     }
 }
 
-fn interrupted(s: &str) -> bool {
-    s.starts_with("[Request interrupted")
+fn session_info(e: &Value) -> Option<crate::event::EventKind> {
+    let cwd = e["cwd"].as_str().map(String::from);
+    let branch = e["gitBranch"].as_str().map(String::from);
+    let entrypoint = e["entrypoint"].as_str().map(String::from);
+    (cwd.is_some() || branch.is_some() || entrypoint.is_some()).then_some(crate::event::EventKind::SessionInfo {
+        cwd,
+        branch,
+        session_id: None,
+        entrypoint,
+        approvals_reviewer: None,
+    })
 }
 
-fn user(s: &mut Session, e: &Value) {
-    let t = s.time_of(e);
+fn meta(e: &Value) -> EventSeed {
+    EventSeed::new(crate::event::EventKind::Meta {
+        record_type: e["type"].as_str().unwrap_or_default().into(),
+        subtype: e["subtype"].as_str().map(String::from),
+        record: e.clone(),
+    })
+}
+
+fn known_record(kind: &str) -> bool {
+    matches!(
+        kind,
+        "agent-name"
+            | "api-request"
+            | "api-request-blob"
+            | "api-request-shape"
+            | "artifact-autoreact-ledger"
+            | "artifact-comment-monitor"
+            | "attachment"
+            | "atis-latch"
+            | "bridge-session"
+            | "file-history-delta"
+            | "file-history-snapshot"
+            | "fork-context-ref"
+            | "frame-link"
+            | "last-prompt"
+            | "mode"
+            | "permission-mode"
+            | "pr-link"
+            | "queue-operation"
+            | "summary"
+    )
+}
+
+fn user(_state: &mut crate::event::ParseState, e: &Value, at: Option<f64>, out: &mut Vec<EventSeed>) {
+    use crate::event::{EventKind, TurnEndReason};
+    let t = at.unwrap_or_default();
     let content = &e["message"]["content"];
     // The same channel carries subagent completions; they are not prompts.
     if e["origin"]["kind"] == "task-notification" {
         if let Some(note) = task_notification(content)
             && ["completed", "failed", "stopped"].contains(&note.status.as_str())
         {
-            // completed, failed or stopped: either way the helper is no longer pending.
-            s.background_agent_notified(&note.task_id, &note.tool_use_id, &note.output_file);
+            out.push(
+                EventSeed::new(EventKind::HelperEnd {
+                    task_id: (!note.task_id.is_empty()).then_some(note.task_id),
+                    tool_use_id: (!note.tool_use_id.is_empty()).then_some(note.tool_use_id),
+                    output_file: (!note.output_file.is_empty()).then_some(note.output_file),
+                    status: note.status,
+                })
+                .at(at),
+            );
         }
         return;
     }
     // An async Agent result names the subagent it launched (`agentId`, `outputFile`) and
     // sometimes a `backgroundTaskId`; remember the link even if its file hasn't appeared yet.
     if let Some(launched) = async_launched(e, t) {
-        s.launch_background(launched);
+        out.push(
+            EventSeed::new(EventKind::HelperSpawn {
+                agent_id: (!launched.agent_id.is_empty()).then_some(launched.agent_id),
+                task_id: (!launched.task_id.is_empty()).then_some(launched.task_id),
+                output_file: (!launched.output_file.is_empty()).then_some(launched.output_file),
+                tool_use_id: (!launched.tool_use_id.is_empty()).then_some(launched.tool_use_id),
+            })
+            .at(at),
+        );
     }
     // A rejected tool result ends the turn: on 2.1.310 it is followed by the interrupt text
     // and `turn_duration`, but some builds (and a transcript read mid-flush) may show only
     // the rejection. CDT treats the same string as an ending event.
     if tool_rejected(e) {
-        s.set(Last::EndTurn, t);
+        out.push(
+            EventSeed::new(EventKind::TurnEnd { reason: TurnEndReason::EndTurn, error: None, background_agents: None })
+                .at(at),
+        );
         return;
     }
     if let Some(text) = content.as_str() {
         if interrupted(text) {
-            s.set(Last::Interrupted, t);
-        } else if e["isMeta"] != true && e["isCompactSummary"] != true && !text.starts_with('<') {
-            s.prompt(text, t);
-        }
-    } else if let Some(items) = content.as_array() {
-        let texts = || items.iter().filter(|c| c["type"] == "text").filter_map(|c| c["text"].as_str());
-        if items.iter().any(|c| c["type"] == "tool_result") {
-            s.set(Last::ToolResult, t);
-        } else if texts().any(interrupted) {
-            s.set(Last::Interrupted, t);
+            out.push(turn_end(TurnEndReason::Interrupted).at(at));
         } else if e["isMeta"] != true && e["isCompactSummary"] != true {
-            // A prompt in blocks: text with a pasted image, say.
-            if let Some(text) = texts().find(|t| !t.starts_with('<')) {
-                s.prompt(text, t);
-            } else if items.iter().any(|c| c["type"] == "image") {
-                s.prompt("", t);
+            if !text.starts_with('<') {
+                out.push(
+                    EventSeed::new(EventKind::UserPrompt {
+                        text: text.into(),
+                        raw: text.into(),
+                        wrappers: Vec::new(),
+                        starts_turn: true,
+                    })
+                    .at(at),
+                );
+            } else {
+                let wrappers = crate::event::prompt_wrappers(text);
+                if wrappers.is_empty() {
+                    out.push(meta(e).at(at));
+                } else {
+                    out.push(
+                        EventSeed::new(EventKind::UserPrompt {
+                            text: String::new(),
+                            raw: text.into(),
+                            wrappers,
+                            starts_turn: false,
+                        })
+                        .at(at),
+                    );
+                }
             }
+        } else {
+            out.push(meta(e).at(at));
+        }
+        return;
+    }
+    let Some(items) = content.as_array() else {
+        out.push(meta(e).at(at));
+        return;
+    };
+    let results: Vec<&Value> = items.iter().filter(|c| c["type"] == "tool_result").collect();
+    if !results.is_empty() {
+        for result in results {
+            out.push(
+                EventSeed::new(EventKind::ToolResult {
+                    call_id: result["tool_use_id"].as_str().filter(|id| !id.is_empty()).map(String::from),
+                    is_error: result["is_error"].as_bool() == Some(true),
+                    size: result_size(&result["content"]),
+                })
+                .at(at),
+            );
+        }
+        return;
+    }
+    let texts: Vec<&str> = items.iter().filter(|c| c["type"] == "text").filter_map(|c| c["text"].as_str()).collect();
+    if texts.iter().any(|text| interrupted(text)) {
+        out.push(turn_end(TurnEndReason::Interrupted).at(at));
+        return;
+    }
+    if e["isMeta"] == true || e["isCompactSummary"] == true {
+        out.push(meta(e).at(at));
+        return;
+    }
+    if let Some(text) = texts.iter().find(|t| !t.starts_with('<')) {
+        out.push(
+            EventSeed::new(EventKind::UserPrompt {
+                text: (*text).into(),
+                raw: texts.join("\n"),
+                wrappers: Vec::new(),
+                starts_turn: true,
+            })
+            .at(at),
+        );
+    } else if items.iter().any(|c| c["type"] == "image") {
+        out.push(
+            EventSeed::new(EventKind::UserPrompt {
+                text: String::new(),
+                raw: texts.join("\n"),
+                wrappers: Vec::new(),
+                starts_turn: true,
+            })
+            .at(at),
+        );
+    } else if !texts.is_empty() {
+        let raw = texts.join("\n");
+        let wrappers = crate::event::prompt_wrappers(&raw);
+        if !wrappers.is_empty() {
+            out.push(
+                EventSeed::new(EventKind::UserPrompt { text: String::new(), raw, wrappers, starts_turn: false }).at(at),
+            );
+        }
+    }
+    for block in items {
+        let kind = block["type"].as_str().unwrap_or_default();
+        if matches!(kind, "text" | "tool_result" | "image" | "tool_reference" | "document") {
+            continue;
+        }
+        if kind == "tool_addition" {
+            out.push(
+                EventSeed::new(EventKind::Meta {
+                    record_type: "content".into(),
+                    subtype: Some(kind.into()),
+                    record: block.clone(),
+                })
+                .at(at),
+            );
+        } else if !kind.is_empty() {
+            out.push(
+                EventSeed::new(EventKind::Unknown {
+                    record_type: Some("content".into()),
+                    reason: "unknown Claude Code content type".into(),
+                    record: block.clone(),
+                })
+                .at(at),
+            );
         }
     }
 }
 
-fn assistant(s: &mut Session, e: &Value) {
-    let t = s.time_of(e);
+fn assistant(state: &mut crate::event::ParseState, e: &Value, at: Option<f64>, out: &mut Vec<EventSeed>) {
+    use crate::event::{EventKind, ToolKind, TurnEndReason};
     let msg = &e["message"];
     // A synthetic assistant row recording an API failure is the firm Errored signal. Its
     // `stop_reason` is `stop_sequence`, which is not a turn end.
     if e["isApiErrorMessage"] == true || e["error"].is_string() {
         let error = e["error"].as_str().filter(|e| !e.is_empty()).unwrap_or("api_error");
-        s.set_error(error, t);
+        out.push(
+            EventSeed::new(EventKind::TurnEnd {
+                reason: TurnEndReason::Error,
+                error: Some(error.into()),
+                background_agents: None,
+            })
+            .at(at),
+        );
         return;
     }
     // One API message can span several transcript entries; dedupe its usage by message id.
     let id = msg["id"].as_str().unwrap_or_default();
-    let usage = &msg["usage"];
-    s.record_usage(
-        id,
-        crate::TokenUsage {
-            input_tokens: usage["input_tokens"].as_u64(),
-            output_tokens: usage["output_tokens"].as_u64(),
-            cache_read_input_tokens: usage["cache_read_input_tokens"].as_u64(),
-            cache_creation_input_tokens: usage["cache_creation_input_tokens"].as_u64(),
-        },
-    );
+    let reported = crate::TokenUsage {
+        input_tokens: msg["usage"]["input_tokens"].as_u64(),
+        output_tokens: msg["usage"]["output_tokens"].as_u64(),
+        cache_read_input_tokens: msg["usage"]["cache_read_input_tokens"].as_u64(),
+        cache_creation_input_tokens: msg["usage"]["cache_creation_input_tokens"].as_u64(),
+    };
+    let previous = state.claude_usage.get(id).copied().unwrap_or_default();
+    let next = highest(previous, reported);
+    if next != previous {
+        out.push(
+            EventSeed::new(EventKind::Usage {
+                usage: increase(previous, next),
+                reported: next,
+                message_id: (!id.is_empty()).then(|| id.into()),
+                cumulative: false,
+            })
+            .at(at),
+        );
+        state.claude_usage.insert(id.into(), next);
+    }
     for c in msg["content"].as_array().into_iter().flatten() {
-        if c["type"] == "tool_use" {
-            let name = c["name"].as_str().unwrap_or_default();
-            let asks_user = s.harness.discovery().asks_user(name);
-            s.tool_call(asks_user, Some(describe_tool(name, &c["input"])), t);
+        match c["type"].as_str().unwrap_or_default() {
+            "text" => out.push(
+                EventSeed::new(EventKind::AssistantText { text: c["text"].as_str().unwrap_or_default().into() }).at(at),
+            ),
+            "thinking" => out.push(
+                EventSeed::new(EventKind::Reasoning {
+                    signature: c["signature"].as_str().filter(|s| !s.is_empty()).map(String::from),
+                })
+                .at(at),
+            ),
+            "tool_use" => {
+                let name = c["name"].as_str().unwrap_or_default();
+                out.push(
+                    EventSeed::new(EventKind::ToolCall {
+                        name: name.into(),
+                        call_id: c["id"].as_str().filter(|id| !id.is_empty()).map(String::from),
+                        kind: ToolKind::of(name, &c["input"]),
+                        input: c["input"].clone(),
+                        asks_user: crate::Harness::ClaudeCode.discovery().asks_user(name),
+                        line: Some(describe_tool(name, &c["input"])),
+                    })
+                    .at(at),
+                );
+            }
+            kind if known_content(kind) => {
+                out.push(
+                    EventSeed::new(EventKind::Meta {
+                        record_type: "content".into(),
+                        subtype: Some(kind.into()),
+                        record: c.clone(),
+                    })
+                    .at(at),
+                );
+            }
+            kind => out.push(
+                EventSeed::new(EventKind::Unknown {
+                    record_type: Some("content".into()),
+                    reason: format!("unknown Claude Code content type \"{kind}\""),
+                    record: c.clone(),
+                })
+                .at(at),
+            ),
         }
     }
     if msg["stop_reason"] == "end_turn" {
-        s.set(Last::EndTurn, t);
+        out.push(turn_end(TurnEndReason::EndTurn).at(at));
     }
 }
 
-fn system(s: &mut Session, e: &Value) {
-    let t = s.time_of(e);
+fn system(e: &Value, at: Option<f64>, out: &mut Vec<EventSeed>) {
+    use crate::event::{EventKind, TurnEndReason};
     match e["subtype"].as_str() {
         // A normal turn's firm end in order: assistant `end_turn`, then `stop_hook_summary`
         // when hooks ran, then `turn_duration` (about 0.06 s later). The duration record is
         // the firmest and also carries a firm count of helpers still running.
-        Some("stop_hook_summary" | "turn_duration") => {
-            end_turn(s, t);
-            if e["subtype"] == "turn_duration"
-                && let Some(n) = e["pendingBackgroundAgentCount"].as_u64()
-            {
-                s.set_background_agents(n as usize);
-            }
-        }
+        Some("stop_hook_summary") => out.push(turn_end(TurnEndReason::DurationRecord).at(at)),
+        Some("turn_duration") => out.push(
+            EventSeed::new(EventKind::TurnEnd {
+                reason: TurnEndReason::DurationRecord,
+                error: None,
+                background_agents: e["pendingBackgroundAgentCount"].as_u64().map(|n| n as usize),
+            })
+            .at(at),
+        ),
         // A session exiting with its helpers: the turn is over, nothing is left running.
-        Some("agents_killed") => {
-            end_turn(s, t);
-            s.set_background_agents(0);
+        Some("agents_killed") => out.push(
+            EventSeed::new(EventKind::TurnEnd {
+                reason: TurnEndReason::EndTurn,
+                error: None,
+                background_agents: Some(0),
+            })
+            .at(at),
+        ),
+        Some("compact_boundary") => out.push(
+            EventSeed::new(EventKind::Compaction {
+                trigger: e["compactMetadata"]["trigger"].as_str().map(String::from),
+                pre_tokens: e["compactMetadata"]["preTokens"].as_u64(),
+                post_tokens: e["compactMetadata"]["postTokens"].as_u64(),
+            })
+            .at(at),
+        ),
+        Some("away_summary" | "bridge_status" | "informational" | "local_command" | "scheduled_task_fire") => {
+            out.push(meta(e).at(at))
         }
-        _ => {}
+        Some(_) | None => out.push(meta(e).at(at)),
     }
 }
 
-/// A `system` record ends the turn, but never replaces a recorded API error: that row is the
-/// error, and these records only timestamp the close.
-fn end_turn(s: &mut Session, t: f64) {
-    if s.last == Last::Errored {
-        s.last_at = t;
-    } else {
-        s.set(Last::EndTurn, t);
+fn turn_end(reason: crate::event::TurnEndReason) -> EventSeed {
+    EventSeed::new(crate::event::EventKind::TurnEnd { reason, error: None, background_agents: None })
+}
+
+fn known_content(kind: &str) -> bool {
+    matches!(
+        kind,
+        // The baseline's block types, the ADR parser's 20, and PLAN section 1's addition.
+        "text"
+            | "tool_use"
+            | "tool_result"
+            | "image"
+            | "document"
+            | "thinking"
+            | "redacted_thinking"
+            | "tool_reference"
+            | "search_result"
+            | "server_tool_use"
+            | "web_search_tool_result"
+            | "web_fetch_tool_result"
+            | "code_execution_tool_result"
+            | "bash_code_execution_tool_result"
+            | "text_editor_code_execution_tool_result"
+            | "container_upload"
+            | "compaction"
+            | "resource"
+            | "resource_link"
+            | "audio"
+            | "tool_addition"
+    )
+}
+
+fn result_size(content: &Value) -> u64 {
+    match content {
+        Value::String(text) => text.len() as u64,
+        Value::Array(parts) => parts
+            .iter()
+            .map(|part| part["text"].as_str().map_or_else(|| part.to_string().len(), |text| text.len()) as u64)
+            .sum(),
+        Value::Null => 0,
+        other => other.to_string().len() as u64,
     }
+}
+
+fn highest(a: crate::TokenUsage, b: crate::TokenUsage) -> crate::TokenUsage {
+    crate::TokenUsage {
+        input_tokens: a.input_tokens.max(b.input_tokens),
+        output_tokens: a.output_tokens.max(b.output_tokens),
+        cache_read_input_tokens: a.cache_read_input_tokens.max(b.cache_read_input_tokens),
+        cache_creation_input_tokens: a.cache_creation_input_tokens.max(b.cache_creation_input_tokens),
+    }
+}
+
+fn increase(previous: crate::TokenUsage, next: crate::TokenUsage) -> crate::TokenUsage {
+    let inc = |a: Option<u64>, b: Option<u64>| match (a, b) {
+        (_, None) => None,
+        (None, Some(b)) => Some(b),
+        (Some(a), Some(b)) => Some(b.saturating_sub(a)),
+    };
+    crate::TokenUsage {
+        input_tokens: inc(previous.input_tokens, next.input_tokens),
+        output_tokens: inc(previous.output_tokens, next.output_tokens),
+        cache_read_input_tokens: inc(previous.cache_read_input_tokens, next.cache_read_input_tokens),
+        cache_creation_input_tokens: inc(previous.cache_creation_input_tokens, next.cache_creation_input_tokens),
+    }
+}
+
+fn interrupted(s: &str) -> bool {
+    s.starts_with("[Request interrupted")
 }
 
 /// Whether this user record is Claude Code's record of a rejected tool use (`toolUseResult`
@@ -268,6 +572,7 @@ mod tests {
     use super::*;
     use crate::StatusClass as Status;
     use crate::harness::Harness;
+    use crate::session::{Last, Session};
     use crate::testutil::{at, fixture, jsonl, log, replay, status};
     use serde_json::json;
     use std::path::Path;

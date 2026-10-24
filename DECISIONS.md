@@ -326,3 +326,33 @@ snapshot rather than a transcript signal. Using it would need a liveness check
 (`kill(pid, 0)`) and would still not replace the existing transcript rules. The TOML records
 the evidence with `used = false`; the tracker does not open the registry, so it adds no
 process probe to "what this touches".
+
+## Phase B10: the event layer (2026-10-24)
+
+**The adapters parse records into events; the reducer applies events.** Each adapter's
+`parse` returns `EventSeed`s with normalized payloads, and `Session::apply` and the public
+`parse_lines` go through the same parser. The reducer's `Session::apply_event` is the only
+place an event becomes status, so an event dump cannot show a different story from the
+status. `SessionReducer::feed_event`/`feed_events` expose that path too.
+
+**One `Event` carries common provenance plus an `EventKind`.** Common fields are the
+deterministic id, harness, source index, byte offset/length (in the original bytes, even
+under `Lean`), one-based physical line, the harness's own record ids (`uuid`, `message.id`,
+`call_id`, …), and the record time when it has one. `parse_lines_with_source` lets callers
+number several files; `parse_lines` uses source 0.
+
+**Usage events are additive.** Claude's per-row usage repeats or grows, so a `Usage` event
+is emitted only when a message's highest value changes, with `usage` as the increase and
+`reported` as the new high-water mark. Codex's running `token_count` emits the delta in
+`usage` and the absolute `reported` total with `cumulative: true`. Summing `usage` fields
+therefore equals the true total, while the reducer keeps the same reported state as before.
+
+**Known metadata stays `Meta`; unknown top-level records stay `Unknown`.** `Meta` keeps the
+whole record for known types with no richer event (attachments, request digests, ADR's
+wider Codex catalogue). `Unknown` keeps the whole record and a reason for a new top-level
+type, a non-object JSON value, or a malformed line, so none is silently dropped. Unknown
+content blocks inside a known record are kept too; ADR's 20 Claude content types and the
+baseline's Codex/Cursor content types map to a richer event or `Meta`.
+
+**`agenttail events [--agent ID] <path>` prints the stream as JSONL.** It infers the
+harness from the path first, then from the record shapes, and `--agent` overrides both.

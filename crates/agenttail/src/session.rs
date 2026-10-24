@@ -7,7 +7,7 @@ use crate::state::{
     Activity, ActivityLine, Certainty, Diagnostics, PermissionMode, Reason, SandboxPolicy, SessionMeta, SessionState,
     TokenUsage,
 };
-use crate::time::{Timestamp, parse_rfc3339};
+use crate::time::Timestamp;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
@@ -161,6 +161,9 @@ pub(crate) struct Session {
     pub(crate) mtime: f64,
     /// When a helper's transcript (a Cursor subagent's) was last written.
     pub(crate) helper_mtime: f64,
+    /// State carried across records while they are parsed into events (prompt-format
+    /// dedupe and usage high-water marks).
+    pub(crate) parse_state: crate::event::ParseState,
 }
 
 impl Session {
@@ -194,6 +197,7 @@ impl Session {
             pending_tools: HashMap::new(),
             mtime: 0.0,
             helper_mtime: 0.0,
+            parse_state: crate::event::ParseState::default(),
         }
     }
 
@@ -204,9 +208,10 @@ impl Session {
         s
     }
 
-    /// Fold one transcript entry into the session.
+    /// Fold one transcript entry into the session through the same normalized events the
+    /// public event layer exposes.
     pub(crate) fn apply(&mut self, e: &Value) {
-        self.harness.adapter().apply(self, e);
+        crate::event::apply_record(self, e);
     }
 
     /// When the session was last seen at work: its transcript's last write, or a helper's.
@@ -405,12 +410,6 @@ impl Session {
             }
             None => {}
         }
-    }
-
-    /// When entry `e` happened: its RFC 3339 `timestamp`, or (with none) when the transcript
-    /// was written.
-    pub(crate) fn time_of(&self, e: &Value) -> f64 {
-        e["timestamp"].as_str().and_then(parse_rfc3339).unwrap_or(self.mtime)
     }
 
     /// The harness recorded a permission mode (`None`: it doesn't record one).

@@ -34,6 +34,7 @@
 mod adapters;
 mod discovery;
 mod error;
+mod event;
 #[cfg(feature = "fs")]
 mod fs;
 mod harness;
@@ -50,6 +51,10 @@ pub use discovery::{
     TimestampRule,
 };
 pub use error::Error;
+pub use event::{
+    Event, EventKind, PromptWrapper, Provenance, TitleSource, ToolKind, TurnEndReason, parse_lines,
+    parse_lines_with_source,
+};
 #[cfg(feature = "fs")]
 pub use fs::{Filter, READ_CHUNK, SWEEP_EVERY, SessionKey, Tracker, read_from};
 pub use harness::{Harness, Layout, Role};

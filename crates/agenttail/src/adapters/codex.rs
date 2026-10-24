@@ -4,131 +4,333 @@
 //!
 //! Checked against rollouts written by Codex CLI 0.160.1 (the fixtures) and earlier ones.
 
-use super::Adapter;
-use crate::session::{Last, Session, command, file_name, tool};
+use super::{Adapter, EventSeed};
+use crate::session::{command, file_name, tool};
 use crate::state::{ActivityLine, PermissionMode, SandboxPolicy};
 use serde_json::Value;
 
 pub(crate) struct Codex;
 
 impl Adapter for Codex {
-    fn apply(&self, s: &mut Session, e: &Value) {
-        let t = s.time_of(e);
+    fn parse(&self, state: &mut crate::event::ParseState, e: &Value) -> Vec<EventSeed> {
+        use crate::event::{EventKind, ToolKind, TurnEndReason};
+        let at = e["timestamp"].as_str().and_then(crate::time::parse_rfc3339);
         let p = &e["payload"];
-        match (e["type"].as_str().unwrap_or_default(), p["type"].as_str().unwrap_or_default()) {
-            ("session_meta", _) => {
-                if let Some(id) = p["id"].as_str().or_else(|| p["session_id"].as_str()) {
-                    s.set_session_id(id);
-                }
-                if let Some(cwd) = p["cwd"].as_str() {
-                    s.set_cwd(cwd);
-                }
-                if let Some(b) = p["git"]["branch"].as_str() {
-                    s.branch = b.into();
+        let mut out = Vec::new();
+        match e["type"].as_str().unwrap_or_default() {
+            "session_meta" => {
+                if let Some(info) = session_info(p["cwd"].as_str(), p["git"]["branch"].as_str(), p) {
+                    out.push(EventSeed::new(info).at(at));
                 }
             }
             // Each turn's settings; the folder can change within a session.
-            ("turn_context", _) => {
-                if let Some(cwd) = p["cwd"].as_str() {
-                    s.set_cwd(cwd);
-                }
+            "turn_context" => {
+                // The reviewer is re-recorded each turn; an absent field means no AI reviewer.
+                let info = crate::event::EventKind::SessionInfo {
+                    cwd: p["cwd"].as_str().map(String::from),
+                    branch: None,
+                    session_id: p["id"].as_str().map(String::from),
+                    entrypoint: None,
+                    approvals_reviewer: Some(p["approvals_reviewer"].as_str().unwrap_or_default().into()),
+                };
+                out.push(EventSeed::new(info).at(at));
                 match &p["approval_policy"] {
-                    Value::String(policy) => s.set_permission(Some(PermissionMode::parse(policy))),
+                    Value::String(policy) => out
+                        .push(EventSeed::new(EventKind::PermissionMode { mode: PermissionMode::parse(policy) }).at(at)),
                     Value::Object(policy) => {
                         // `granular` is either the object itself or one key inside it.
                         let config = policy.get("granular").unwrap_or(&p["approval_policy"]);
                         let categories =
                             ["sandbox_approval", "rules", "skill_approval", "request_permissions", "mcp_elicitations"];
-                        if !categories.iter().any(|key| config.get(*key).is_some()) {
+                        let mode = if !categories.iter().any(|key| config.get(*key).is_some()) {
                             // A shape this version hasn't seen: keep the timing guess rather than
                             // inventing a firm no-human answer.
-                            s.set_permission(Some(PermissionMode::Unknown));
+                            PermissionMode::Unknown
                         } else {
                             let asks =
                                 categories.iter().any(|key| config.get(*key).and_then(Value::as_bool).unwrap_or(false));
-                            let mode = if asks { PermissionMode::GranularAsk } else { PermissionMode::GranularNoAsk };
-                            s.set_permission(Some(mode));
-                        }
+                            if asks { PermissionMode::GranularAsk } else { PermissionMode::GranularNoAsk }
+                        };
+                        out.push(EventSeed::new(EventKind::PermissionMode { mode }).at(at));
                     }
                     _ => {}
                 }
                 if let Some(kind) = p["sandbox_policy"]["type"].as_str() {
-                    s.set_sandbox(Some(SandboxPolicy::parse(kind)));
+                    out.push(EventSeed::new(EventKind::SandboxPolicy { policy: SandboxPolicy::parse(kind) }).at(at));
                 }
-                s.set_approval_reviewer_auto(p["approvals_reviewer"].as_str() == Some("auto_review"));
+                if let Some(model) = p["model"].as_str().filter(|model| !model.is_empty()) {
+                    out.push(EventSeed::new(EventKind::ModelChange { model: model.into() }).at(at));
+                }
             }
             // What the user typed: a `user_message` event in older rollouts, a completed
             // `UserMessage` item in 0.160. (The `response_item` copy also holds the
             // environment context and instructions, so it isn't used.)
-            ("event_msg", "user_message") => {
-                if prompts_from(s, "user_message") {
-                    prompt(s, p["message"].as_str().unwrap_or_default(), t);
+            "event_msg" => match p["type"].as_str().unwrap_or_default() {
+                "user_message" if prompts_from(state, "user_message") => {
+                    let text = p["message"].as_str().unwrap_or_default();
+                    out.push(
+                        EventSeed::new(EventKind::UserPrompt {
+                            text: text.into(),
+                            raw: text.into(),
+                            wrappers: Vec::new(),
+                            starts_turn: true,
+                        })
+                        .at(at),
+                    );
                 }
-            }
-            ("event_msg", "item_completed") if p["item"]["type"] == "UserMessage" => {
-                if prompts_from(s, "item") {
-                    let blocks = p["item"]["content"].as_array().into_iter().flatten();
-                    let text: Vec<&str> = blocks.filter_map(|c| c["text"].as_str()).collect();
-                    prompt(s, &text.join("\n"), t);
+                "item_completed" if p["item"]["type"] == "UserMessage" => {
+                    if prompts_from(state, "item") {
+                        let blocks = p["item"]["content"].as_array().into_iter().flatten();
+                        let text: Vec<&str> = blocks.filter_map(|c| c["text"].as_str()).collect();
+                        let text = text.join("\n");
+                        out.push(
+                            EventSeed::new(EventKind::UserPrompt {
+                                text: text.clone(),
+                                raw: text,
+                                wrappers: Vec::new(),
+                                starts_turn: true,
+                            })
+                            .at(at),
+                        );
+                    }
                 }
-            }
-            ("event_msg", "task_started" | "turn_started") => s.set(Last::Prompt, t),
-            ("event_msg", "task_complete" | "turn_complete") => {
-                if let Some(error) = p["error"].as_str().filter(|e| !e.is_empty()) {
-                    s.set_error(error, t);
-                } else {
-                    s.set(Last::EndTurn, t);
+                "item_completed" if p["item"]["type"] == "AgentMessage" => {
+                    let text = content_text(&p["item"]["content"]);
+                    out.push(EventSeed::new(EventKind::AssistantText { text }).at(at));
                 }
-            }
-            ("event_msg", "turn_aborted") => s.set(Last::Interrupted, t),
-            ("event_msg", "token_count") => {
-                // A running total for the session, not a per-call delta.
-                let total = &p["info"]["total_token_usage"];
-                if !total.is_null() {
-                    s.set_usage(crate::TokenUsage {
-                        input_tokens: total["input_tokens"].as_u64(),
-                        output_tokens: total["output_tokens"].as_u64(),
-                        cache_read_input_tokens: total["cached_input_tokens"].as_u64(),
-                        cache_creation_input_tokens: None,
-                    });
+                "agent_message" => out.push(
+                    EventSeed::new(EventKind::AssistantText { text: p["message"].as_str().unwrap_or_default().into() })
+                        .at(at),
+                ),
+                "task_started" | "turn_started" => out.push(
+                    EventSeed::new(EventKind::TurnStart { turn_id: p["turn_id"].as_str().map(String::from) }).at(at),
+                ),
+                "task_complete" | "turn_complete" => out.push(
+                    EventSeed::new(match p["error"].as_str().filter(|e| !e.is_empty()) {
+                        Some(error) => EventKind::TurnEnd {
+                            reason: TurnEndReason::Error,
+                            error: Some(error.into()),
+                            background_agents: None,
+                        },
+                        None => {
+                            EventKind::TurnEnd { reason: TurnEndReason::EndTurn, error: None, background_agents: None }
+                        }
+                    })
+                    .at(at),
+                ),
+                "turn_aborted" => out.push(
+                    EventSeed::new(EventKind::TurnEnd {
+                        reason: TurnEndReason::Aborted,
+                        error: p["reason"].as_str().map(String::from),
+                        background_agents: None,
+                    })
+                    .at(at),
+                ),
+                "token_count" => {
+                    // A running total for the session, not a per-call delta.
+                    let total = &p["info"]["total_token_usage"];
+                    if !total.is_null() {
+                        let reported = crate::TokenUsage {
+                            input_tokens: total["input_tokens"].as_u64(),
+                            output_tokens: total["output_tokens"].as_u64(),
+                            cache_read_input_tokens: total["cached_input_tokens"].as_u64(),
+                            cache_creation_input_tokens: None,
+                        };
+                        let delta = increase(state.codex_usage, reported);
+                        state.codex_usage = reported;
+                        out.push(
+                            EventSeed::new(EventKind::Usage {
+                                usage: delta,
+                                reported,
+                                message_id: p["turn_id"].as_str().map(String::from),
+                                cumulative: true,
+                            })
+                            .at(at),
+                        );
+                    }
                 }
-            }
-            ("response_item", "function_call" | "custom_tool_call") => {
-                let name = p["name"].as_str().unwrap_or_default();
-                let asks_user = s.harness.discovery().asks_user(name);
-                let line = describe_tool(name, p);
-                match p["call_id"].as_str().filter(|id| !id.is_empty()) {
-                    Some(call_id) => s.tool_call_id(call_id, asks_user, line, t),
-                    None => s.tool_call(asks_user, line, t),
+                subtype if known_event_msg(subtype) => out.push(meta(e).at(at)),
+                _ => out.push(meta(e).at(at)),
+            },
+            "response_item" => match p["type"].as_str().unwrap_or_default() {
+                "function_call" | "custom_tool_call" => {
+                    let name = p["name"].as_str().unwrap_or_default();
+                    out.push(
+                        EventSeed::new(EventKind::ToolCall {
+                            name: name.into(),
+                            call_id: p["call_id"].as_str().filter(|id| !id.is_empty()).map(String::from),
+                            kind: ToolKind::of(name, p),
+                            input: p.clone(),
+                            asks_user: crate::Harness::Codex.discovery().asks_user(name),
+                            line: describe_tool(name, p),
+                        })
+                        .at(at),
+                    );
                 }
-            }
-            ("response_item", "function_call_output" | "custom_tool_call_output") => {
-                match p["call_id"].as_str().filter(|id| !id.is_empty()) {
-                    Some(call_id) => s.tool_result_id(call_id, t),
-                    None => s.set(Last::ToolResult, t),
+                "function_call_output" | "custom_tool_call_output" => out.push(
+                    EventSeed::new(EventKind::ToolResult {
+                        call_id: p["call_id"].as_str().filter(|id| !id.is_empty()).map(String::from),
+                        is_error: p["is_error"].as_bool() == Some(true),
+                        size: p["output"].as_str().map_or(0, |output| output.len() as u64),
+                    })
+                    .at(at),
+                ),
+                "message" if p["role"] == "assistant" => {
+                    let text = content_text(&p["content"]);
+                    out.push(EventSeed::new(EventKind::AssistantText { text }).at(at));
+                    for block in p["content"].as_array().into_iter().flatten() {
+                        let kind = block["type"].as_str().unwrap_or_default();
+                        if !matches!(kind, "input_text" | "output_text") && !kind.is_empty() {
+                            let event = if known_content(kind) {
+                                EventKind::Meta {
+                                    record_type: "content".into(),
+                                    subtype: Some(kind.into()),
+                                    record: block.clone(),
+                                }
+                            } else {
+                                EventKind::Unknown {
+                                    record_type: Some("content".into()),
+                                    reason: format!("unknown Codex content type \"{kind}\""),
+                                    record: block.clone(),
+                                }
+                            };
+                            out.push(EventSeed::new(event).at(at));
+                        }
+                    }
                 }
-            }
-            _ => {}
+                "reasoning" => out.push(
+                    EventSeed::new(EventKind::Reasoning {
+                        signature: p["encrypted_content"].as_str().map(String::from),
+                    })
+                    .at(at),
+                ),
+                "compacted" => out.push(
+                    EventSeed::new(EventKind::Compaction {
+                        trigger: p["trigger"].as_str().map(String::from),
+                        pre_tokens: p["pre_tokens"].as_u64(),
+                        post_tokens: p["post_tokens"].as_u64(),
+                    })
+                    .at(at),
+                ),
+                subtype if known_response_item(subtype) => out.push(meta(e).at(at)),
+                _ => out.push(meta(e).at(at)),
+            },
+            kind if known_record(kind) => out.push(meta(e).at(at)),
+            kind => out.push(
+                EventSeed::new(EventKind::Unknown {
+                    record_type: (!kind.is_empty()).then(|| kind.into()),
+                    reason: "unknown Codex record type".into(),
+                    record: e.clone(),
+                })
+                .at(at),
+            ),
         }
+        if out.is_empty() {
+            out.push(meta(e).at(at));
+        }
+        out
     }
+}
+
+fn session_info(cwd: Option<&str>, branch: Option<&str>, p: &Value) -> Option<crate::event::EventKind> {
+    let cwd = cwd.map(String::from);
+    let branch = branch.map(String::from);
+    let session_id = p["id"].as_str().or_else(|| p["session_id"].as_str()).map(String::from);
+    let reviewer = p["approvals_reviewer"].as_str().map(String::from);
+    (cwd.is_some() || branch.is_some() || session_id.is_some() || reviewer.is_some()).then_some(
+        crate::event::EventKind::SessionInfo {
+            cwd,
+            branch,
+            session_id,
+            entrypoint: None,
+            approvals_reviewer: reviewer,
+        },
+    )
+}
+
+fn meta(e: &Value) -> EventSeed {
+    EventSeed::new(crate::event::EventKind::Meta {
+        record_type: e["type"].as_str().unwrap_or_default().into(),
+        subtype: e["payload"]["type"].as_str().map(String::from),
+        record: e.clone(),
+    })
+}
+
+fn known_record(kind: &str) -> bool {
+    matches!(
+        kind,
+        "session_meta"
+            | "response_item"
+            | "inter_agent_communication"
+            | "inter_agent_communication_metadata"
+            | "compacted"
+            | "turn_context"
+            | "token_usage_record"
+            | "world_state"
+            | "retained_context"
+            | "security_risk_score"
+            | "event_msg"
+            | "realtime_item"
+    )
+}
+
+fn known_event_msg(kind: &str) -> bool {
+    matches!(kind, "token_count" | "task_complete" | "task_started" | "user_message" | "agent_message")
+}
+
+fn known_response_item(kind: &str) -> bool {
+    matches!(
+        kind,
+        "function_call"
+            | "function_call_output"
+            | "custom_tool_call"
+            | "custom_tool_call_output"
+            | "message"
+            | "reasoning"
+            | "compacted"
+    )
 }
 
 /// Whether this session's prompts come from entries of `kind`. A version that writes a
 /// prompt both ways would otherwise count it twice; the first kind seen wins.
-fn prompts_from(s: &mut Session, kind: &str) -> bool {
-    let other = if kind == "item" { "prompts:user_message" } else { "prompts:item" };
-    if s.seen.contains(other) {
-        return false;
+fn prompts_from(state: &mut crate::event::ParseState, kind: &'static str) -> bool {
+    match state.codex_prompt_source {
+        None => {
+            state.codex_prompt_source = Some(kind);
+            true
+        }
+        Some(seen) => seen == kind,
     }
-    s.seen.insert(format!("prompts:{kind}"));
-    true
 }
 
-fn prompt(s: &mut Session, text: &str, t: f64) {
-    if let Some(first) = s.prompt(text, t) {
-        // Codex has no generated title; the opening prompt is the fallback when
-        // `session_index.jsonl` has no `thread_name` for this thread.
-        s.set_title_from_prompt(first);
+fn known_content(kind: &str) -> bool {
+    matches!(
+        kind,
+        "input_text"
+            | "output_text"
+            | "input_image"
+            | "computer_screenshot"
+            | "encrypted_content"
+            | "summary_text"
+            | "reasoning_text"
+    )
+}
+
+fn content_text(content: &Value) -> String {
+    content.as_array().into_iter().flatten().filter_map(|c| c["text"].as_str()).collect::<Vec<_>>().join("\n")
+}
+
+fn increase(previous: crate::TokenUsage, next: crate::TokenUsage) -> crate::TokenUsage {
+    let inc = |a: Option<u64>, b: Option<u64>| match (a, b) {
+        (_, None) => None,
+        (None, Some(b)) => Some(b),
+        (Some(a), Some(b)) => Some(b.saturating_sub(a)),
+    };
+    crate::TokenUsage {
+        input_tokens: inc(previous.input_tokens, next.input_tokens),
+        output_tokens: inc(previous.output_tokens, next.output_tokens),
+        cache_read_input_tokens: inc(previous.cache_read_input_tokens, next.cache_read_input_tokens),
+        cache_creation_input_tokens: inc(previous.cache_creation_input_tokens, next.cache_creation_input_tokens),
     }
 }
 
@@ -162,6 +364,7 @@ mod tests {
     use super::*;
     use crate::StatusClass as Status;
     use crate::harness::Harness;
+    use crate::session::{Last, Session};
     use crate::testutil::{at, fixture, jsonl, log, replay, status};
     use serde_json::json;
 

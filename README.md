@@ -36,6 +36,13 @@ cache write, each `None` when the harness doesn't record it), the last few activ
 (`› fix the build`, `$ cargo test`, `Edit routing.ts`), and diagnostics (lines skipped, lines
 cut). The thresholds and the number of activity lines are options.
 
+Under status is the event layer: `parse_lines(harness, bytes, mode)` yields normalized
+`Event`s (`UserPrompt`, `ToolCall`/`ToolResult`, `TurnEnd`, `Usage`, `PermissionMode`,
+`Title`, `HelperSpawn`/`HelperEnd`, `Compaction`, `Meta`, `Unknown`, …) with byte/line
+provenance, the harness's own record ids, and deterministic ids. The reducer folds the same
+events, so a status and the event dump cannot disagree. Unknown records and malformed lines
+are kept as `Unknown` rather than dropped.
+
 ## Using it
 
 ```rust
@@ -74,6 +81,7 @@ The CLI, for looking at what a dashboard would show:
 ```
 agenttail ls [--hours N] [--agents claude_code,codex,cursor]   # one poll, JSON lines
 agenttail watch [--hours N] [--agents …]                       # each change, with its reason
+agenttail events [--agent ID] <path>                           # normalized events, JSON lines
 ```
 
 ## What it reads, and what it touches
