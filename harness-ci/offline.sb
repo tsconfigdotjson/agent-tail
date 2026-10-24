@@ -1,0 +1,11 @@
+;; macOS sandbox profile: no network except localhost.
+;;
+;; Use it to prove a harness needs no real backend:
+;;   sandbox-exec -f offline.sb claude --bare -p 'say hello' ...
+;; and to run the PTY driver, whose mock server binds on localhost.
+(version 1)
+(allow default)
+(deny network*)
+(allow network-bind (local ip "localhost:*"))
+(allow network-inbound (local ip "localhost:*"))
+(allow network-outbound (remote ip "localhost:*"))

@@ -109,10 +109,22 @@ sandbox-exec -f offline.sb claude --bare -p 'say hello' --model claude-sonnet-4-
 (version 1)
 (allow default)
 (deny network*)
-(allow network* (remote ip "localhost:*"))
+(allow network-bind (local ip "localhost:*"))
+(allow network-inbound (local ip "localhost:*"))
+(allow network-outbound (remote ip "localhost:*"))
 ```
 
-The result was a clean `end_turn` and a Claude Code transcript under the temp home.
+The result was a clean `end_turn` and a Claude Code transcript under the temp home. The
+check is committed as [`offline.sb`](offline.sb). The
+same profile runs the whole PTY driver offline; the driver's in-process mock needs the
+`network-bind`/`network-inbound` allowances, not only outbound.
+
+```sh
+sandbox-exec -f offline.sb harness-ci/target/debug/harness-driver \
+  --scenario driver/scenarios/claude_plain_qa.json --out /tmp/run
+```
+
+That run produced 0 hard failures and `Done` while the screen was idle.
 
 ## A1: mock model server (`mock-server/`)
 
