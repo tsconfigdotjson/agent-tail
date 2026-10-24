@@ -12,7 +12,8 @@ this Mac, and the scope was cut to skip retries. Treat everything below as one s
 ~/.codex/session_index.jsonl      {id, thread_name, updated_at}: a thread title source
 ~/.codex/state_5.sqlite, logs_1.sqlite, sqlite/codex-dev.db   (not surveyed)
 ```
-`CODEX_HOME` overrides `~/.codex`. That is not verified here (open question).
+`CODEX_HOME` overrides `~/.codex`. The tracker reads it when set, but the exact semantics
+still need the A4 Codex spike.
 
 ## Record catalogue (1 rollout; counts)
 Envelope: `{timestamp, type, payload}`.
@@ -75,4 +76,4 @@ CLIs on this Mac's PATH: none of `codex`, `gemini`, `opencode`, `copilot` or `cu
 - Everything on vibe-os (Codex versions, `.zst` presence, approval events, `turn_aborted` shape,
   Claude Code and Cursor there, and installed CLIs). Rerun once Tailscale is up.
 - Are approval requests ever written to rollouts in 0.160+? (Phase 4 harness CI.)
-- `CODEX_HOME` semantics: not researched.
+- `CODEX_HOME` semantics: supported in `Tracker::from_env`, still to confirm with the Codex CLI (A4).

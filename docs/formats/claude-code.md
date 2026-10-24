@@ -18,7 +18,9 @@ labelled *inference* still needs a harness-CI fixture.
 ~/.claude/sessions/<pid>.json        live-process registry (see "Registry")
 ~/.claude/jobs/<id>/{state.json,timeline.jsonl}   background jobs (state: working|done)
 ```
-`CLAUDE_CONFIG_DIR` relocates `~/.claude`. That is not verified here (open question).
+`CLAUDE_CONFIG_DIR` relocates `~/.claude`. In 2.1.310 it is one absolute path (not a
+comma-separated list; a relative path is ignored), checked in the binary and by an offline
+run with a temp config folder.
 
 ## Record catalogue (main transcripts; counts)
 
@@ -177,5 +179,4 @@ local-only, and liveness has to be checked by pid (*inference from source; one l
 - Does a `permission_prompt` in default mode change `sessions/<pid>.json`? Does anything get
   written while it's up? (Phase 3 harness CI.)
 - `mode` values other than `normal`, and plan-mode and `ExitPlanMode` records: none in this corpus.
-- `CLAUDE_CONFIG_DIR` semantics: not researched (scope cut).
 - Manual `/compact` (`trigger: manual`) not seen.

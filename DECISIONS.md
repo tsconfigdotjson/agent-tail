@@ -213,3 +213,16 @@ being summed; `cached_input_tokens` maps to cache-read. Cursor reports none.
 
 Still to do for B7: Codex title from `session_index.jsonl` `thread_name`, and Cursor's title
 from `state.vscdb` (B9).
+
+## Phase B8: folder overrides (2026-10-24)
+
+`Tracker::from_env(home, filter)` reads the harnesses' own folder overrides and the CLI uses
+it. `CLAUDE_CONFIG_DIR` points at the config folder, so its root becomes
+`$CLAUDE_CONFIG_DIR/projects`; `CODEX_HOME` becomes `$CODEX_HOME/sessions`. Only absolute
+paths are used. Claude Code 2.1.310 treats `CLAUDE_CONFIG_DIR` as **one** path, not the
+comma-separated list ccusage assumes: the binary's `s()` returns `process.env.CLAUDE_CONFIG_DIR`
+directly, and the offline driver run wrote to the temp folder. Codex's `CODEX_HOME`
+semantics still need the A4 CLI spike.
+
+The remaining B8 work is the `spec/discovery/*.toml` data files (ask-user lists, auto-approve
+lists, mode vocabulary, quirks with evidence) and loading `Layout` from them.

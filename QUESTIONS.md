@@ -27,10 +27,10 @@ repeated here when they're still open.
    for a Claude Code or Codex line missing its `timestamp`. OK?
 7. **Time as `Timestamp(f64)` seconds**, matching tvdash and the remote frames. An integer
    of milliseconds or nanoseconds would make equality exact; worth it before 0.1?
-8. **Harness folders moved by env vars** (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`) aren't read:
-   `Tracker::new(home)` uses the default roots, and `Tracker::with_roots` takes others.
-   Whether to read the env vars (in the library or the caller) waits on Phase 0 confirming
-   them in each harness's docs.
+8. **Harness folders moved by env vars** — partly resolved in B8: `Tracker::from_env`
+   reads `CLAUDE_CONFIG_DIR` and `CODEX_HOME`; the CLI uses it. Claude Code 2.1.310's
+   single-absolute-path semantics are confirmed in the binary and by an offline run.
+   Codex's semantics still need the A4 spike.
 9. **tvdash's remote loop.** The reducer now owns the held-back partial line and the
    offset checks that `remote::RemoteFile` does today, so `remote.rs` can drop its
    `pending`/`received` and call `feed`. One difference to decide when wiring it: tvdash's

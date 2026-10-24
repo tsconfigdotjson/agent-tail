@@ -104,7 +104,33 @@ impl Tracker {
     /// The sessions under `home` (each harness's [`Layout::root`](crate::Layout::root) in
     /// it) that `filter` lets through.
     pub fn new(home: &Path, filter: Filter) -> Self {
-        Self::with_roots(Harness::ALL.iter().map(|h| (*h, home.join(h.layout().root))).collect(), filter)
+        Self::with_roots(Self::roots(home, None, None), filter)
+    }
+
+    /// Like [`new`](Self::new), but honouring the harnesses' own folder overrides:
+    /// `CLAUDE_CONFIG_DIR` (the config folder, whose `projects/` holds transcripts) and
+    /// `CODEX_HOME` (the folder whose `sessions/` holds rollouts). Claude Code 2.1.310
+    /// treats `CLAUDE_CONFIG_DIR` as one path, not a comma-separated list; a relative path
+    /// is ignored, as Claude Code does.
+    pub fn from_env(home: &Path, filter: Filter) -> Self {
+        let claude = std::env::var_os("CLAUDE_CONFIG_DIR");
+        let codex = std::env::var_os("CODEX_HOME");
+        Self::with_roots(Self::roots(home, claude.as_deref(), codex.as_deref()), filter)
+    }
+
+    fn roots(
+        home: &Path,
+        claude_config: Option<&std::ffi::OsStr>,
+        codex_home: Option<&std::ffi::OsStr>,
+    ) -> Vec<(Harness, PathBuf)> {
+        let mut roots: Vec<_> = Harness::ALL.iter().map(|h| (*h, home.join(h.layout().root))).collect();
+        if let Some(dir) = claude_config.map(Path::new).filter(|p| p.is_absolute()) {
+            roots[0].1 = dir.join("projects");
+        }
+        if let Some(dir) = codex_home.map(Path::new).filter(|p| p.is_absolute()) {
+            roots[1].1 = dir.join("sessions");
+        }
+        roots
     }
 
     /// Sessions in the given roots, one per harness (a harness's folder moved by its own
@@ -744,6 +770,21 @@ mod tests {
         );
         let state = &t.poll(wall())[0].1;
         assert_eq!((state.activity, state.background.len()), (crate::Activity::Done, 0));
+    }
+
+    #[test]
+    fn harness_folder_overrides_are_absolute_paths() {
+        let home = Path::new("/h");
+        let claude = std::ffi::OsStr::new("/custom/claude");
+        let codex = std::ffi::OsStr::new("/custom/codex");
+        let roots = Tracker::roots(home, Some(claude), Some(codex));
+        assert_eq!(roots[0], (Harness::ClaudeCode, PathBuf::from("/custom/claude/projects")));
+        assert_eq!(roots[1], (Harness::Codex, PathBuf::from("/custom/codex/sessions")));
+        assert_eq!(roots[2], (Harness::Cursor, PathBuf::from("/h/.cursor/projects")));
+        // Relative overrides are ignored, as Claude Code ignores them.
+        let roots = Tracker::roots(home, Some(std::ffi::OsStr::new("relative")), Some(std::ffi::OsStr::new("other")));
+        assert_eq!(roots[0].1, PathBuf::from("/h/.claude/projects"));
+        assert_eq!(roots[1].1, PathBuf::from("/h/.codex/sessions"));
     }
 
     #[test]
