@@ -1,0 +1,48 @@
+{
+  "name": "bash_approval",
+  "description": "A Bash write that needs approval in default mode, then an answer after its result.",
+  "steps": [
+    {
+      "expect": {
+        "user_contains": "run the command"
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "touch permission-marker.txt",
+              "description": "Create a marker file"
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 20
+        },
+        "fault": {
+          "type": "slow_first_token",
+          "delay_ms": 1000
+        }
+      }
+    },
+    {
+      "expect": {
+        "tool_result_id": "toolu_mock_0_0"
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "text",
+            "text": "The marker file was created."
+          }
+        ],
+        "usage": {
+          "input_tokens": 30,
+          "output_tokens": 10
+        }
+      }
+    }
+  ]
+}

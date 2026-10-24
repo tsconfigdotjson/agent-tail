@@ -1,0 +1,11 @@
+{
+  "name": "claude_bash_approval",
+  "description": "Default mode: a Bash write shows a permission prompt, then is approved.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/bash_approval.json",
+  "prompt": "run the command",
+  "keys": [
+    { "on": "permission_prompt", "send": "\r", "after_ms": 2000 }
+  ],
+  "run_for_ms": 14000
+}
