@@ -1,0 +1,135 @@
+# Claude Code discovery, as observed. This file is embedded by crates/agenttail/build.rs;
+# `Harness::layout()` and the adapters' ask-user matching are generated from it.
+schema = 1
+harness = "claude_code"
+name = "Claude Code"
+
+[roots]
+# Relative to the user's home. Every transcript is below projects/.
+default = ".claude/projects"
+evidence = "docs/formats/claude-code.md#paths-and-layout; harness-ci/README.md#isolation"
+
+[[roots.env]]
+# The config folder, not the projects folder. Claude Code 2.1.310 treats it as one path,
+# not a comma-separated list, and ignores a relative path.
+var = "CLAUDE_CONFIG_DIR"
+append = "projects"
+absolute = true
+semantics = "single config directory; projects/ below it holds transcripts; relative values are ignored"
+evidence = "https://github.com/tsconfigdotjson/agenttail/pull/7; harness-ci/README.md#isolation"
+
+[layout]
+# <project>/<session id>.jsonl, and <session id>/subagents/*.jsonl one level further.
+max_depth = 2
+session_pattern = "*.jsonl"
+helpers_in = "subagents"
+helper_owner = "session_file_stem"
+day_folders = false
+evidence = "docs/formats/claude-code.md#paths-and-layout; crates/agenttail/src/adapters/claude.rs"
+
+[project]
+# The encoded folder is lossy and is never decoded into a project name. The cwd on the
+# records is authoritative; the last one read wins (a session can move).
+source = "cwd records; the last record with cwd wins"
+encoding = "project folders keep ASCII alphanumerics and replace every other character with '-'; the encoding is not reversible (`my-app`, `my/app`, and `my.app` can collide)"
+evidence = "docs/prior-art.md#claude-code; docs/formats/claude-code.md#paths-and-layout; https://github.com/tsconfigdotjson/agenttail/issues/21"
+
+# Checked against this machine's ~/.claude/projects on 2026-10-24: 233 of 243 project
+# folders had a cwd record and every one matched this rule; the other 10 had no cwd. No
+# non-ASCII or >200-character cwd was present, so the 200-character hash fallback from the
+# prior art remains unverified here.
+[[project.examples]]
+cwd = "/home/ubuntu/workspace/.vibe-worktrees/jooba/lucky-mint-dingo"
+folder = "-home-ubuntu-workspace--vibe-worktrees-jooba-lucky-mint-dingo"
+
+[[project.examples]]
+cwd = "/home/ubuntu/workspace/.vibe-worktrees/tvdash/a197-integrations-grid"
+folder = "-home-ubuntu-workspace--vibe-worktrees-tvdash-a197-integrations-grid"
+
+[timestamps]
+field = "timestamp"
+format = "rfc3339"
+timezone = "as written (UTC or a numeric offset)"
+fallback = "file mtime when a record has no timestamp"
+evidence = "docs/formats/claude-code.md#record-catalogue-main-transcripts-counts; crates/agenttail/src/time.rs"
+
+[asks_user]
+match = "exact"
+evidence = "harness-ci/driver/scenarios/claude_ask_user.json; harness-ci/driver/scenarios/claude_plan_exit.json; docs/formats/claude-code.md#status-signals"
+values = [
+  { name = "AskUserQuestion", evidence = "harness-ci/driver/scenarios/claude_ask_user.json; docs/formats/claude-code.md#status-signals" },
+  { name = "ExitPlanMode", evidence = "harness-ci/driver/scenarios/claude_plan_exit.json; harness-ci/README.md#a3-scenarios-permission-and-ask-user" },
+]
+
+[never_prompt]
+# Only tools observed to be accepted without a prompt under the named mode. Bash is absent
+# on purpose: it prompted in default, plan, and acceptEdits. A tool not listed here may still
+# be auto-approved by another rule; absence is not a claim that it prompts.
+evidence = "harness-ci/README.md#a3-scenarios-permission-and-ask-user; harness-ci/README.md#a3-scenarios-compact-mode-resume-long-output-sessions"
+values = [
+  { tool = "Write", modes = ["acceptEdits"], evidence = "harness-ci/driver/scenarios/claude_accept_edits.json; harness-ci/README.md#a3-scenarios-permission-and-ask-user ('Write is accepted from config (reason_type: mode) with no prompt')" },
+  { tool = "Read", modes = ["plan"], evidence = "harness-ci/driver/scenarios/claude_plan_exit.json; harness-ci/README.md#a3-scenarios-permission-and-ask-user ('Read is accepted from config (reason_type: mode)')" },
+  { tool = "ToolSearch", modes = ["plan"], evidence = "harness-ci/driver/scenarios/claude_plan_exit.json; harness-ci/README.md#a3-scenarios-permission-and-ask-user ('ToolSearch is automatic')" },
+]
+
+[modes]
+evidence = "docs/formats/claude-code.md#status-signals; crates/agenttail/src/state.rs; harness-ci/README.md#a3-scenarios-permission-and-ask-user"
+values = [
+  { value = "default", can_ask_human = true, observed = true, evidence = "harness-ci/driver/scenarios/claude_bash_approval.json" },
+  { value = "acceptEdits", can_ask_human = true, observed = true, evidence = "harness-ci/driver/scenarios/claude_accept_edits.json; harness-ci/driver/scenarios/claude_mode_model.json" },
+  { value = "plan", can_ask_human = true, observed = true, evidence = "harness-ci/driver/scenarios/claude_plan_exit.json" },
+  { value = "bypassPermissions", can_ask_human = false, observed = true, evidence = "harness-ci/driver/scenarios/claude_bash_bypass.json; docs/formats/claude-code.md#status-signals" },
+  { value = "dontAsk", can_ask_human = false, observed = false, evidence = "docs/formats/claude-code.md#status-signals (2.1.309 binary vocabulary)" },
+  { value = "auto", can_ask_human = true, observed = false, evidence = "docs/formats/claude-code.md#status-signals (2.1.309 binary vocabulary)" },
+]
+
+[[quirks]]
+id = "mode-record-vs-permission-mode"
+summary = "The `mode` record is always `normal`; the permission mode is in the separate `permission-mode` record and on user prompts as `permissionMode`."
+evidence = "docs/formats/claude-code.md#status-signals"
+
+[[quirks]]
+id = "api-error-row"
+summary = "An API error is a synthetic assistant row (`isApiErrorMessage`/`error`, stop_reason `stop_sequence`) followed by `system/turn_duration`; the duration does not erase Errored."
+evidence = "docs/formats/claude-code.md#status-signals; https://github.com/tsconfigdotjson/agenttail/pull/19"
+
+[[quirks]]
+id = "pending-prompt-not-in-transcript"
+summary = "Nothing is written to the transcript while a permission prompt is up; AwaitingApproval remains inferred from a stalled tool call."
+evidence = "harness-ci/README.md#what-the-rig-has-already-found; docs/formats/claude-code.md#status-signals"
+
+[[quirks]]
+id = "compaction-stays-in-file"
+summary = "Compaction writes `system/compact_boundary` and a following `isCompactSummary` user row in the same file; `/background` writes a `continued-in` row and a second transcript."
+evidence = "https://github.com/tsconfigdotjson/agenttail/pull/32; harness-ci/README.md#a3-scenarios-compact-mode-resume-long-output-sessions"
+
+[[quirks]]
+id = "subagents-are-sidechains"
+summary = "Subagent transcripts live under `<session>/subagents/agent-<id>.jsonl`, every record is `isSidechain`, and completion arrives in the parent as a `task-notification` user row."
+evidence = "docs/formats/claude-code.md#status-signals; https://github.com/tsconfigdotjson/agenttail/pull/19"
+
+[[quirks]]
+id = "long-bash-output-persisted"
+summary = "Bash output above the configured ceiling is replaced by a `<persisted-output>` stub; 30000 bytes stays inline and 110000 bytes can trigger auto-compaction when `bashOutputMaxChars` is raised."
+evidence = "https://github.com/tsconfigdotjson/agenttail/pull/32"
+
+[[quirks]]
+id = "sessions-registry-stale-after-kill"
+summary = "A graceful exit removes `sessions/<pid>.json`, but SIGKILL leaves it behind; `status = waiting` also covers `/model` and `/background` dialogs, not only permission prompts."
+evidence = "https://github.com/tsconfigdotjson/agenttail/pull/32; harness-ci/driver/scenarios/claude_sessions_registry.json; harness-ci/README.md#a3-scenarios-compact-mode-resume-long-output-sessions"
+
+[registry]
+# B8 decision: the registry is evidence, not a source the tracker reads (see DECISIONS.md).
+path = ".claude/sessions/<pid>.json"
+used = false
+statuses = ["busy", "idle", "waiting"]
+waiting_for = ["permission prompt", "dialog open"]
+removed_on_graceful_exit = true
+removed_on_sigkill = false
+reason = "waiting is broader than a permission prompt and a SIGKILL leaves a stale file; using it would need a liveness check (kill(pid, 0)) and would not replace the transcript signals"
+evidence = [
+  "https://github.com/tsconfigdotjson/agenttail/pull/32",
+  "https://github.com/tsconfigdotjson/agenttail/issues/20",
+  "harness-ci/driver/scenarios/claude_sessions_registry.json",
+  "docs/formats/claude-code.md#registry-claudesessionspidjson-one-per-live-process",
+]

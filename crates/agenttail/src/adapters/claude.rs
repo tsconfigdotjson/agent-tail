@@ -2,23 +2,9 @@
 //! ("user" / "assistant" messages, plus "ai-title", "cost-state" and bookkeeping we skip).
 
 use super::Adapter;
-use crate::harness::{HelperOwner, Layout};
 use crate::session::{Last, Session, command, file_name, first_line, tool};
 use crate::state::{ActivityLine, PermissionMode};
 use serde_json::Value;
-
-/// Tools that stop and ask the user something.
-const ASKS_USER: [&str; 2] = ["AskUserQuestion", "ExitPlanMode"];
-
-pub(crate) const LAYOUT: Layout = Layout {
-    root: ".claude/projects",
-    // <project>/<session id>.jsonl; subagents' transcripts, further down, belong to their session.
-    max_depth: Some(2),
-    sessions_in: None,
-    helpers_in: Some("subagents"),
-    helper_owner: HelperOwner::SessionFileStem,
-    day_folders: false,
-};
 
 pub(crate) struct ClaudeCode;
 
@@ -127,7 +113,8 @@ fn assistant(s: &mut Session, e: &Value) {
     for c in msg["content"].as_array().into_iter().flatten() {
         if c["type"] == "tool_use" {
             let name = c["name"].as_str().unwrap_or_default();
-            s.tool_call(ASKS_USER.contains(&name), Some(describe_tool(name, &c["input"])), t);
+            let asks_user = s.harness.discovery().asks_user(name);
+            s.tool_call(asks_user, Some(describe_tool(name, &c["input"])), t);
         }
     }
     if msg["stop_reason"] == "end_turn" {
@@ -230,6 +217,7 @@ mod tests {
     use crate::harness::Harness;
     use crate::testutil::{at, fixture, jsonl, log, replay, status};
     use serde_json::json;
+    use std::path::Path;
 
     const STALL_AFTER: f64 = 20.0;
 
@@ -322,7 +310,7 @@ mod tests {
 
     #[test]
     fn questions_and_plans_wait_for_the_user() {
-        for tool in ASKS_USER {
+        for &tool in Harness::ClaudeCode.discovery().asks_user {
             let s = session(&[tool_use(tool, json!({}), 1.0, "m1")]);
             assert_eq!(status(&s), (Status::NeedsYou, "needs your answer"), "{tool}");
         }
@@ -630,6 +618,55 @@ mod tests {
     /// structure and bookkeeping entries kept): a prompt, Bash / Read / Write calls, a
     /// generated title and a cost entry.
     const RECORDED: &str = include_str!("../../../../fixtures/legacy/claude-code-2.1.jsonl");
+
+    #[test]
+    fn names_the_project_from_cwd_not_the_encoded_folder() {
+        // A real cwd from this machine's ~/.claude/projects. The encoded folder ends in
+        // `a197-integrations-grid`; the records moved into its `site` subdirectory.
+        let path = Path::new(
+            "/h/.claude/projects/-home-ubuntu-workspace--vibe-worktrees-tvdash-a197-integrations-grid/s.jsonl",
+        );
+        let mut s = Session::at(Harness::ClaudeCode, 5, path);
+        let entry = json!({
+            "type": "user",
+            "timestamp": at(1.0),
+            "cwd": "/home/ubuntu/workspace/.vibe-worktrees/tvdash/a197-integrations-grid/site",
+            "message": {"role": "user", "content": "ship it"}
+        });
+        s.apply(&entry);
+        assert_eq!(s.project, "site", "the cwd, not the folder's a197-integrations-grid");
+
+        // The folder's encoding is lossy; the records still win when they disagree.
+        let mut s = Session::at(Harness::ClaudeCode, 5, Path::new("/h/.claude/projects/wrong-name/s.jsonl"));
+        s.apply(&json!({
+            "type": "assistant",
+            "timestamp": at(1.0),
+            "cwd": "/home/ubuntu/workspace/.vibe-worktrees/jooba/lucky-mint-dingo",
+            "message": {"id": "m1", "stop_reason": "end_turn", "content": []}
+        }));
+        assert_eq!(s.project, "lucky-mint-dingo");
+    }
+
+    #[test]
+    fn project_folder_encoding_matches_real_cwds() {
+        // Structure-only scan of ~/.claude/projects (2026-10-24): 233 of 243 folders had a
+        // cwd record and every one matched this rule; the other 10 had no cwd. These are two
+        // of those observed pairs.
+        let encode =
+            |cwd: &str| -> String { cwd.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect() };
+        for (cwd, folder) in [
+            (
+                "/home/ubuntu/workspace/.vibe-worktrees/jooba/lucky-mint-dingo",
+                "-home-ubuntu-workspace--vibe-worktrees-jooba-lucky-mint-dingo",
+            ),
+            (
+                "/home/ubuntu/workspace/.vibe-worktrees/tvdash/a197-integrations-grid",
+                "-home-ubuntu-workspace--vibe-worktrees-tvdash-a197-integrations-grid",
+            ),
+        ] {
+            assert_eq!(encode(cwd), folder);
+        }
+    }
 
     #[test]
     fn reads_a_recorded_session() {

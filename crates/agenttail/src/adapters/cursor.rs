@@ -13,29 +13,16 @@
 //! call or a prompt that is in the workspace), and until then is the folder's last part.
 
 use super::Adapter;
-use crate::harness::{HelperOwner, Layout};
 use crate::session::{Last, Session, command, file_name, first_line, tool};
 use crate::state::ActivityLine;
 use crate::time::{days_from_civil, valid_date};
 use serde_json::Value;
 use std::path::Path;
 
-/// Tools that stop and ask the user something, lowercased with `_` left out.
-const ASKS_USER: [&str; 4] = ["askquestion", "askuserquestion", "askfollowupquestion", "requestuserinput"];
 /// Where the project folders' sessions are.
 const TRANSCRIPTS: &str = "agent-transcripts";
 /// The longest string looked through for the workspace's path.
 const MAX_PATH: usize = 1024;
-
-pub(crate) const LAYOUT: Layout = Layout {
-    root: ".cursor/projects",
-    // <project>/agent-transcripts/<id>/<id>.jsonl.
-    max_depth: Some(4),
-    sessions_in: Some(TRANSCRIPTS),
-    helpers_in: Some("subagents"),
-    helper_owner: HelperOwner::SessionFolder,
-    day_folders: false,
-};
 
 pub(crate) struct Cursor;
 
@@ -227,13 +214,8 @@ fn assistant(s: &mut Session, content: &Value, t: f64) {
                     None => &c["input"],
                 };
                 find_project(s, strings(input));
-                let key: String =
-                    name.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_ascii_lowercase();
-                s.tool_call(
-                    ASKS_USER.contains(&key.as_str()),
-                    (!name.is_empty()).then(|| describe_tool(name, input)),
-                    t,
-                );
+                let asks_user = s.harness.discovery().asks_user(name);
+                s.tool_call(asks_user, (!name.is_empty()).then(|| describe_tool(name, input)), t);
             }
             // Cursor doesn't record tools' results: the model writing again means they're in.
             Some("text" | "thinking" | "reasoning") => s.set(Last::ToolResult, t),

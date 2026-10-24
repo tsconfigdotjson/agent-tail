@@ -5,25 +5,9 @@
 //! Checked against rollouts written by Codex CLI 0.160.1 (the fixtures) and earlier ones.
 
 use super::Adapter;
-use crate::harness::{HelperOwner, Layout};
 use crate::session::{Last, Session, command, file_name, tool};
 use crate::state::{ActivityLine, PermissionMode, SandboxPolicy};
 use serde_json::Value;
-
-/// Tools that stop and ask the user something.
-const ASKS_USER: [&str; 1] = ["request_user_input"];
-
-pub(crate) const LAYOUT: Layout = Layout {
-    root: ".codex/sessions",
-    // YYYY/MM/DD/rollout-*.jsonl today; any depth, in case that changes.
-    max_depth: None,
-    sessions_in: None,
-    helpers_in: None,
-    helper_owner: HelperOwner::SessionFolder,
-    // A rollout stays in the folder of the day its session started, in local time: a
-    // resumed session appends to it (tvdash #26, #64).
-    day_folders: true,
-};
 
 pub(crate) struct Codex;
 
@@ -56,12 +40,12 @@ impl Adapter for Codex {
                             // A shape this version hasn't seen: keep the timing guess rather than
                             // inventing a firm no-human answer.
                             s.set_permission(Some(PermissionMode::Unknown));
-                            return;
+                        } else {
+                            let asks =
+                                categories.iter().any(|key| config.get(*key).and_then(Value::as_bool).unwrap_or(false));
+                            let mode = if asks { PermissionMode::GranularAsk } else { PermissionMode::GranularNoAsk };
+                            s.set_permission(Some(mode));
                         }
-                        let asks =
-                            categories.iter().any(|key| config.get(*key).and_then(Value::as_bool).unwrap_or(false));
-                        let mode = if asks { PermissionMode::GranularAsk } else { PermissionMode::GranularNoAsk };
-                        s.set_permission(Some(mode));
                     }
                     _ => {}
                 }
@@ -108,7 +92,7 @@ impl Adapter for Codex {
             }
             ("response_item", "function_call" | "custom_tool_call") => {
                 let name = p["name"].as_str().unwrap_or_default();
-                let asks_user = ASKS_USER.contains(&name);
+                let asks_user = s.harness.discovery().asks_user(name);
                 let line = describe_tool(name, p);
                 match p["call_id"].as_str().filter(|id| !id.is_empty()) {
                     Some(call_id) => s.tool_call_id(call_id, asks_user, line, t),
@@ -407,6 +391,7 @@ mod tests {
         let mut s = session(&[unknown, call()]);
         s.last_at -= STALL_AFTER * 2.0;
         assert_eq!(s.permission, Some(PermissionMode::Unknown));
+        assert_eq!(s.sandbox, Some(SandboxPolicy::WorkspaceWrite), "the rest of turn_context is still read");
         assert_eq!(status(&s), (Status::NeedsYou, "may need approval"));
     }
 
