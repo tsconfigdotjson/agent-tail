@@ -232,6 +232,9 @@ pub enum Reason {
     Errored,
     /// The turn ended, but a helper is still writing: `BackgroundWork`.
     BackgroundHelpers,
+    /// A status from Cursor's `state.vscdb` (`composerData.status`: completed, aborted or
+    /// generating): `Done`, `Interrupted` or `Thinking`, firm.
+    ComposerStatus,
 }
 
 /// Token counts as a harness reports them.

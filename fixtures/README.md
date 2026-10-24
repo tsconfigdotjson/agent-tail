@@ -31,3 +31,8 @@ Helpers live under `input/subagents/<agent>.jsonl` with optional
 
 `helper_line` is how many lines of that helper have been fed so far (default: all). The
 helper id is `subagents/<agent>.jsonl`, matching a parent `outputFile` of the same name.
+
+`fixtures/cursor/handmade/vscdb-reader/` is a `state.vscdb` fixture, not a transcript
+scenario: `input/state-vscdb.jsonl` holds synthetic `cursorDiskKV` key/value rows, and
+`crates/agenttail/src/sqlite.rs` builds a real SQLite database from it (with the rows left in
+the WAL) to test the snapshot reader.
