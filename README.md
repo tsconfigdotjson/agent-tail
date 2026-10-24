@@ -75,9 +75,10 @@ agenttail watch [--hours N] [--agents …]                       # each change, 
 
 ## What it reads, and what it touches
 
-- **Reads**, read-only: `~/.claude/projects/**.jsonl` (Claude Code),
-  `~/.codex/sessions/YYYY/MM/DD/*.jsonl` (Codex; compressed `.jsonl.zst` history is
-  skipped), `~/.cursor/projects/*/agent-transcripts/**.jsonl` (Cursor). Only the bytes
+- **Reads**, read-only: `~/.claude/projects/**.jsonl` (Claude Code; `CLAUDE_CONFIG_DIR`
+  moves it),
+  `~/.codex/sessions/YYYY/MM/DD/*.jsonl` (Codex; `CODEX_HOME` moves it; compressed
+  `.jsonl.zst` history is skipped), `~/.cursor/projects/*/agent-transcripts/**.jsonl` (Cursor). Only the bytes
   appended since the last poll are read; a session's first read goes 1 MB at a time.
 - **Touches nothing**: no writes anywhere, no hooks or config changes in any agent, no
   subprocesses, **no network**. Symlinks are not followed.

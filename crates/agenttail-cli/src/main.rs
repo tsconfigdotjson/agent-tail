@@ -33,7 +33,7 @@ fn run(args: &[String]) -> Result<(), String> {
     let (command, rest) = args.split_first().ok_or("no command")?;
     let filter = filter(rest)?;
     let home = std::env::var_os("HOME").map(PathBuf::from).ok_or("HOME isn't set")?;
-    let mut tracker = Tracker::new(&home, filter);
+    let mut tracker = Tracker::from_env(&home, filter);
     match command.as_str() {
         "ls" => {
             for (key, state) in tracker.poll(now()) {
