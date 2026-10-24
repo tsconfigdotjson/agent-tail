@@ -1,0 +1,108 @@
+{
+  "name": "background_agent",
+  "description": "Parent launches OUTER_AGENT in the background. That agent launches NESTED_AGENT. first_match answers whichever of those requests arrives next. The nested reply is slow so the parent turn can end while it is still running.",
+  "dispatch": "first_match",
+  "steps": [
+    {
+      "expect": {
+        "user_contains": "delegate the summary",
+        "user_also_contains": "<task-notification>"
+      },
+      "reply": {
+        "content": [{ "type": "text", "text": "The background agent finished." }],
+        "usage": { "input_tokens": 40, "output_tokens": 12 },
+        "fault": { "type": "slow_first_token", "delay_ms": 400 }
+      }
+    },
+    {
+      "expect": {
+        "contains": "OUTER_AGENT",
+        "user_also_contains": "<task-notification>"
+      },
+      "reply": {
+        "content": [{ "type": "text", "text": "Outer agent finished after the nested one." }],
+        "usage": { "input_tokens": 40, "output_tokens": 12 },
+        "fault": { "type": "slow_first_token", "delay_ms": 400 }
+      }
+    },
+    {
+      "expect": {
+        "contains": "NESTED_AGENT",
+        "has_tool_result": false
+      },
+      "reply": {
+        "content": [{ "type": "text", "text": "nested-done" }],
+        "usage": { "input_tokens": 20, "output_tokens": 8 },
+        "fault": { "type": "slow_first_token", "delay_ms": 8000 }
+      }
+    },
+    {
+      "expect": {
+        "user_contains": "delegate the summary",
+        "has_tool_result": true,
+        "not_user_contains": "<task-notification>"
+      },
+      "reply": {
+        "content": [{ "type": "text", "text": "The background agent has started." }],
+        "usage": { "input_tokens": 30, "output_tokens": 12 },
+        "fault": { "type": "slow_first_token", "delay_ms": 400 }
+      }
+    },
+    {
+      "expect": {
+        "contains": "OUTER_AGENT",
+        "has_tool_result": true,
+        "not_user_contains": "<task-notification>"
+      },
+      "reply": {
+        "content": [{ "type": "text", "text": "Nested agent is running in the background." }],
+        "usage": { "input_tokens": 30, "output_tokens": 12 },
+        "fault": { "type": "slow_first_token", "delay_ms": 400 }
+      }
+    },
+    {
+      "expect": {
+        "contains": "OUTER_AGENT",
+        "has_tool_result": false
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "Agent",
+            "input": {
+              "description": "Nested lookup",
+              "prompt": "NESTED_AGENT: reply with the single word nested-done.",
+              "subagent_type": "general-purpose",
+              "run_in_background": "true"
+            }
+          }
+        ],
+        "usage": { "input_tokens": 20, "output_tokens": 30 },
+        "fault": { "type": "slow_first_token", "delay_ms": 500 }
+      }
+    },
+    {
+      "expect": {
+        "user_contains": "delegate the summary",
+        "has_tool_result": false
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "Agent",
+            "input": {
+              "description": "Summarize in the background",
+              "prompt": "OUTER_AGENT: launch one nested agent and then stop. Do not use any other tool.",
+              "subagent_type": "general-purpose",
+              "run_in_background": "true"
+            }
+          }
+        ],
+        "usage": { "input_tokens": 10, "output_tokens": 40 },
+        "fault": { "type": "slow_first_token", "delay_ms": 1000 }
+      }
+    }
+  ]
+}

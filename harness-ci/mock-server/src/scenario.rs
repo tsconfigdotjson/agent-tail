@@ -15,7 +15,17 @@ pub struct Scenario {
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(default)]
+    pub dispatch: Dispatch,
     pub steps: Vec<Step>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Dispatch {
+    #[default]
+    Sequential,
+    FirstMatch,
 }
 
 /// One model turn.
@@ -25,6 +35,13 @@ pub struct Step {
     #[serde(default)]
     pub expect: Expect,
     pub reply: Reply,
+    /// How many times this step is offered. `1` when omitted. Expanded while parsing.
+    #[serde(default = "one_repeat")]
+    pub repeat: u32,
+}
+
+fn one_repeat() -> u32 {
+    1
 }
 
 /// A request check. Every set field must hold; the first that doesn't is the error.
@@ -45,6 +62,12 @@ pub struct Expect {
     /// Requires tool results to be present (`true`) or absent (`false`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub has_tool_result: Option<bool>,
+    /// A second substring of the user's text. Both this and `user_contains` must hold.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_also_contains: Option<String>,
+    /// Rejects the step when the user's text contains this. Tool results are not user text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_user_contains: Option<String>,
     /// The zero-based request number this reply is for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_index: Option<usize>,
@@ -132,6 +155,8 @@ pub enum Fault {
     BrokenStream,
     /// Wait this long after the initial event before the first content.
     SlowFirstToken { delay_ms: u64 },
+    /// Finish the first content block, then wait before the rest of the stream.
+    PauseAfterFirstBlock { delay_ms: u64 },
     /// Wait this long before the whole reply (streaming or not).
     Slow { delay_ms: u64 },
 }
@@ -143,9 +168,29 @@ impl Scenario {
     }
 
     pub fn parse(text: &str) -> Result<Scenario, String> {
-        let scenario: Scenario = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        let mut scenario: Scenario = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        scenario.expand_repeats()?;
         scenario.validate()?;
         Ok(scenario)
+    }
+
+    fn expand_repeats(&mut self) -> Result<(), String> {
+        let mut expanded = Vec::new();
+        for (index, step) in self.steps.iter().cloned().enumerate() {
+            if step.repeat == 0 {
+                return Err(format!("step {index} repeats 0 times"));
+            }
+            if step.repeat > 30 {
+                return Err(format!("step {index} repeats {} times; the cap is 30", step.repeat));
+            }
+            for _ in 0..step.repeat {
+                let mut copy = step.clone();
+                copy.repeat = 1;
+                expanded.push(copy);
+            }
+        }
+        self.steps = expanded;
+        Ok(())
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -192,6 +237,7 @@ mod tests {
         let s = Scenario {
             name: "x".into(),
             description: None,
+            dispatch: Dispatch::Sequential,
             steps: vec![Step {
                 expect: Expect::default(),
                 reply: Reply {
@@ -201,8 +247,41 @@ mod tests {
                     usage: Usage::default(),
                     fault: None,
                 },
+                repeat: 1,
             }],
         };
         assert_eq!(s.stop_reason(&s.steps[0]), "tool_use");
+    }
+
+    #[test]
+    fn repeat_expands_into_distinct_steps() {
+        let text = r#"{
+            "name": "again",
+            "steps": [{
+                "repeat": 3,
+                "expect": {"user_contains": "hi"},
+                "reply": {"content": [{"type": "text", "text": "no"}]}
+            }]
+        }"#;
+        let scenario = Scenario::parse(text).unwrap();
+        assert_eq!(scenario.steps.len(), 3);
+        assert_eq!(scenario.dispatch, Dispatch::Sequential);
+        assert!(scenario.steps.iter().all(|step| step.repeat == 1));
+        assert!(scenario.steps.iter().all(|step| step.expect.user_contains.as_deref() == Some("hi")));
+    }
+
+    #[test]
+    fn a_zero_repeat_is_rejected() {
+        let text = r#"{"name":"z","steps":[{"repeat":0,"reply":{"content":[{"type":"text","text":"x"}]}}]}"#;
+        let error = Scenario::parse(text).unwrap_err();
+        assert!(error.contains("repeats 0"), "{error}");
+    }
+
+    #[test]
+    fn first_match_dispatch_parses() {
+        let text =
+            r#"{"name":"bg","dispatch":"first_match","steps":[{"reply":{"content":[{"type":"text","text":"x"}]}}]}"#;
+        let scenario = Scenario::parse(text).unwrap();
+        assert_eq!(scenario.dispatch, Dispatch::FirstMatch);
     }
 }

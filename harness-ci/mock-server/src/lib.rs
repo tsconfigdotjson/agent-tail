@@ -11,7 +11,7 @@ pub mod request;
 pub mod scenario;
 
 use crate::request::{Api, RequestView};
-use crate::scenario::{Fault, Scenario, Step};
+use crate::scenario::{Dispatch, Fault, Scenario, Step};
 use axum::body::{Body, Bytes};
 use axum::extract::{Request, State};
 use axum::http::{StatusCode, header};
@@ -36,6 +36,7 @@ pub struct MockState {
 struct Inner {
     next_step: usize,
     requests: u64,
+    used: Vec<bool>,
 }
 
 #[derive(Debug)]
@@ -58,7 +59,18 @@ impl MockState {
     }
 
     pub fn remaining(&self) -> usize {
-        self.scenario.steps.len().saturating_sub(self.inner.lock().expect("mock state").next_step)
+        let inner = self.inner.lock().expect("mock state");
+        self.remaining_of(&inner)
+    }
+
+    fn remaining_of(&self, inner: &Inner) -> usize {
+        match self.scenario.dispatch {
+            Dispatch::Sequential => self.scenario.steps.len().saturating_sub(inner.next_step),
+            Dispatch::FirstMatch => {
+                let used = inner.used.iter().filter(|flag| **flag).count();
+                self.scenario.steps.len().saturating_sub(used)
+            }
+        }
     }
 
     pub fn requests(&self) -> u64 {
@@ -73,44 +85,81 @@ impl MockState {
         let mut inner = self.inner.lock().expect("mock state");
         let request_index = inner.requests as usize;
         inner.requests += 1;
-        let next_step = inner.next_step;
-        let Some(step) = self.scenario.steps.get(next_step).cloned() else {
-            let message = format!(
-                "unexpected request #{request_index} to {path}: scenario {:?} has no step {}",
-                self.scenario.name, next_step
-            );
-            self.write_log(json!({
-                "request_index": request_index,
-                "api": api_name(api),
-                "path": path,
-                "body": body,
-                "error": message,
-            }));
-            return Err(MockFailure { status: StatusCode::INTERNAL_SERVER_ERROR, message });
+        let picked = match self.scenario.dispatch {
+            Dispatch::Sequential => self.pick_sequential(&mut inner, &view, path, request_index),
+            Dispatch::FirstMatch => self.pick_first_match(&mut inner, &view, path, request_index),
         };
-        if let Err(message) = step.expect.check(&view, request_index) {
-            let message = format!("request #{request_index} to {path} did not match step {next_step}: {message}");
-            self.write_log(json!({
-                "request_index": request_index,
-                "api": api_name(api),
-                "path": path,
-                "body": body,
-                "expected_step": next_step,
-                "expect": step.expect,
-                "error": message,
-            }));
-            return Err(MockFailure { status: StatusCode::INTERNAL_SERVER_ERROR, message });
-        }
-        inner.next_step += 1;
+        let (step_index, step) = match picked {
+            Ok(found) => found,
+            Err(message) => {
+                self.write_log(json!({
+                    "request_index": request_index,
+                    "api": api_name(api),
+                    "path": path,
+                    "body": body,
+                    "error": message,
+                }));
+                return Err(MockFailure { status: StatusCode::INTERNAL_SERVER_ERROR, message });
+            }
+        };
+        let remaining = self.remaining_of(&inner);
         self.write_log(json!({
             "request_index": request_index,
             "api": api_name(api),
             "path": path,
             "body": body,
-            "matched_step": next_step,
-            "remaining": self.scenario.steps.len() - inner.next_step,
+            "matched_step": step_index,
+            "remaining": remaining,
         }));
         Ok((request_index, step))
+    }
+
+    fn pick_sequential(
+        &self,
+        inner: &mut Inner,
+        view: &RequestView,
+        path: &str,
+        request_index: usize,
+    ) -> Result<(usize, Step), String> {
+        let next_step = inner.next_step;
+        let Some(step) = self.scenario.steps.get(next_step).cloned() else {
+            return Err(format!(
+                "unexpected request #{request_index} to {path}: scenario {:?} has no step {next_step}",
+                self.scenario.name
+            ));
+        };
+        if let Err(message) = step.expect.check(view, request_index) {
+            return Err(format!("request #{request_index} to {path} did not match step {next_step}: {message}"));
+        }
+        inner.next_step += 1;
+        Ok((next_step, step))
+    }
+
+    fn pick_first_match(
+        &self,
+        inner: &mut Inner,
+        view: &RequestView,
+        path: &str,
+        request_index: usize,
+    ) -> Result<(usize, Step), String> {
+        if inner.used.len() != self.scenario.steps.len() {
+            inner.used = vec![false; self.scenario.steps.len()];
+        }
+        let mut failures = Vec::new();
+        for (index, step) in self.scenario.steps.iter().enumerate() {
+            if inner.used[index] {
+                continue;
+            }
+            match step.expect.check(view, request_index) {
+                Ok(()) => {
+                    inner.used[index] = true;
+                    return Ok((index, step.clone()));
+                }
+                Err(message) => failures.push(format!("step {index}: {message}")),
+            }
+        }
+        let detail = if failures.is_empty() { "scenario has no steps left".to_string() } else { failures.join("; ") };
+        Err(format!("request #{request_index} to {path} matched no unused step: {detail}"))
     }
 
     fn write_log(&self, entry: Value) {
@@ -169,12 +218,18 @@ async fn anthropic_messages(State(state): State<Arc<MockState>>, body: Bytes) ->
         Ok(found) => found,
         Err(error) => return failure_response(error, Api::Anthropic),
     };
-    if let Some(Fault::Http { status, message }) = step.reply.fault {
-        return error_response(status, message.as_deref().unwrap_or("scripted failure"), Api::Anthropic);
+    let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
+    match &step.reply.fault {
+        Some(Fault::Http { status, message }) => {
+            return error_response(*status, message.as_deref().unwrap_or("scripted failure"), Api::Anthropic);
+        }
+        Some(Fault::BrokenStream) if !stream => {
+            return error_response(500, "connection closed before a complete message", Api::Anthropic);
+        }
+        _ => {}
     }
     let model = state.scenario.model(&step, "claude-sonnet-4-5");
     let stop_reason = state.scenario.stop_reason(&step);
-    let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
     if stream {
         let events = anthropic::stream_events(index, &model, &step.reply, &stop_reason);
         sse_response(events)
@@ -204,6 +259,7 @@ fn title_response(body: &Value) -> Response {
             usage: Default::default(),
             fault: None,
         },
+        repeat: 1,
     };
     let model = body.get("model").and_then(Value::as_str).unwrap_or("claude-sonnet-4-5");
     let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
@@ -303,7 +359,7 @@ mod tests {
     use tower::ServiceExt;
 
     fn state(steps: Vec<Step>) -> Arc<MockState> {
-        MockState::new(Scenario { name: "test".into(), description: None, steps })
+        MockState::new(Scenario { name: "test".into(), description: None, dispatch: Dispatch::Sequential, steps })
     }
 
     fn text_step(text: &str) -> Step {
@@ -316,6 +372,7 @@ mod tests {
                 usage: Usage::default(),
                 fault: None,
             },
+            repeat: 1,
         }
     }
 
@@ -396,6 +453,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_broken_stream_fault_fails_a_nonstreaming_retry() {
+        let mut step = text_step("unused");
+        step.reply.fault = Some(Fault::BrokenStream);
+        let app = router(state(vec![step]));
+        let (status, body) = post(app, "/v1/messages", json!({"stream": false, "messages": []})).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(!body.contains("unused"), "{body}");
+        assert!(body.contains("api_error"), "{body}");
+    }
+
+    #[tokio::test]
     async fn a_scripted_http_fault_returns_that_status() {
         let mut step = text_step("unused");
         step.reply.fault = Some(Fault::Http { status: 529, message: Some("overloaded".into()) });
@@ -411,5 +479,121 @@ mod tests {
         let (status, body) = post(app, "/v1/responses", json!({"stream": false, "input": "hi"})).await;
         assert_eq!(status, StatusCode::OK);
         assert!(body.contains("resp_mock_0"), "{body}");
+    }
+
+    fn with_user(text: &str, user: &str, tool: Option<bool>) -> Step {
+        let mut step = text_step(text);
+        step.expect.user_contains = Some(user.into());
+        step.expect.has_tool_result = tool;
+        step
+    }
+
+    #[tokio::test]
+    async fn sequential_dispatch_rejects_a_request_that_only_matches_a_later_step() {
+        let app = router(state(vec![with_user("one", "first", None), with_user("two", "second", None)]));
+        let (status, body) =
+            post(app, "/v1/messages", json!({"stream": false, "messages": [{"role": "user", "content": "second"}]}))
+                .await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(body.contains("did not match step 0"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn first_match_answers_a_subagent_before_the_parent_continues() {
+        let mut continuation = with_user("parent continues", "delegate the summary", Some(true));
+        continuation.expect.not_user_contains = Some("<task-notification>".into());
+        let child = with_user("from the subagent", "OUTER_AGENT", Some(false));
+        let initial = with_user("launch", "delegate the summary", Some(false));
+        let scenario = Scenario {
+            name: "bg".into(),
+            description: None,
+            dispatch: Dispatch::FirstMatch,
+            steps: vec![continuation, child, initial],
+        };
+        let app = router(MockState::new(scenario));
+        let (status, body) = post(
+            app.clone(),
+            "/v1/messages",
+            json!({"stream": false, "messages": [{"role": "user", "content": "delegate the summary"}]}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("launch"), "{body}");
+        let (status, body) = post(
+            app.clone(),
+            "/v1/messages",
+            json!({"stream": false, "messages": [{"role": "user", "content": "OUTER_AGENT please summarize"}]}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("from the subagent"), "{body}");
+        let (status, body) = post(
+            app,
+            "/v1/messages",
+            json!({"stream": false, "messages": [
+                {"role": "user", "content": "delegate the summary"},
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_mock_0_0", "content": "async_launched"}]}
+            ]}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("parent continues"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn the_background_scenario_keeps_parent_and_subagent_replies_apart() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scenarios/background_agent.json");
+        let scenario = Scenario::from_path(&path).expect("background scenario");
+        assert_eq!(scenario.dispatch, Dispatch::FirstMatch);
+        let state = MockState::new(scenario);
+        let app = router(state.clone());
+
+        let (status, body) = post(
+            app.clone(),
+            "/v1/messages",
+            json!({"stream": false, "messages": [{"role": "user", "content": "delegate the summary"}]}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("OUTER_AGENT"), "{body}");
+
+        let (status, body) = post(
+            app.clone(),
+            "/v1/messages",
+            json!({
+                "stream": false,
+                "system": [{"type": "text", "text": "OUTER_AGENT system prompt"}],
+                "messages": [{"role": "user", "content": "do the delegated work"}],
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("NESTED_AGENT"), "{body}");
+
+        let (status, body) = post(
+            app.clone(),
+            "/v1/messages",
+            json!({"stream": false, "messages": [{"role": "user", "content": "NESTED_AGENT: reply with the single word nested-done."}]}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("nested-done"), "{body}");
+
+        let (status, body) = post(
+            app.clone(),
+            "/v1/messages",
+            json!({
+                "stream": false,
+                "messages": [
+                    {"role": "user", "content": "delegate the summary"},
+                    {"role": "assistant", "content": [{"type": "tool_use", "name": "Agent", "input": {"prompt": "OUTER_AGENT: launch"}}]},
+                    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_mock_0_0", "content": "async_launched OUTER_AGENT"}]}
+                ]
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("has started"), "{body}");
+        assert_eq!(state.remaining(), 3);
     }
 }

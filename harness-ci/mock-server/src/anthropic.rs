@@ -145,6 +145,12 @@ pub fn stream_events(index: usize, model: &str, reply: &Reply, stop_reason: &str
         ),
     ));
     events.push((0, sse("message_stop", json!({"type": "message_stop"}))));
+    if let Some(Fault::PauseAfterFirstBlock { delay_ms }) = reply.fault
+        && let Some(pos) = events.iter().position(|(_, frame)| frame.contains("content_block_stop"))
+        && let Some(next) = events.get_mut(pos + 1)
+    {
+        next.0 = next.0.saturating_add(delay_ms);
+    }
     events
 }
 
@@ -201,6 +207,18 @@ mod tests {
         ] {
             assert!(all.contains(event), "missing {event} in {all}");
         }
+    }
+
+    #[test]
+    fn pause_after_the_first_block_holds_the_rest() {
+        let mut r = reply(vec![Block::Thinking { thinking: "slowly".into(), signature: None }]);
+        r.fault = Some(Fault::PauseAfterFirstBlock { delay_ms: 20000 });
+        let events = stream_events(0, "m", &r, "end_turn");
+        let stop = events.iter().position(|(_, frame)| frame.contains("content_block_stop")).unwrap();
+        assert_eq!(events[stop].0, 0);
+        assert_eq!(events[stop + 1].0, 20000);
+        assert!(events[stop + 1].1.contains("message_delta"));
+        assert_eq!(events[0].0, 0);
     }
 
     #[test]

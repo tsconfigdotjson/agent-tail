@@ -1,0 +1,17 @@
+{
+  "name": "interrupt_thinking",
+  "description": "The thinking block finishes, then the stream holds so Esc lands while that turn is still open.",
+  "steps": [
+    {
+      "expect": { "user_contains": "think slowly" },
+      "reply": {
+        "content": [
+          { "type": "thinking", "thinking": "Considering this slowly before answering." },
+          { "type": "text", "text": "This reply should be cut off." }
+        ],
+        "usage": { "input_tokens": 10, "output_tokens": 5 },
+        "fault": { "type": "pause_after_first_block", "delay_ms": 20000 }
+      }
+    }
+  ]
+}

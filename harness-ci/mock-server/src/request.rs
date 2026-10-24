@@ -28,6 +28,7 @@ pub struct RequestView {
 impl RequestView {
     pub fn from_anthropic(body: &Value) -> RequestView {
         let mut view = RequestView::default();
+        append_system(&mut view, body.get("system"));
         let Some(messages) = body.get("messages").and_then(Value::as_array) else { return view };
         for message in messages {
             let role = message.get("role").and_then(Value::as_str).unwrap_or("");
@@ -128,6 +129,22 @@ fn content_text(value: Option<&Value>) -> String {
     }
 }
 
+fn append_system(view: &mut RequestView, system: Option<&Value>) {
+    match system {
+        Some(Value::String(text)) => append(&mut view.all_text, text),
+        Some(Value::Array(parts)) => {
+            for part in parts {
+                if let Some(text) = part.as_str() {
+                    append(&mut view.all_text, text);
+                } else if let Some(text) = part.get("text").and_then(Value::as_str) {
+                    append(&mut view.all_text, text);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 fn append(into: &mut String, text: &str) {
     if !into.is_empty() && !text.is_empty() {
         into.push('\n');
@@ -154,6 +171,16 @@ impl Expect {
         {
             return Err(format!("user text did not contain {want:?}; user text was {:?}", truncate(&view.user_text)));
         }
+        if let Some(want) = &self.user_also_contains
+            && !view.user_text.contains(want)
+        {
+            return Err(format!("user text did not contain {want:?}; user text was {:?}", truncate(&view.user_text)));
+        }
+        if let Some(want) = &self.not_user_contains
+            && view.user_text.contains(want)
+        {
+            return Err(format!("user text contained {want:?}, which this step rejects"));
+        }
         if let Some(want) = &self.tool_result_id
             && !view.tool_results.iter().any(|r| &r.call_id == want)
         {
@@ -171,7 +198,7 @@ impl Expect {
             ));
         }
         if let Some(want) = self.has_tool_result
-            && want != !view.tool_results.is_empty()
+            && want == view.tool_results.is_empty()
         {
             return Err(if want {
                 "expected a tool result, got a request with none".into()
@@ -221,5 +248,42 @@ mod tests {
         let expect = Expect { user_contains: Some("bye".into()), ..Expect::default() };
         let err = expect.check(&view, 0).unwrap_err();
         assert!(err.contains("did not contain \"bye\""), "{err}");
+    }
+
+    #[test]
+    fn system_text_is_visible_to_contains_and_not_to_user_contains() {
+        let body = json!({
+            "system": [{"type": "text", "text": "NESTED_AGENT in the system prompt"}],
+            "messages": [{"role": "user", "content": "hi"}],
+        });
+        let view = RequestView::from_anthropic(&body);
+        assert!(view.all_text.contains("NESTED_AGENT"));
+        assert!(!view.user_text.contains("NESTED_AGENT"));
+        let string_system = RequestView::from_anthropic(&json!({
+            "system": "OUTER_AGENT system string",
+            "messages": [{"role": "user", "content": "hi"}],
+        }));
+        assert!(string_system.all_text.contains("OUTER_AGENT"));
+    }
+
+    #[test]
+    fn a_later_user_message_can_be_required_or_rejected() {
+        let body = json!({"messages": [
+            {"role": "user", "content": "OUTER_AGENT"},
+            {"role": "user", "content": "<task-notification><status>completed</status></task-notification>"},
+        ]});
+        let view = RequestView::from_anthropic(&body);
+        let early = Expect {
+            user_contains: Some("OUTER_AGENT".into()),
+            not_user_contains: Some("<task-notification>".into()),
+            ..Expect::default()
+        };
+        assert!(early.check(&view, 1).is_err());
+        let late = Expect {
+            user_contains: Some("OUTER_AGENT".into()),
+            user_also_contains: Some("<task-notification>".into()),
+            ..Expect::default()
+        };
+        assert!(late.check(&view, 1).is_ok());
     }
 }

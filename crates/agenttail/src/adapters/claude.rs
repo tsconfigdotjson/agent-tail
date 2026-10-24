@@ -134,7 +134,11 @@ fn system(s: &mut Session, e: &Value) {
         // The firmest turn end, written once after the hooks. It also carries a firm count
         // of helpers still running when the turn ended.
         Some("turn_duration") => {
-            s.set(Last::EndTurn, t);
+            if s.last == Last::Errored {
+                s.last_at = t;
+            } else {
+                s.set(Last::EndTurn, t);
+            }
             if let Some(n) = e["pendingBackgroundAgentCount"].as_u64() {
                 s.set_background_agents(n as usize);
             }
@@ -315,6 +319,55 @@ mod tests {
         );
         assert_eq!((st.activity, st.reason), (crate::Activity::Errored, crate::Reason::Errored));
         assert_eq!(st.error.as_deref(), Some("server_error"));
+        assert_eq!(status(&s), (Status::Done, "done"));
+    }
+
+    #[test]
+    fn turn_duration_after_an_api_error_stays_errored() {
+        let error = json!({"type": "assistant", "timestamp": at(1.0),
+                           "isApiErrorMessage": true, "error": "server_error",
+                           "message": {"id": "m1", "stop_reason": "stop_sequence",
+                                       "usage": {"output_tokens": 0},
+                                       "content": [{"type": "text", "text": "API error"}]}});
+        let duration = json!({"type": "system", "subtype": "turn_duration", "timestamp": at(0.5),
+                              "pendingBackgroundAgentCount": 2});
+        let s = session(&[error, duration]);
+        let st = s.state(
+            crate::time::Timestamp::from_secs_f64(crate::testutil::NOW),
+            &crate::ReducerOptions::default(),
+            crate::Diagnostics::default(),
+        );
+        assert_eq!((st.activity, st.reason), (crate::Activity::Errored, crate::Reason::Errored));
+        assert_eq!(st.error.as_deref(), Some("server_error"));
+        assert_ne!(st.activity, crate::Activity::BackgroundWork);
+    }
+
+    #[test]
+    fn a_late_flushed_prompt_does_not_rewind_an_api_error() {
+        let error = json!({"type": "assistant", "timestamp": at(1.0),
+                           "isApiErrorMessage": true, "error": "server_error",
+                           "message": {"id": "m1", "stop_reason": "stop_sequence",
+                                       "content": [{"type": "text", "text": "API error"}]}});
+        let duration = json!({"type": "system", "subtype": "turn_duration", "timestamp": at(0.5)});
+        let late = prompt("trigger an error", 2.0);
+        let s = session(&[error, duration, late]);
+        let st = s.state(
+            crate::time::Timestamp::from_secs_f64(crate::testutil::NOW),
+            &crate::ReducerOptions::default(),
+            crate::Diagnostics::default(),
+        );
+        assert_eq!((st.activity, st.reason), (crate::Activity::Errored, crate::Reason::Errored));
+        assert!(s.log.is_empty());
+    }
+
+    #[test]
+    fn a_later_end_turn_clears_an_api_error() {
+        let error = json!({"type": "assistant", "timestamp": at(2.0),
+                           "isApiErrorMessage": true, "error": "server_error",
+                           "message": {"id": "m1", "stop_reason": "stop_sequence",
+                                       "content": [{"type": "text", "text": "API error"}]}});
+        let s = session(&[error, end_turn(1.0, "m2")]);
+        assert_eq!(s.last, Last::EndTurn);
         assert_eq!(status(&s), (Status::Done, "done"));
     }
 

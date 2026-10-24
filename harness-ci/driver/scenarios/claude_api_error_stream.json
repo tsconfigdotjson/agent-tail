@@ -1,0 +1,12 @@
+{
+  "name": "claude_api_error_stream",
+  "description": "The mock closes the stream after message_start. Claude retries that turn without streaming, and the mock answers that retry with HTTP 500. CLAUDE_CODE_MAX_RETRIES=0 makes the failure terminal. The synthetic assistant error row is Errored (firm), including when turn_duration follows it and the user prompt is flushed afterwards.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/api_error_stream.json",
+  "prompt": "break the stream",
+  "env": { "CLAUDE_CODE_MAX_RETRIES": "0" },
+  "run_for_ms": 30000,
+  "expected_activity": [
+    { "activity": "errored", "certainty": "firm", "when": "end" }
+  ]
+}

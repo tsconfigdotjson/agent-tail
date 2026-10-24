@@ -284,8 +284,12 @@ impl Session {
     }
 
     /// The user sent `text`: the model is thinking, and the prompt's first line is logged.
-    /// Returns that line, or None if there's no text (an image alone, say).
+    /// Returns that line, or None if there's no text (an image alone, say). A prompt older
+    /// than activity already recorded is a late flush and is ignored.
     pub(crate) fn prompt(&mut self, text: &str, t: f64) -> Option<String> {
+        if t < self.last_at {
+            return None;
+        }
         self.set(Last::Prompt, t);
         let first = text.lines().map(str::trim).find(|l| !l.is_empty())?.to_string();
         self.push_log(ActivityLine::Prompt { text: first.clone() });
@@ -440,6 +444,11 @@ mod tests {
         s.set(Last::EndTurn, at_secs(7.0));
         assert_eq!(s.prompt(" \n", at_secs(1.0)), None);
         assert_eq!((s.last, s.log.len()), (Last::Prompt, 2), "no text: thinking, but nothing to log");
+        s.set_error("server_error", at_secs(0.5));
+        assert_eq!(s.prompt("trigger an error", at_secs(2.0)), None);
+        assert_eq!(s.last, Last::Errored);
+        assert_eq!(s.prompt("try again", at_secs(0.2)).as_deref(), Some("try again"));
+        assert_eq!(s.last, Last::Prompt);
     }
 
     #[test]
