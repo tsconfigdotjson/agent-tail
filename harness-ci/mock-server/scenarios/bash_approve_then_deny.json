@@ -1,0 +1,48 @@
+{
+  "name": "bash_approve_then_deny",
+  "description": "The same Bash command is approved, then requested again so the user can deny it.",
+  "steps": [
+    {
+      "expect": { "user_contains": "run the command" },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "touch permission-marker.txt",
+              "description": "Create a marker file"
+            }
+          }
+        ],
+        "usage": { "input_tokens": 10, "output_tokens": 20 },
+        "fault": { "type": "slow_first_token", "delay_ms": 1000 }
+      }
+    },
+    {
+      "expect": { "tool_result_id": "toolu_mock_0_0" },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "touch permission-marker.txt",
+              "description": "Create a marker file"
+            }
+          }
+        ],
+        "usage": { "input_tokens": 30, "output_tokens": 20 },
+        "fault": { "type": "slow_first_token", "delay_ms": 1000 }
+      }
+    },
+    {
+      "expect": { "tool_result_id": "toolu_mock_1_0" },
+      "reply": {
+        "content": [{ "type": "text", "text": "Stopped after the second command." }],
+        "usage": { "input_tokens": 40, "output_tokens": 10 },
+        "fault": { "type": "slow_first_token", "delay_ms": 500 }
+      }
+    }
+  ]
+}

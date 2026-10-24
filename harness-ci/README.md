@@ -193,7 +193,7 @@ A driver scenario adds the CLI command, prompt, key actions and run time:
   "prompt": "run the command",
   "keys": [{ "on": "permission_prompt", "send": "\r", "after_ms": 2000 }],
   "run_for_ms": 14000,
-  "expected_activity": [{ "activity": "done", "when": "end", "screen": "idle" }]
+  "expected_activity": [{ "activity": "done", "when": "end", "screen": "idle", "certainty": "firm" }]
 }
 ```
 
@@ -235,18 +235,54 @@ Samples within 1 s of an agreeing sample are the write-latency allowance. `start
 - **Firm ends/interrupts/errors** can be asserted with `expected_activity` on a driver
   scenario. A string, or `"when": "end"`, must be the last library activity (the screen it
   names may lag by the 1 s write allowance). `"when": "ever"` must occur at least once, which
-  is what an interrupt or an error needs when the run then settles somewhere else. The four
-  green scenarios leave the field unset.
+  is what an interrupt or an error needs when the run then settles somewhere else. Optional
+  `"certainty": "firm"` or `"inferred"` tightens that check. The four green scenarios leave
+  the field unset.
+- **`{{workspace}}`** in a mock scenario is replaced with the temp work directory before the
+  mock starts, JSON-escaped. A driver scenario's `files` object is written into that
+  directory (relative paths only). `keys[].occurrence` is the 1-based entry into that screen
+  state, so the same prompt can be approved and then denied. `min_screen_ms` fails the run
+  when a screen was visible for less than that many milliseconds.
+- **Denial and mode observations** come from the transcript, not the screen. `score.json`
+  `observations.tool_rejections[].ends_turn` is true only when the rejection is not followed
+  by another assistant message before the next user prompt, and an interrupt or
+  `turn_duration` / `end_turn` is. `observations.tool_permissions` lists each tool result's
+  `permissionDecision`: `source: config` was automatic, `user_temporary` / `user_reject`
+  means a person answered. `observations.permission_modes` is the vocabulary the transcript
+  actually wrote.
 
 ### Remaining A0/A2 work
 
 - Codex CLI is not installed on this machine. Its `model_providers` / `CODEX_HOME` spike is
   still to do (issue A4). The Codex and Cursor screen readers return `unknown` until those
   spikes capture real panes; they do not reuse Claude's strings.
-- Claude screen readers cover the permission prompt, an ask-the-user question (including plan
-  approval), the idle composer, the spinner / working line, and an error banner. Each has a
-  captured-screen unit test in `driver/src/screen.rs`. Denial and interrupt footers still need
-  their own captured screens (A3).
+- Claude screen readers cover the permission prompt, an ask-the-user question (including the
+  plan-exit dialog and `accept edits` / `plan mode` idle footers), the idle composer, the
+  spinner / working line, and an error banner. Each has a captured-screen unit test in
+  `driver/src/screen.rs`. Interrupt footers still need their own captured screens.
+
+### A3 scenarios (permission and ask-user)
+
+| scenario | what it checks |
+|---|---|
+| `claude_bash_approval_denied` | same Bash command approved, then denied (`Down Down Enter` on the second prompt). `observations.tool_rejections[].ends_turn` is the record for B2. On 2.1.310 the denial ends the turn, so the run expects firm `done` on the idle screen and the closing mock step stays unused |
+| `claude_accept_edits` | `--permission-mode acceptEdits`, without `--bare` so Write is offered. Write, then `curl`. Up to two prompts are approved. `tool_permissions` shows which tool still asked |
+| `claude_plan_exit` | `--permission-mode plan`, without `--bare`. Read, Bash `touch` (approved if it prompts; a denial ends the turn), `ToolSearch` loads deferred `ExitPlanMode`, then the plan dialog stays up. The run ends firm `awaiting_answer` on `ask_user_question` |
+| `claude_ask_user` | `AskUserQuestion` without `--bare` (under `--bare` the tool is not offered). Answered after 30 s. Firm `awaiting_answer` while the question is up, then `done` |
+
+`--bare` (the default command, and the four green scenarios) sets `CLAUDE_CODE_SIMPLE=1`, which only offers Bash, Edit, and Read. The three scenarios that need Write, AskUserQuestion, or ExitPlanMode omit it. ExitPlanMode is a deferred tool: the mock calls `ToolSearch` with `select:ExitPlanMode` before the plan dialog.
+
+On Claude Code 2.1.310 those runs showed:
+
+- **Denial** ends the turn. The transcript has `toolUseResult` "User rejected tool use", `toolDenialKind` `user-rejected`, then a user interrupt and `turn_duration`. The model is not called again (`remaining_mock_steps` 1). The screen returns to idle ("Interrupted · What should Claude do instead?") and the library is `done` / firm. That is the B2 input; this change only records it.
+- **acceptEdits:** Write is accepted from config (`reason_type: mode`) with no prompt. `curl` still prompts and is `user_temporary` after Enter.
+- **plan:** Read is accepted from config (`reason_type: mode`). Bash `touch` still prompts (`user_temporary`). ToolSearch is automatic. ExitPlanMode stays on screen as "Exit plan mode?" / "Claude wants to exit plan mode", with "Yes, and switch to default" and "No". The library is `awaiting_answer` / firm for that whole dialog. The short "Would you like to proceed?" form is still recognized.
+- **AskUserQuestion:** the question stays on the ask screen for the 30 s wait (`min_screen_ms`), the library is firm `awaiting_answer` then, and Enter ends the turn at `done`.
+
+```sh
+cd harness-ci
+cargo run -p harness-driver -- --scenario driver/scenarios/claude_ask_user.json
+```
 - CI wiring and version matrix (A6) are not done yet.
 - The detector and scorer unit tests do not spawn Claude Code. A real PTY run of the four green
   scenarios is still the check that the new disagreement list stays empty on those timelines.

@@ -139,7 +139,11 @@ pub enum Fault {
 impl Scenario {
     pub fn from_path(path: &Path) -> Result<Scenario, String> {
         let text = std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
-        let scenario: Scenario = serde_json::from_str(&text).map_err(|e| format!("parse {}: {e}", path.display()))?;
+        Self::parse(&text).map_err(|e| format!("parse {}: {e}", path.display()))
+    }
+
+    pub fn parse(text: &str) -> Result<Scenario, String> {
+        let scenario: Scenario = serde_json::from_str(text).map_err(|e| e.to_string())?;
         scenario.validate()?;
         Ok(scenario)
     }

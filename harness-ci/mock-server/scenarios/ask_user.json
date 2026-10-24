@@ -1,0 +1,46 @@
+{
+  "name": "ask_user",
+  "description": "AskUserQuestion stays on screen until the user answers.",
+  "steps": [
+    {
+      "expect": { "user_contains": "ask which library" },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "AskUserQuestion",
+            "input": {
+              "questions": [
+                {
+                  "question": "Which library should we use for dates?",
+                  "header": "Library",
+                  "multiSelect": false,
+                  "options": [
+                    {
+                      "label": "Chrono (Recommended)",
+                      "description": "Full-featured date and time library"
+                    },
+                    {
+                      "label": "Time",
+                      "description": "Smaller standard-style crate"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "usage": { "input_tokens": 10, "output_tokens": 30 },
+        "fault": { "type": "slow_first_token", "delay_ms": 1000 }
+      }
+    },
+    {
+      "expect": { "tool_result_id": "toolu_mock_0_0" },
+      "reply": {
+        "content": [{ "type": "text", "text": "Using the library you picked." }],
+        "usage": { "input_tokens": 40, "output_tokens": 10 },
+        "fault": { "type": "slow_first_token", "delay_ms": 500 }
+      }
+    }
+  ]
+}

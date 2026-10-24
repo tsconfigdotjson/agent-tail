@@ -3,7 +3,7 @@ use agenttail::{Activity, Certainty, PermissionMode, Reason, ReducerOptions, Ses
 use serde::de::Error as DeError;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
 
 pub const WRITE_LATENCY: Duration = Duration::from_millis(1_000);
@@ -24,6 +24,8 @@ pub struct ExpectedSpec {
     pub when: ExpectWhen,
     #[serde(default)]
     pub screen: Option<ScreenState>,
+    #[serde(default)]
+    pub certainty: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -39,18 +41,20 @@ pub struct Expectation {
     pub activity: String,
     pub when: ExpectWhen,
     pub screen: Option<String>,
+    pub certainty: Option<String>,
 }
 
 impl ExpectedOne {
     pub fn expectation(&self) -> Expectation {
         match self {
             ExpectedOne::Name(activity) => {
-                Expectation { activity: activity.clone(), when: ExpectWhen::End, screen: None }
+                Expectation { activity: activity.clone(), when: ExpectWhen::End, screen: None, certainty: None }
             }
             ExpectedOne::Spec(spec) => Expectation {
                 activity: spec.activity.clone(),
                 when: spec.when,
                 screen: spec.screen.map(|state| state.id().to_string()),
+                certainty: spec.certainty.clone(),
             },
         }
     }
@@ -119,6 +123,8 @@ pub struct Score {
     pub mock_requests: u64,
     pub remaining_mock_steps: usize,
     pub transcript: Option<String>,
+    #[serde(default, skip_serializing_if = "Observations::is_empty")]
+    pub observations: Observations,
 }
 
 pub struct ScoreRequest<'a> {
@@ -131,6 +137,8 @@ pub struct ScoreRequest<'a> {
     pub mock_requests: u64,
     pub remaining_mock_steps: usize,
     pub transcript: Option<String>,
+    pub min_screen_ms: &'a BTreeMap<String, u64>,
+    pub transcript_jsonl: Option<&'a str>,
 }
 
 pub fn library_point(state: &SessionState) -> LibraryPoint {
@@ -164,6 +172,7 @@ pub fn score(request: &ScoreRequest<'_>) -> Score {
         mock_requests: request.mock_requests,
         remaining_mock_steps: request.remaining_mock_steps,
         transcript: request.transcript.clone(),
+        observations: request.transcript_jsonl.map(observe_transcript).unwrap_or_default(),
     };
     let mut failures = BTreeSet::new();
     for sample in request.samples {
@@ -206,6 +215,9 @@ fn hard_failures(request: &ScoreRequest<'_>, stall_ms: u64, write_ms: u64, failu
     for message in unmet_expectations(request.samples, request.expected, write_ms) {
         failures.insert(message);
     }
+    for message in short_screens(request.samples, request.min_screen_ms) {
+        failures.insert(message);
+    }
 }
 
 fn approval_impossible(no_approval: bool, permission: Option<PermissionMode>) -> bool {
@@ -216,11 +228,18 @@ fn near_screen(samples: &[Sample], elapsed_ms: u64, screen: &str, write_ms: u64)
     samples.iter().any(|sample| sample.screen == screen && sample.elapsed_ms.abs_diff(elapsed_ms) <= write_ms)
 }
 
-fn screen_while_activity(samples: &[Sample], elapsed_ms: u64, screen: &str, activity: &str, write_ms: u64) -> bool {
+fn screen_while_activity(
+    samples: &[Sample],
+    elapsed_ms: u64,
+    screen: &str,
+    activity: &str,
+    certainty: Option<&str>,
+    write_ms: u64,
+) -> bool {
     samples.iter().any(|sample| {
         sample.screen == screen
             && sample.elapsed_ms.abs_diff(elapsed_ms) <= write_ms
-            && sample.library.as_ref().is_none_or(|library| activity_id(library.activity) == activity)
+            && sample.library.as_ref().is_none_or(|library| library_matches(library, activity, certainty))
     })
 }
 
@@ -286,6 +305,12 @@ fn unmet_expectations(samples: &[Sample], expected: &[Expectation], write_ms: u6
             failures.push(format!("expected activity {:?} is not a library activity", expect.activity));
             continue;
         }
+        if let Some(certainty) = &expect.certainty
+            && !known_certainty(certainty)
+        {
+            failures.push(format!("expected certainty {certainty:?} is not firm or inferred"));
+            continue;
+        }
         match expect.when {
             ExpectWhen::End => {
                 let Some(index) = samples.iter().rposition(|sample| sample.library.is_some()) else {
@@ -294,13 +319,28 @@ fn unmet_expectations(samples: &[Sample], expected: &[Expectation], write_ms: u6
                     continue;
                 };
                 let sample = &samples[index];
-                let actual = activity_id(sample.library.as_ref().expect("library").activity);
+                let library = sample.library.as_ref().expect("library");
+                let actual = activity_id(library.activity);
                 if actual != expect.activity {
                     failures.push(format!("expected {} at end, saw {actual}", expect.activity));
                     continue;
                 }
+                if let Some(want) = &expect.certainty {
+                    let actual = certainty_id(library.certainty);
+                    if actual != want {
+                        failures.push(format!("expected {} ({want}) at end, saw {actual}", expect.activity));
+                        continue;
+                    }
+                }
                 if let Some(screen) = &expect.screen
-                    && !screen_while_activity(samples, sample.elapsed_ms, screen, &expect.activity, write_ms)
+                    && !screen_while_activity(
+                        samples,
+                        sample.elapsed_ms,
+                        screen,
+                        &expect.activity,
+                        expect.certainty.as_deref(),
+                        write_ms,
+                    )
                 {
                     failures
                         .push(format!("expected {} on screen {screen} at end, saw {}", expect.activity, sample.screen));
@@ -311,17 +351,32 @@ fn unmet_expectations(samples: &[Sample], expected: &[Expectation], write_ms: u6
                     .iter()
                     .enumerate()
                     .filter(|(_, sample)| {
-                        sample.library.as_ref().is_some_and(|library| activity_id(library.activity) == expect.activity)
+                        sample.library.as_ref().is_some_and(|library| {
+                            library_matches(library, &expect.activity, expect.certainty.as_deref())
+                        })
                     })
                     .map(|(index, _)| index)
                     .collect();
                 if hits.is_empty() {
-                    failures.push(format!("expected {}, never observed", expect.activity));
+                    let message = match &expect.certainty {
+                        Some(certainty) => {
+                            format!("expected {} ({certainty}), never observed", expect.activity)
+                        }
+                        None => format!("expected {}, never observed", expect.activity),
+                    };
+                    failures.push(message);
                     continue;
                 }
                 if let Some(screen) = &expect.screen
                     && !hits.iter().any(|&index| {
-                        screen_while_activity(samples, samples[index].elapsed_ms, screen, &expect.activity, write_ms)
+                        screen_while_activity(
+                            samples,
+                            samples[index].elapsed_ms,
+                            screen,
+                            &expect.activity,
+                            expect.certainty.as_deref(),
+                            write_ms,
+                        )
                     })
                 {
                     failures.push(format!("expected {} on screen {screen}, never observed together", expect.activity));
@@ -330,6 +385,37 @@ fn unmet_expectations(samples: &[Sample], expected: &[Expectation], write_ms: u6
         }
     }
     failures
+}
+
+fn library_matches(library: &LibraryPoint, activity: &str, certainty: Option<&str>) -> bool {
+    activity_id(library.activity) == activity && certainty.is_none_or(|want| certainty_id(library.certainty) == want)
+}
+
+fn short_screens(samples: &[Sample], minimums: &BTreeMap<String, u64>) -> Vec<String> {
+    let mut failures = Vec::new();
+    for (screen, minimum) in minimums {
+        let seen = screen_duration_ms(samples, screen);
+        if seen < *minimum {
+            failures.push(format!("{screen} was on screen for {seen} ms, expected at least {minimum} ms"));
+        }
+    }
+    failures
+}
+
+fn screen_duration_ms(samples: &[Sample], screen: &str) -> u64 {
+    let mut total = 0u64;
+    let mut previous: Option<u64> = None;
+    for sample in samples {
+        if sample.screen == screen {
+            if let Some(previous) = previous {
+                total = total.saturating_add(sample.elapsed_ms.saturating_sub(previous));
+            }
+            previous = Some(sample.elapsed_ms);
+        } else {
+            previous = None;
+        }
+    }
+    total
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -434,6 +520,298 @@ pub fn activity_id(activity: Activity) -> &'static str {
     }
 }
 
+fn certainty_id(certainty: Certainty) -> &'static str {
+    match certainty {
+        Certainty::Firm => "firm",
+        Certainty::Inferred => "inferred",
+    }
+}
+
+fn known_certainty(name: &str) -> bool {
+    matches!(name, "firm" | "inferred")
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Observations {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub permission_modes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_permissions: Vec<ToolPermission>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_rejections: Vec<ToolRejection>,
+}
+
+impl Observations {
+    pub fn is_empty(&self) -> bool {
+        self.permission_modes.is_empty() && self.tool_permissions.is_empty() && self.tool_rejections.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ToolPermission {
+    pub tool_name: Option<String>,
+    pub decision: Option<String>,
+    pub source: Option<String>,
+    pub reason_type: Option<String>,
+    pub denial_kind: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ToolRejection {
+    pub tool_name: Option<String>,
+    pub tool_use_result: Option<String>,
+    pub tool_denial_kind: Option<String>,
+    pub result_text: Option<String>,
+    pub firm_turn_end_before_next_prompt: bool,
+    pub interrupt_before_next_prompt: bool,
+    pub assistant_continued: bool,
+    pub ends_turn: bool,
+    pub following: Vec<String>,
+}
+
+pub fn observe_transcript(jsonl: &str) -> Observations {
+    let records = jsonl_records(jsonl);
+    let tools = tool_names(&records);
+    let mut observations = Observations::default();
+    for record in &records {
+        if let Some(mode) = record.get("permissionMode").and_then(Value::as_str)
+            && !observations.permission_modes.iter().any(|seen| seen == mode)
+        {
+            observations.permission_modes.push(mode.to_string());
+        }
+        if let Some(permission) = tool_permission(record, &tools) {
+            observations.tool_permissions.push(permission);
+        }
+    }
+    for (index, record) in records.iter().enumerate() {
+        if let Some(rejection) = tool_rejection(record, &records[..index], &records[index + 1..], &tools) {
+            observations.tool_rejections.push(rejection);
+        }
+    }
+    observations
+}
+
+fn jsonl_records(jsonl: &str) -> Vec<Value> {
+    jsonl
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() { None } else { serde_json::from_str(line).ok() }
+        })
+        .collect()
+}
+
+fn tool_names(records: &[Value]) -> HashMap<String, String> {
+    let mut names = HashMap::new();
+    for record in records {
+        if record.get("type").and_then(Value::as_str) != Some("assistant") {
+            continue;
+        }
+        let Some(blocks) = record.get("message").and_then(|message| message.get("content")).and_then(Value::as_array)
+        else {
+            continue;
+        };
+        for block in blocks {
+            if block.get("type").and_then(Value::as_str) != Some("tool_use") {
+                continue;
+            }
+            if let (Some(id), Some(name)) =
+                (block.get("id").and_then(Value::as_str), block.get("name").and_then(Value::as_str))
+            {
+                names.insert(id.to_string(), name.to_string());
+            }
+        }
+    }
+    names
+}
+
+fn tool_permission(record: &Value, tools: &HashMap<String, String>) -> Option<ToolPermission> {
+    let decision = record.get("permissionDecision");
+    let denial_kind = record.get("toolDenialKind").and_then(Value::as_str).map(str::to_string);
+    if decision.is_none() && denial_kind.is_none() {
+        return None;
+    }
+    let tool_name = first_tool_result_id(record).and_then(|id| tools.get(&id).cloned());
+    Some(ToolPermission {
+        tool_name,
+        decision: decision.and_then(|value| value.get("decision")).and_then(Value::as_str).map(str::to_string),
+        source: decision.and_then(|value| value.get("source")).and_then(Value::as_str).map(str::to_string),
+        reason_type: decision.and_then(|value| value.get("reasonType")).and_then(Value::as_str).map(str::to_string),
+        denial_kind,
+    })
+}
+
+fn tool_rejection(
+    record: &Value,
+    before: &[Value],
+    after: &[Value],
+    tools: &HashMap<String, String>,
+) -> Option<ToolRejection> {
+    let tool_use_result_raw = record.get("toolUseResult").and_then(Value::as_str);
+    let tool_use_result = tool_use_result_raw.map(|text| clip(text, 180));
+    let tool_denial_kind = record.get("toolDenialKind").and_then(Value::as_str).map(str::to_string);
+    let result_text = tool_result_texts(record).next().map(|text| clip(&text, 180));
+    let short = tool_use_result_raw.is_some_and(|text| text.contains("User rejected tool use"));
+    let kind = tool_denial_kind.as_deref() == Some("user-rejected");
+    let prose = tool_result_texts(record).any(|text| {
+        text.contains("User rejected tool use") || text.contains("doesn't want to proceed with this tool use")
+    });
+    if !short && !kind && !prose {
+        return None;
+    }
+    let mut firm_turn_end_before_next_prompt = false;
+    let mut interrupt_before_next_prompt =
+        message_text(record).starts_with("[Request interrupted") || interrupt_since_assistant(before);
+    let mut assistant_continued = false;
+    let mut following = Vec::new();
+    for next in after {
+        if is_user_prompt(next) {
+            break;
+        }
+        if following.len() < 6 {
+            following.push(record_label(next));
+        }
+        if is_interrupt(next) {
+            interrupt_before_next_prompt = true;
+        }
+        if next.get("type").and_then(Value::as_str) == Some("assistant") {
+            assistant_continued = true;
+        }
+        if is_firm_end(next) {
+            firm_turn_end_before_next_prompt = true;
+        }
+    }
+    let ends_turn = !assistant_continued && (firm_turn_end_before_next_prompt || interrupt_before_next_prompt);
+    let tool_name = first_tool_result_id(record).and_then(|id| tools.get(&id).cloned());
+    Some(ToolRejection {
+        tool_name,
+        tool_use_result,
+        tool_denial_kind,
+        result_text,
+        firm_turn_end_before_next_prompt,
+        interrupt_before_next_prompt,
+        assistant_continued,
+        ends_turn,
+        following,
+    })
+}
+
+fn first_tool_result_id(record: &Value) -> Option<String> {
+    record
+        .get("message")
+        .and_then(|message| message.get("content"))
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|block| block.get("type").and_then(Value::as_str) == Some("tool_result"))
+        .and_then(|block| block.get("tool_use_id").and_then(Value::as_str))
+        .map(str::to_string)
+}
+
+fn tool_result_texts(record: &Value) -> impl Iterator<Item = String> + '_ {
+    let blocks = record.get("message").and_then(|message| message.get("content")).and_then(Value::as_array);
+    blocks.into_iter().flatten().filter_map(|block| {
+        if block.get("type").and_then(Value::as_str) == Some("tool_result") {
+            Some(content_text(block.get("content")))
+        } else {
+            None
+        }
+    })
+}
+
+fn message_text(record: &Value) -> String {
+    let content = record.get("message").and_then(|message| message.get("content"));
+    match content {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Array(blocks)) => blocks
+            .iter()
+            .filter(|block| block.get("type").and_then(Value::as_str).is_none_or(|kind| kind == "text"))
+            .filter_map(|block| block.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
+}
+
+fn content_text(content: Option<&Value>) -> String {
+    match content {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Array(parts)) => parts
+            .iter()
+            .filter_map(|part| {
+                part.get("text").and_then(Value::as_str).or_else(|| part.get("content").and_then(Value::as_str))
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
+}
+
+fn interrupt_since_assistant(before: &[Value]) -> bool {
+    for record in before.iter().rev() {
+        if is_interrupt(record) {
+            return true;
+        }
+        let kind = record.get("type").and_then(Value::as_str);
+        if kind == Some("assistant") || is_user_prompt(record) {
+            return false;
+        }
+    }
+    false
+}
+
+fn is_user_prompt(record: &Value) -> bool {
+    if record.get("type").and_then(Value::as_str) != Some("user") || record.get("isMeta") == Some(&Value::Bool(true)) {
+        return false;
+    }
+    if first_tool_result_id(record).is_some() {
+        return false;
+    }
+    let text = message_text(record);
+    !text.is_empty() && !text.starts_with("[Request interrupted") && !text.starts_with('<')
+}
+
+fn is_interrupt(record: &Value) -> bool {
+    message_text(record).starts_with("[Request interrupted")
+}
+
+fn is_firm_end(record: &Value) -> bool {
+    let kind = record.get("type").and_then(Value::as_str);
+    (kind == Some("system") && record.get("subtype").and_then(Value::as_str) == Some("turn_duration"))
+        || (kind == Some("assistant")
+            && record.get("message").and_then(|message| message.get("stop_reason")).and_then(Value::as_str)
+                == Some("end_turn"))
+}
+
+fn record_label(record: &Value) -> String {
+    let kind = record.get("type").and_then(Value::as_str).unwrap_or("?");
+    if kind == "system" {
+        if let Some(subtype) = record.get("subtype").and_then(Value::as_str) {
+            return format!("system:{subtype}");
+        }
+    }
+    if kind == "assistant" {
+        if let Some(stop) = record.get("message").and_then(|message| message.get("stop_reason")).and_then(Value::as_str)
+        {
+            return format!("assistant:{stop}");
+        }
+    }
+    if kind == "user" && is_interrupt(record) {
+        return "user:interrupt".into();
+    }
+    if kind == "user" && first_tool_result_id(record).is_some() {
+        return "user:tool_result".into();
+    }
+    kind.to_string()
+}
+
+fn clip(text: &str, max: usize) -> String {
+    let mut clipped: String = text.chars().take(max).collect();
+    if text.chars().count() > max {
+        clipped.push('…');
+    }
+    clipped
+}
+
 fn known_activity(name: &str) -> bool {
     matches!(
         name,
@@ -473,6 +851,7 @@ mod tests {
     }
 
     fn score_of(samples: &[Sample], no_approval: bool, expected: &[Expectation]) -> Score {
+        let minimums = BTreeMap::new();
         score(&ScoreRequest {
             scenario: "case",
             description: None,
@@ -483,11 +862,13 @@ mod tests {
             mock_requests: 0,
             remaining_mock_steps: 0,
             transcript: None,
+            min_screen_ms: &minimums,
+            transcript_jsonl: None,
         })
     }
 
     fn expect_end(activity: &str) -> Expectation {
-        Expectation { activity: activity.into(), when: ExpectWhen::End, screen: None }
+        Expectation { activity: activity.into(), when: ExpectWhen::End, screen: None, certainty: None }
     }
 
     #[test]
@@ -514,6 +895,7 @@ mod tests {
         let json = serde_json::to_value(&scored).unwrap();
         assert!(json.get("confusion").is_some());
         assert!(json.get("failures").is_some());
+        assert!(json.get("observations").is_none());
         assert_eq!(json["stall_after_ms"], 20_000);
         assert_eq!(json["write_latency_ms"], 1_000);
     }
@@ -737,11 +1119,22 @@ mod tests {
         assert!(score_of(&samples, false, &[expect_end("done")]).failures.is_empty());
         let wrong = score_of(&samples, false, &[expect_end("thinking")]);
         assert!(wrong.failures.iter().any(|f| f.contains("saw done")));
-        let ever = Expectation { activity: "errored".into(), when: ExpectWhen::Ever, screen: Some("error".into()) };
+        let ever = Expectation {
+            activity: "errored".into(),
+            when: ExpectWhen::Ever,
+            screen: Some("error".into()),
+            certainty: None,
+        };
         assert!(score_of(&samples, false, &[ever]).failures.is_empty());
-        let missing = Expectation { activity: "interrupted".into(), when: ExpectWhen::Ever, screen: None };
+        let missing =
+            Expectation { activity: "interrupted".into(), when: ExpectWhen::Ever, screen: None, certainty: None };
         assert!(score_of(&samples, false, &[missing]).failures.iter().any(|f| f.contains("never observed")));
-        let screen = Expectation { activity: "done".into(), when: ExpectWhen::End, screen: Some("working".into()) };
+        let screen = Expectation {
+            activity: "done".into(),
+            when: ExpectWhen::End,
+            screen: Some("working".into()),
+            certainty: None,
+        };
         let scored = score_of(&samples, false, &[screen]);
         assert!(scored.failures.iter().any(|f| f.contains("on screen working")));
         let typo = expect_end("finished");
@@ -754,7 +1147,12 @@ mod tests {
     fn expected_screen_allows_a_second_of_write_latency() {
         let samples =
             [at(0, ScreenState::Idle, Some(Activity::Done)), at(500, ScreenState::Working, Some(Activity::Done))];
-        let expect = || Expectation { activity: "done".into(), when: ExpectWhen::End, screen: Some("idle".into()) };
+        let expect = || Expectation {
+            activity: "done".into(),
+            when: ExpectWhen::End,
+            screen: Some("idle".into()),
+            certainty: None,
+        };
         assert!(score_of(&samples, false, &[expect()]).failures.is_empty());
         let earlier =
             [at(0, ScreenState::Idle, Some(Activity::Thinking)), at(500, ScreenState::Working, Some(Activity::Done))];
@@ -843,5 +1241,220 @@ mod tests {
         .unwrap();
         assert_eq!(list.len(), 2);
         assert_eq!(list[1].expectation().when, ExpectWhen::Ever);
+        assert!(list[0].expectation().certainty.is_none());
+
+        let firm: Vec<ExpectedOne> = deserialize_expected(&mut serde_json::Deserializer::from_str(
+            r#"{"activity":"awaiting_answer","when":"ever","screen":"ask_user_question","certainty":"firm"}"#,
+        ))
+        .unwrap();
+        let expectation = firm[0].expectation();
+        assert_eq!(expectation.certainty.as_deref(), Some("firm"));
+        assert_eq!(expectation.screen.as_deref(), Some("ask_user_question"));
+    }
+
+    #[test]
+    fn firm_awaiting_answer_on_an_ask_screen_is_required_when_asked_for() {
+        let mut samples = Vec::new();
+        for t in (0..=30_000).step_by(1_000) {
+            samples.push(at(t, ScreenState::AskUserQuestion, Some(Activity::AwaitingAnswer)));
+        }
+        samples.push(at(34_000, ScreenState::Idle, Some(Activity::Done)));
+        let expect = [
+            Expectation {
+                activity: "awaiting_answer".into(),
+                when: ExpectWhen::Ever,
+                screen: Some("ask_user_question".into()),
+                certainty: Some("firm".into()),
+            },
+            expect_end("done"),
+        ];
+        assert!(score_of(&samples, false, &expect).failures.is_empty(), "ask stays firm");
+
+        let mut inferred = point(Activity::AwaitingAnswer);
+        inferred.certainty = Certainty::Inferred;
+        let wrong = [Sample {
+            elapsed_ms: 0,
+            screen: ScreenState::AskUserQuestion.id(),
+            background_agents: false,
+            library: Some(inferred),
+        }];
+        let only_firm = Expectation {
+            activity: "awaiting_answer".into(),
+            when: ExpectWhen::Ever,
+            screen: Some("ask_user_question".into()),
+            certainty: Some("firm".into()),
+        };
+        let scored = score_of(&wrong, false, &[only_firm]);
+        assert!(scored.failures.iter().any(|f| f.contains("firm")), "{:?}", scored.failures);
+
+        let typo = Expectation {
+            activity: "awaiting_answer".into(),
+            when: ExpectWhen::End,
+            screen: None,
+            certainty: Some("certain".into()),
+        };
+        assert!(score_of(&samples, false, &[typo]).failures.iter().any(|f| f.contains("not firm or inferred")));
+    }
+
+    #[test]
+    fn min_screen_time_counts_only_the_named_screen() {
+        let mut samples = Vec::new();
+        for t in (5_000..=35_000).step_by(1_000) {
+            samples.push(at(t, ScreenState::AskUserQuestion, Some(Activity::AwaitingAnswer)));
+        }
+        let mut minimums = BTreeMap::new();
+        minimums.insert("ask_user_question".into(), 25_000);
+        let scored = score(&ScoreRequest {
+            scenario: "ask",
+            description: None,
+            harness: "claude_code",
+            no_approval: false,
+            expected: &[],
+            samples: &samples,
+            mock_requests: 0,
+            remaining_mock_steps: 0,
+            transcript: None,
+            min_screen_ms: &minimums,
+            transcript_jsonl: None,
+        });
+        assert!(scored.failures.is_empty(), "{:?}", scored.failures);
+
+        minimums.insert("ask_user_question".into(), 40_000);
+        let scored = score(&ScoreRequest {
+            scenario: "ask",
+            description: None,
+            harness: "claude_code",
+            no_approval: false,
+            expected: &[],
+            samples: &samples,
+            mock_requests: 0,
+            remaining_mock_steps: 0,
+            transcript: None,
+            min_screen_ms: &minimums,
+            transcript_jsonl: None,
+        });
+        assert!(scored.failures.iter().any(|f| f.contains("expected at least 40000")), "{:?}", scored.failures);
+
+        let flicker = [
+            at(0, ScreenState::AskUserQuestion, Some(Activity::AwaitingAnswer)),
+            at(100, ScreenState::Working, Some(Activity::Thinking)),
+            at(30_000, ScreenState::AskUserQuestion, Some(Activity::AwaitingAnswer)),
+        ];
+        minimums.insert("ask_user_question".into(), 1_000);
+        let scored = score(&ScoreRequest {
+            scenario: "ask",
+            description: None,
+            harness: "claude_code",
+            no_approval: false,
+            expected: &[],
+            samples: &flicker,
+            mock_requests: 0,
+            remaining_mock_steps: 0,
+            transcript: None,
+            min_screen_ms: &minimums,
+            transcript_jsonl: None,
+        });
+        assert!(scored.failures.iter().any(|f| f.contains("for 0 ms")), "{:?}", scored.failures);
+    }
+
+    #[test]
+    fn a_rejection_ends_the_turn_only_when_the_model_does_not_continue() {
+        let local_end = r#"
+{"type":"assistant","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","id":"toolu_2","name":"Bash"}]}}
+{"type":"user","permissionMode":"default","toolUseResult":"User rejected tool use","toolDenialKind":"user-rejected","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_2","content":"The user doesn't want to proceed with this tool use. The tool use was rejected."}]}}
+{"type":"system","subtype":"turn_duration"}
+{"type":"user","message":{"content":"next prompt"}}
+{"type":"assistant","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"later"}]}}
+"#;
+        let observed = observe_transcript(local_end);
+        assert_eq!(observed.permission_modes, vec!["default".to_string()]);
+        assert_eq!(observed.tool_rejections.len(), 1);
+        let rejection = &observed.tool_rejections[0];
+        assert_eq!(rejection.tool_name.as_deref(), Some("Bash"));
+        assert_eq!(rejection.tool_use_result.as_deref(), Some("User rejected tool use"));
+        assert!(rejection.firm_turn_end_before_next_prompt);
+        assert!(!rejection.assistant_continued);
+        assert!(rejection.ends_turn);
+        assert_eq!(rejection.following, vec!["system:turn_duration".to_string()]);
+        assert!(rejection.result_text.as_deref().unwrap().contains("doesn't want to proceed"));
+
+        let interrupt = r#"
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_2","name":"Bash"}]}}
+{"type":"user","toolDenialKind":"user-rejected","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_2","content":[{"type":"text","text":"User rejected tool use"}]}]}}
+{"type":"user","message":{"content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}
+"#;
+        let observed = observe_transcript(interrupt);
+        assert!(observed.tool_rejections[0].interrupt_before_next_prompt);
+        assert!(observed.tool_rejections[0].ends_turn);
+        assert!(!observed.tool_rejections[0].assistant_continued);
+
+        let interrupt_first = r#"
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_2","name":"Bash"}]}}
+{"type":"user","message":{"content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}
+{"type":"user","toolUseResult":"User rejected tool use","toolDenialKind":"user-rejected","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_2","content":"The user doesn't want to proceed with this tool use."}]}}
+"#;
+        let observed = observe_transcript(interrupt_first);
+        assert!(observed.tool_rejections[0].interrupt_before_next_prompt);
+        assert!(observed.tool_rejections[0].ends_turn, "{:?}", observed.tool_rejections[0]);
+        assert!(observed.tool_rejections[0].following.is_empty());
+
+        let buried = r#"
+{"type":"user","message":{"content":"[Request interrupted by user]"}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_9","name":"Bash"}]}}
+{"type":"user","toolUseResult":"User rejected tool use","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_9","content":"no"}]}}
+"#;
+        let observed = observe_transcript(buried);
+        assert!(!observed.tool_rejections[0].interrupt_before_next_prompt);
+        assert!(!observed.tool_rejections[0].ends_turn);
+
+        let continued = r#"
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_2","name":"Bash"}]}}
+{"type":"user","toolUseResult":"User rejected tool use","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_2","content":"no"}]}}
+{"type":"assistant","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"Stopped."}]}}
+{"type":"system","subtype":"turn_duration"}
+"#;
+        let observed = observe_transcript(continued);
+        assert!(observed.tool_rejections[0].assistant_continued);
+        assert!(observed.tool_rejections[0].firm_turn_end_before_next_prompt);
+        assert!(!observed.tool_rejections[0].ends_turn);
+
+        let quoted = r#"{"type":"assistant","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"The notes mention User rejected tool use."}]}}"#;
+        assert!(observe_transcript(quoted).tool_rejections.is_empty());
+
+        let auto = r#"
+{"type":"permission-mode","permissionMode":"acceptEdits"}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_w","name":"Write"}]}}
+{"type":"user","permissionMode":"plan","permissionDecision":{"decision":"accept","source":"config","reasonType":"mode"},"message":{"content":[{"type":"tool_result","tool_use_id":"toolu_w","content":"ok"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_b","name":"Bash"}]}}
+{"type":"user","permissionDecision":{"decision":"accept","source":"user_temporary","reasonType":"temporary"},"toolDenialKind":"permission-rule","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_b","content":"created"}]}}
+not json
+"#;
+        let observed = observe_transcript(auto);
+        assert_eq!(observed.permission_modes, vec!["acceptEdits".to_string(), "plan".to_string()]);
+        assert!(observed.tool_rejections.is_empty());
+        assert_eq!(observed.tool_permissions.len(), 2);
+        assert_eq!(observed.tool_permissions[0].tool_name.as_deref(), Some("Write"));
+        assert_eq!(observed.tool_permissions[0].source.as_deref(), Some("config"));
+        assert_eq!(observed.tool_permissions[1].tool_name.as_deref(), Some("Bash"));
+        assert_eq!(observed.tool_permissions[1].source.as_deref(), Some("user_temporary"));
+        assert_eq!(observed.tool_permissions[1].denial_kind.as_deref(), Some("permission-rule"));
+
+        let minimums = BTreeMap::new();
+        let scored = score(&ScoreRequest {
+            scenario: "denied",
+            description: None,
+            harness: "claude_code",
+            no_approval: false,
+            expected: &[],
+            samples: &[],
+            mock_requests: 0,
+            remaining_mock_steps: 0,
+            transcript: None,
+            min_screen_ms: &minimums,
+            transcript_jsonl: Some(local_end),
+        });
+        assert!(scored.observations.tool_rejections[0].ends_turn);
+        let json = serde_json::to_value(&scored).unwrap();
+        assert!(json["observations"]["tool_rejections"][0]["ends_turn"].as_bool().unwrap());
     }
 }
