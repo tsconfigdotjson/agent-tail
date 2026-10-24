@@ -178,3 +178,18 @@ runs and Done after its `turn_ended`.
 Still to do for B5: link parent `Agent` `async_launched` results and `.meta.json`
 `finished: true`/`stoppedByUser` to helper ids, and add a driver scenario for a real
 background `Agent` (the mock needs to answer the subagent's own model request).
+
+## Phase B6: parser edges (2026-10-24)
+
+**Full RFC 3339 offsets.** `parse_rfc3339` now accepts `Z`, `z`, `+02:00`, `-0500`, and a
+missing offset (UTC). The date is parsed once and the offset is subtracted from the local
+time, so a timestamp with an offset no longer falls back to the transcript's mtime.
+
+**Several JSON objects on one line are all read.** `parse_many` uses
+`serde_json::Deserializer` as a stream. A line with trailing junk is still rejected whole
+(nothing is guessed), but a line holding two complete objects applies both. The same path
+handles a last line with no newline. `Diagnostics::lines` counts entries now, not physical
+lines.
+
+**CRLF** needed no special-case (`serde_json` accepts the ``), but a test now covers it
+together with an offset timestamp.

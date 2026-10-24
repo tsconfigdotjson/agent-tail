@@ -62,15 +62,47 @@ pub(crate) fn epoch(t: SystemTime) -> f64 {
     t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs_f64()
 }
 
-/// Seconds since the epoch for an RFC 3339 UTC timestamp like 2026-10-09T20:02:33.310Z.
+/// Seconds since the epoch for an RFC 3339 timestamp like `2026-10-09T20:02:33.310Z` or
+/// `2026-10-09T22:02:33.310+02:00`. A missing offset is UTC.
 pub(crate) fn parse_rfc3339(s: &str) -> Option<f64> {
-    let (date, time) = s.trim_end_matches('Z').split_once('T')?;
+    let (date, time) = s.trim().split_once('T')?;
+    let (time, offset) = split_offset(time)?;
     let mut d = date.split('-').map(|p| p.parse::<i64>());
     let (y, m, day) = (d.next()?.ok()?, d.next()?.ok()?, d.next()?.ok()?);
+    if d.next().is_some() {
+        return None;
+    }
     let mut t = time.split(':');
     let (hh, mm): (i64, i64) = (t.next()?.parse().ok()?, t.next()?.parse().ok()?);
     let ss: f64 = t.next()?.parse().ok()?;
-    Some((days_from_civil(y, m, day) * 86400 + hh * 3600 + mm * 60) as f64 + ss)
+    if t.next().is_some() {
+        return None;
+    }
+    Some((days_from_civil(y, m, day) * 86400 + hh * 3600 + mm * 60 - offset) as f64 + ss)
+}
+
+/// Split a time from its RFC 3339 offset. Returns the local time and the offset in seconds
+/// east of UTC (`+02:00` is 7200). `Z`/`z` and a missing offset are UTC.
+fn split_offset(time: &str) -> Option<(&str, i64)> {
+    if let Some(time) = time.strip_suffix(['Z', 'z']) {
+        return Some((time, 0));
+    }
+    let Some(i) = time.rfind(['+', '-']) else { return Some((time, 0)) };
+    if i == 0 {
+        return None;
+    }
+    let (time, offset) = time.split_at(i);
+    let sign = if offset.starts_with('-') { -1 } else { 1 };
+    let offset = offset[1..].replace(':', "");
+    if offset.len() != 4 || !offset.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let hh: i64 = offset[..2].parse().ok()?;
+    let mm: i64 = offset[2..].parse().ok()?;
+    if hh > 23 || mm > 59 {
+        return None;
+    }
+    Some((time, sign * (hh * 3600 + mm * 60)))
 }
 
 /// Days since the epoch of a date in the proleptic Gregorian calendar (Howard Hinnant's
@@ -123,10 +155,21 @@ mod tests {
             ("2024-02-29T12:00:00Z", 1709208000.0),
             ("2000-03-01T00:00:59.5Z", 951868859.5),
         ] {
-            assert!((parse_rfc3339(s).unwrap() - want).abs() < 1e-6, "{s}");
+            assert!((parse_rfc3339(s).unwrap_or_else(|| panic!("{s} did not parse")) - want).abs() < 1e-6, "{s}");
+        }
+        // Offsets, with or without a colon, and a lowercase z.
+        for (s, want) in [
+            ("2026-10-09T22:02:33.310+02:00", 1791576153.31),
+            ("2026-10-09T15:02:33.310-05:00", 1791576153.31),
+            ("2026-10-09T22:02:33.310+0200", 1791576153.31),
+            ("2026-10-09T20:02:33.310z", 1791576153.31),
+        ] {
+            assert!((parse_rfc3339(s).unwrap_or_else(|| panic!("{s} did not parse")) - want).abs() < 1e-6, "{s}");
         }
         assert_eq!(parse_rfc3339("not a time"), None);
         assert_eq!(parse_rfc3339("2026-10-09"), None);
+        assert_eq!(parse_rfc3339("2026-10-09T20:02:33+2:00"), None);
+        assert_eq!(parse_rfc3339("2026-10-09T20:02:33+99:00"), None);
     }
 
     #[test]

@@ -238,7 +238,7 @@ impl fmt::Display for ActivityLine {
 /// What reading a transcript ran into: data, never an error.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct Diagnostics {
-    /// Lines parsed as JSON and handed to the harness's adapter.
+    /// JSON values handed to the harness's adapter (two objects on one line count twice).
     pub lines: u64,
     /// Non-blank lines that weren't JSON, and so were skipped.
     pub unparsed: u64,
