@@ -1,6 +1,6 @@
 //! `agenttail`: the library on the command line, for debugging what a dashboard shows.
 //!
-//!   agenttail ls [--hours N] [--agents claude_code,codex,cursor]
+//!   agenttail ls [--hours N] [--agents claude_code,codex,cursor,pi]
 //!       One poll of this machine's sessions, printed as JSON lines, most urgent first.
 //!   agenttail watch [--hours N] [--agents …]
 //!       Polls every second and prints each change of a session's activity, with its reason.
@@ -27,7 +27,7 @@ const USAGE: &str = "usage: agenttail ls [--hours N] [--agents ID,…]
        agenttail fixture scan [PATH…]
 
   --hours N     sessions written in the last N hours (default 24)
-  --agents IDS  only these harnesses: claude_code, codex, cursor (default: all)
+  --agents IDS  only these harnesses: claude_code, codex, cursor, pi (default: all)
   --agent ID    the harness for an events path when it can't be told from the path
   events <path> prints normalized events as JSON lines
   fixture       redact|capture|scan manage fixtures without network access";
@@ -88,7 +88,7 @@ fn events(args: &[String]) -> Result<(), String> {
     let path = path.ok_or("events needs a path")?;
     let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let harness = agent.or_else(|| harness_for(&path)).or_else(|| harness_from_bytes(&bytes)).ok_or_else(|| {
-        format!("can't tell which harness wrote {}; pass --agent claude_code|codex|cursor", path.display())
+        format!("can't tell which harness wrote {}; pass --agent claude_code|codex|cursor|pi", path.display())
     })?;
     for event in parse_lines(harness, &bytes, ParseMode::Full) {
         println!("{}", serde_json::to_string(&event).map_err(|e| e.to_string())?);
@@ -277,7 +277,7 @@ fn pick_session(
                 return Ok(candidate.clone());
             }
             let harness = agent.or_else(|| harness_for(as_path)).ok_or_else(|| {
-                format!("can't tell which harness wrote {wanted}; pass --agent claude_code|codex|cursor")
+                format!("can't tell which harness wrote {wanted}; pass --agent claude_code|codex|cursor|pi")
             })?;
             return Ok(fixture::SessionCandidate {
                 harness,
@@ -352,6 +352,8 @@ fn harness_for(path: &std::path::Path) -> Option<Harness> {
     let file = path.file_name()?.to_string_lossy().to_ascii_lowercase();
     if text.contains("/.cursor/") || text.contains("/agent-transcripts/") {
         Some(Harness::Cursor)
+    } else if text.contains("/.pi/") || text.contains("/pi/agent/sessions/") {
+        Some(Harness::Pi)
     } else if text.contains("/.codex/") || text.contains("/sessions/") && file.starts_with("rollout-") {
         Some(Harness::Codex)
     } else if text.contains("/.claude/") {
@@ -362,6 +364,8 @@ fn harness_for(path: &std::path::Path) -> Option<Harness> {
         Some(Harness::Codex)
     } else if text.contains("claude") {
         Some(Harness::ClaudeCode)
+    } else if file.starts_with("pi-") {
+        Some(Harness::Pi)
     } else {
         None
     }
@@ -369,10 +373,18 @@ fn harness_for(path: &std::path::Path) -> Option<Harness> {
 
 /// A last resort for files outside a harness's usual folders: the record shapes are
 /// distinctive enough for a debugging dump. An explicit `--agent` still wins.
+fn first_record_is_pi(bytes: &[u8]) -> bool {
+    let first = bytes.split(|b| *b == b'\n').next().unwrap_or_default();
+    let Ok(record) = serde_json::from_slice::<Value>(first) else { return false };
+    record["type"] == "session" && record["version"].is_u64() && record["id"].is_string() && record["cwd"].is_string()
+}
+
 fn harness_from_bytes(bytes: &[u8]) -> Option<Harness> {
     let text = String::from_utf8_lossy(&bytes[..bytes.len().min(64 << 10)]);
     if text.contains(r#""type":"session_meta""#) || text.contains(r#""type": "session_meta""#) {
         Some(Harness::Codex)
+    } else if first_record_is_pi(bytes) {
+        Some(Harness::Pi)
     } else if text.contains(r#""type":"turn_ended""#) || text.contains(r#""type": "turn_ended""#) {
         Some(Harness::Cursor)
     } else if text.contains(r#""type":"permission-mode""#)
@@ -457,9 +469,11 @@ mod tests {
             ("/h/.codex/sessions/2026/10/24/rollout-x.jsonl", Harness::Codex),
             ("/h/.codex/sessions/2026/10/24/claude-copy.jsonl", Harness::Codex),
             ("/h/.cursor/projects/w-claude/agent-transcripts/a/a.jsonl", Harness::Cursor),
+            ("/h/.pi/agent/sessions/--w-app--/2026-10-25T01-00-00-000Z_s.jsonl", Harness::Pi),
             ("fixtures/legacy/claude-code-2.1.jsonl", Harness::ClaudeCode),
             ("fixtures/legacy/codex-0.160-exec.jsonl", Harness::Codex),
             ("fixtures/legacy/cursor-synthetic.jsonl", Harness::Cursor),
+            ("fixtures/legacy/pi-1.4-session.jsonl", Harness::Pi),
         ] {
             assert_eq!(harness_for(Path::new(path)), Some(want), "{path}");
         }
@@ -473,5 +487,11 @@ mod tests {
         assert_eq!(harness_from_bytes(cursor), Some(Harness::Cursor));
         let codex = br#"{"type":"session_meta","payload":{}}"#;
         assert_eq!(harness_from_bytes(codex), Some(Harness::Codex));
+        let pi = br#"{"type":"session","version":3,"id":"s","cwd":"/w"}"#;
+        assert_eq!(harness_from_bytes(pi), Some(Harness::Pi));
+        let reordered = br#"{"cwd": "/w", "id": "s", "version": 3, "type": "session"}"#;
+        assert_eq!(harness_from_bytes(reordered), Some(Harness::Pi));
+        let not_pi = br#"{"type":"session","id":"s","cwd":"/w"}"#;
+        assert_eq!(harness_from_bytes(not_pi), None, "a missing format version is not enough");
     }
 }

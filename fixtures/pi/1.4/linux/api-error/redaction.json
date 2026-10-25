@@ -1,0 +1,94 @@
+{
+  "format": 1,
+  "files": [
+    {
+      "format": 1,
+      "file": "session.jsonl",
+      "lorem": false,
+      "lines": 6,
+      "bytes_before": 7229,
+      "bytes_after": 7202,
+      "replacements": {
+        "home_path": 3,
+        "secret_entropy": 1
+      },
+      "offsets": [
+        {
+          "line": 1,
+          "before_start": 0,
+          "before_end": 154,
+          "after_start": 0,
+          "after_end": 154,
+          "delta": 0
+        },
+        {
+          "line": 2,
+          "before_start": 154,
+          "before_end": 290,
+          "after_start": 154,
+          "after_end": 290,
+          "delta": 0
+        },
+        {
+          "line": 3,
+          "before_start": 290,
+          "before_end": 422,
+          "after_start": 290,
+          "after_end": 422,
+          "delta": 0
+        },
+        {
+          "line": 4,
+          "before_start": 422,
+          "before_end": 6468,
+          "after_start": 422,
+          "after_end": 6441,
+          "delta": -27
+        },
+        {
+          "line": 5,
+          "before_start": 6468,
+          "before_end": 6670,
+          "after_start": 6441,
+          "after_end": 6643,
+          "delta": -27
+        },
+        {
+          "line": 6,
+          "before_start": 6670,
+          "before_end": 7229,
+          "after_start": 6643,
+          "after_end": 7202,
+          "delta": -27
+        }
+      ],
+      "findings": [
+        {
+          "line": 4,
+          "kind": "home_path",
+          "placeholder": "<user>"
+        },
+        {
+          "line": 4,
+          "kind": "home_path",
+          "placeholder": "<user>"
+        },
+        {
+          "line": 4,
+          "kind": "home_path",
+          "placeholder": "<user>"
+        },
+        {
+          "line": 4,
+          "kind": "secret_entropy",
+          "placeholder": "<secret-0001>"
+        }
+      ],
+      "malformed_lines": []
+    }
+  ],
+  "replacements": {
+    "home_path": 3,
+    "secret_entropy": 1
+  }
+}

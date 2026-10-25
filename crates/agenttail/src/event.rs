@@ -203,10 +203,10 @@ pub enum ToolKind {
 impl ToolKind {
     pub(crate) fn of(name: &str, input: &Value) -> ToolKind {
         match name {
-            "Bash" | "bash" | "Shell" | "exec_command" | "shell" | "shell_command" => ToolKind::Shell,
-            "Edit" | "Write" | "StrReplace" | "apply_patch" | "apply_diff" => ToolKind::Edit,
-            "Read" | "read_file" | "ReadLints" => ToolKind::Read,
-            "Grep" | "Glob" | "search" | "codebase_search" => ToolKind::Search,
+            "Bash" | "bash" | "Shell" | "shell" | "exec_command" | "shell_command" | "powershell" => ToolKind::Shell,
+            "Edit" | "edit" | "Write" | "write" | "StrReplace" | "apply_patch" | "apply_diff" => ToolKind::Edit,
+            "Read" | "read" | "read_file" | "ReadLints" | "view_image" => ToolKind::Read,
+            "Grep" | "grep" | "Glob" | "find" | "ls" | "search" | "codebase_search" | "tool_search" => ToolKind::Search,
             "WebFetch" | "WebSearch" => ToolKind::Web,
             "Agent" | "Task" => ToolKind::Agent,
             "AskUserQuestion" | "ExitPlanMode" | "request_user_input" | "AskQuestion" | "ask_question" => {
@@ -243,6 +243,8 @@ pub enum TitleSource {
     Generated,
     /// Codex's `session_index.jsonl`.
     Index,
+    /// Pi's `session_info.name`.
+    SessionName,
     /// The opening prompt.
     Prompt,
     Other,
@@ -490,6 +492,8 @@ pub(crate) struct ParseState {
     pub(crate) codex_prompt_source: Option<&'static str>,
     pub(crate) claude_usage: HashMap<(bool, String), TokenUsage>,
     pub(crate) codex_usage: TokenUsage,
+    /// Pi reports cost per model call; this is the session total so far.
+    pub(crate) pi_cost: f64,
 }
 
 /// A prompt's tag wrappers (`<user_query>…</user_query>`, `<timestamp>…</timestamp>`, …).
@@ -541,7 +545,10 @@ impl Session {
             }
             EventKind::PermissionMode { mode } => self.set_permission(Some(*mode)),
             EventKind::SandboxPolicy { policy } => self.set_sandbox(Some(*policy)),
-            EventKind::Title { title, .. } => self.title = title.clone(),
+            EventKind::Title { title, source } => match source {
+                TitleSource::SessionName => self.set_session_name_title(Some(title)),
+                _ => self.title = title.clone(),
+            },
             EventKind::Cost { usd } => self.cost = Some(*usd),
             EventKind::UserPrompt { text, raw, starts_turn, .. } => {
                 if !starts_turn {
@@ -565,7 +572,7 @@ impl Session {
                             self.set_title_from_prompt(first);
                         }
                     }
-                    Harness::Codex => {
+                    Harness::Codex | Harness::Pi => {
                         if let Some(first) = self.prompt(text, t) {
                             self.set_title_from_prompt(first);
                         }
@@ -884,6 +891,29 @@ mod tests {
                 json!({"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":kind}]}}),
             );
         }
+
+        let pi: Value = serde_json::from_str(include_str!("../../../spec/baseline/pi.json")).unwrap();
+        for kind in pi["record_types"].as_array().unwrap().iter().filter_map(Value::as_str) {
+            let record = match kind {
+                "message" => json!({"type":"message","message":{"role":"assistant","content":[]}}),
+                "session" => json!({"type":"session","version":3,"id":"s","cwd":"/w"}),
+                "compaction" => json!({"type":"compaction","summary":"s","firstKeptEntryId":"x","tokensBefore":1}),
+                "usage" => json!({"type":"usage","kind":"cache_warm","usage":{}}),
+                "branch_summary" => json!({"type":"branch_summary","summary":"s","fromId":null}),
+                other => json!({"type":other}),
+            };
+            no_unknown(Harness::Pi, record);
+        }
+        for role in ["system", "user", "assistant", "toolResult", "bashExecution", "custom"] {
+            no_unknown(Harness::Pi, json!({"type":"message","message":{"role":role,"content":[]}}));
+        }
+        for kind in ["text", "thinking", "toolCall"] {
+            no_unknown(Harness::Pi, json!({"type":"message","message":{"role":"assistant","content":[{"type":kind}]}}));
+        }
+        no_unknown(
+            Harness::Pi,
+            json!({"type":"message","message":{"role":"user","content":[{"type":"text","text":"hi"}]}}),
+        );
 
         let cursor: Value = serde_json::from_str(include_str!("../../../spec/baseline/cursor.json")).unwrap();
         for kind in cursor["record_types"].as_array().unwrap().iter().filter_map(Value::as_str) {

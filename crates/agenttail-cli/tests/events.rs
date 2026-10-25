@@ -48,6 +48,11 @@ fn prints_normalized_events_as_json_lines() {
     let claude = events("claude-code/2.1/linux/seed-session/input/session.jsonl");
     assert!(claude.iter().any(|event| event["type"] == "title"), "{claude:#?}");
     assert!(claude.iter().any(|event| event["type"] == "cost"), "{claude:#?}");
+
+    let pi = events("pi/1.4/linux/tool-call/input/session.jsonl");
+    assert!(pi.iter().any(|event| event["type"] == "tool_call"), "{pi:#?}");
+    assert!(pi.iter().any(|event| event["type"] == "usage"), "{pi:#?}");
+    assert!(pi.iter().any(|event| event["type"] == "turn_end"), "{pi:#?}");
 }
 
 #[test]
@@ -57,6 +62,9 @@ fn committed_expected_events_match_their_inputs() {
         "codex/0.160/linux/seed-exec",
         "codex/0.160/linux/seed-resume",
         "cursor/unknown/any/seed-session",
+        "pi/1.4/linux/plain-qa",
+        "pi/1.4/linux/tool-call",
+        "pi/1.4/linux/api-error",
     ] {
         let got = events(&format!("{input}/input/session.jsonl"));
         let expected = fixture(&format!("{input}/expected/events.jsonl"));

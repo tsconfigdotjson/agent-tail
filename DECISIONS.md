@@ -489,3 +489,31 @@ still has its local fallback for tests, but when `AGENTTAIL_BIN` is set (the nig
 builds `agenttail-cli` and sets it) the captured fixture is re-redacted by the Rust tool.
 The workflow then runs `agenttail fixture scan fixtures` before it commits or opens the
 drift PR, so an incomplete redaction fails closed instead of publishing a fixture.
+
+
+## Phase A7: Pi harness (2026-10-25)
+
+**Pi joins as a fourth harness, from real 1.4.0 artifacts.** The CLI writes JSONL sessions
+below `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<session-id>.jsonl`; the default
+`PI_CODING_AGENT_DIR` moves the agent folder, and `PI_CODING_AGENT_SESSION_DIR`/`--session-dir`
+replaces the whole sessions layout (files can be flat). The tracker reads both override
+variables, prefers the session-dir one, and ignores relative values like the other harnesses.
+The discovery spec and `docs/formats/pi.md` carry the evidence, including the observed
+entry catalogue and quirks.
+
+**Pi does not ask for approval.** Its built-in tools run with the OS user's permissions, and
+the transcript records no permission mode. `Session` marks Pi `no_approval`, so a pending
+tool is firm `RunningTool`; it never stalls into inferred `AwaitingApproval`. There is no
+built-in ask-user tool, so the discovery list stays empty rather than guessing at extension
+names. Turn ends are firm: assistant `stopReason: stop`/`length` is Done, `aborted` is
+Interrupted, `error` is Errored with `errorMessage`. `stopReason: toolUse` leaves the tool
+calls pending until their `toolResult` entries arrive. Usage and `cost.total` are per-call
+and summed; `session_info.name` is the title, falling back to the opening prompt.
+
+**Harness CI uses Pi's JSON mode, not a PTY.** Pi can point at the existing mock through a
+custom `anthropic-messages` provider (`baseUrl` without the `/v1` suffix). The driver runs
+`pi --mode json`, tails the real session file with the same reducer, and checks firm
+activities. The GHA matrix installs pinned 1.4.0 and npm latest on Linux and macOS; latest is
+not soft-skipped. The missing piece is branch-aware reduction: Pi stores a tree, and like the
+other adapters this spike folds file order, so abandoned-branch activity/usage remains in the
+log. That is documented, not claimed.

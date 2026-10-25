@@ -114,6 +114,39 @@ jobs:
           print("value=" + json.dumps({"include": entries}, separators=(",", ":")))
           PY
 
+  prepare-pi:
+    name: Resolve npm latest Pi
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.value }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the pinned + latest Pi matrix once
+        id: matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest="$(npm view @earendil-works/pi-coding-agent version)"
+          echo "npm latest Pi: $latest"
+          python3 - "$latest" <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import sys
+
+          latest = sys.argv[1]
+          entries = []
+          for label, version in (("1.4.0", "1.4.0"), ("latest", latest)):
+              for os_name in ("ubuntu-latest", "macos-latest"):
+                  entries.append({"label": label, "version": version, "os": os_name})
+          print("value=" + json.dumps({"include": entries}, separators=(",", ":")))
+          PY
+
   harness:
     name: Claude Code ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
     needs: [unit, prepare]
@@ -204,6 +237,89 @@ jobs:
         with:
           name: harness-${{ matrix.label }}-${{ runner.os }}
           path: ${{ runner.temp }}/harness-runs
+          if-no-files-found: warn
+          retention-days: 7
+
+  pi:
+    name: Pi ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
+    needs: [unit, prepare-pi]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare-pi.outputs.matrix) }}
+    env:
+      # Pi runs in JSON mode against the in-process mock. The driver supplies a dummy key
+      # and points a custom Anthropic-compatible provider at localhost only.
+      HARNESS_CI_REQUIRE_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.88
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustc --version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Pi ${{ matrix.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          requested='${{ matrix.version }}'
+          echo "npm latest Pi: $(npm view @earendil-works/pi-coding-agent version)"
+          prefix="$RUNNER_TEMP/pi-$requested"
+          npm install --prefix "$prefix" --no-save --no-audit --no-fund "@earendil-works/pi-coding-agent@$requested"
+          bin="$prefix/node_modules/.bin/pi"
+          actual="$("$bin" --version | head -n1 | awk '{print $1}')"
+          test -n "$actual"
+          if [[ "$actual" != "$requested" ]]; then
+            echo "installed $actual, wanted $requested" >&2
+            exit 1
+          fi
+          echo "$prefix/node_modules/.bin" >> "$GITHUB_PATH"
+          echo "PI_VERSION=$actual" >> "$GITHUB_ENV"
+          echo "PI_BIN=$bin" >> "$GITHUB_ENV"
+          echo "Testing Pi $actual"
+
+      - name: Build harness-ci explicitly
+        working-directory: harness-ci
+        run: cargo build -p harness-driver --release --locked
+
+      - name: Run Pi scenarios offline
+        shell: bash
+        run: |
+          set -uo pipefail
+          runs="$RUNNER_TEMP/pi-runs"
+          rm -rf "$runs"
+          mkdir -p "$runs"
+          failed=0
+          while IFS= read -r scenario; do
+            [[ -z "$scenario" || "$scenario" == \#* ]] && continue
+            echo "::group::$scenario ($PI_VERSION on ${{ runner.os }})"
+            if ! harness-ci/ci/offline-run.sh \
+              "$PWD/harness-ci/target/release/harness-driver" \
+              --scenario "$PWD/harness-ci/driver/scenarios/$scenario.json" \
+              --out "$runs/$scenario"; then
+              failed=1
+            fi
+            echo "::endgroup::"
+          done < harness-ci/ci/scenarios-pi.txt
+          exit "$failed"
+
+      - name: Upload runs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pi-${{ matrix.label }}-${{ runner.os }}
+          path: ${{ runner.temp }}/pi-runs
           if-no-files-found: warn
           retention-days: 7
 

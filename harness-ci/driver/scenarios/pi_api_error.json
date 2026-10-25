@@ -1,0 +1,11 @@
+{
+  "name": "pi_api_error",
+  "description": "Pi with automatic retries disabled records a firm Errored turn.",
+  "harness": "pi",
+  "mock": "../../mock-server/scenarios/pi_api_error.json",
+  "prompt": "trigger an error",
+  "run_for_ms": 20000,
+  "no_approval": true,
+  "settings": { "retry": { "enabled": false } },
+  "expected_activity": [{ "activity": "errored", "when": "end", "certainty": "firm" }]
+}

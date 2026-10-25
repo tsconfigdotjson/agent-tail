@@ -31,6 +31,7 @@ fn harness_for(scenario: &Path, root: &Path) -> Harness {
         "claude-code" => Harness::ClaudeCode,
         "codex" => Harness::Codex,
         "cursor" => Harness::Cursor,
+        "pi" => Harness::Pi,
         other => panic!("{}: unknown harness folder {other}", scenario.display()),
     }
 }

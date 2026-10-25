@@ -1,0 +1,4 @@
+# Stable Pi scenarios for the pinned + latest matrix. Keep this list deterministic.
+pi_plain_qa
+pi_tool_call
+pi_api_error

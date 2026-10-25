@@ -2,8 +2,8 @@
 
 **What every coding agent on this machine is doing right now**: thinking, running a tool,
 waiting for your answer, perhaps waiting for an approval, done, or idle. Read from the
-transcripts Claude Code, Codex and Cursor already write, so there's nothing to install into
-the agents and nothing to configure.
+transcripts Claude Code, Codex, Cursor and Pi already write, so there's nothing to install
+into the agents and nothing to configure.
 
 Status: **pre-release, private.** The sans-IO core, the `fs` tracker, the CLI and the
 real-harness rig are in place. Permission modes, firm turn ends, interrupts, errors and
@@ -83,8 +83,8 @@ and quirks with their evidence.
 The CLI, for looking at what a dashboard would show:
 
 ```
-agenttail ls [--hours N] [--agents claude_code,codex,cursor]   # one poll, JSON lines
-agenttail watch [--hours N] [--agents …]                       # each change, with its reason
+agenttail ls [--hours N] [--agents claude_code,codex,cursor,pi]   # one poll, JSON lines
+agenttail watch [--hours N] [--agents …]                         # each change, with its reason
 agenttail events [--agent ID] <path>                           # normalized events, JSON lines
 agenttail fixture redact|capture|scan …                        # offline fixture tooling
 ```
@@ -102,7 +102,9 @@ versioned fixture directory. `fixture redact` is deterministic and structure-pre
   `~/.codex/sessions/YYYY/MM/DD/*.jsonl` and `~/.codex/session_index.jsonl` (Codex;
   `CODEX_HOME` moves both; compressed `.jsonl.zst` history is skipped),
   `~/.cursor/projects/*/agent-transcripts/**.jsonl` and Cursor's
-  `User/globalStorage/state.vscdb` (Cursor). Claude Code subagent transcripts and their
+  `User/globalStorage/state.vscdb` (Cursor), and
+  `~/.pi/agent/sessions/<encoded-cwd>/*.jsonl` (Pi; `PI_CODING_AGENT_DIR` and
+  `PI_CODING_AGENT_SESSION_DIR` move it). Claude Code subagent transcripts and their
   sibling `.meta.json` are read too. Only the bytes appended since the last poll are read;
   a session's first read goes 1 MB at a time. Cursor's database is never opened in place:
   it is copied with `-wal`/`-shm` into a private temporary folder, opened `mode=ro`, and
@@ -124,6 +126,7 @@ versioned fixture directory. `fixture redact` is deterministic and structure-pre
 | Claude Code | `~/.claude/projects/<project>/<id>.jsonl` | a scrubbed 2.1 recording |
 | Codex CLI | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | scrubbed 0.160.1 recordings |
 | Cursor agent | `~/.cursor/projects/<project>/agent-transcripts/<id>/<id>.jsonl`, plus the IDE's `state.vscdb` | a handmade transcript and synthetic SQLite rows in the shape seen on a real Mac; live approval waits still need a donated capture |
+| Pi | `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<id>.jsonl` | Pi 1.4.0 (pinned and npm latest at the time); `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR` overrides; no approval prompt, so a pending tool is firm `RunningTool` |
 
 ## Building
 

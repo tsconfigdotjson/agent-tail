@@ -1085,6 +1085,16 @@ fn harness_root(harness: Harness, home: &Path) -> PathBuf {
             .filter(|path| path.is_absolute())
             .map_or_else(|| home.join(".codex/sessions"), |dir| dir.join("sessions")),
         Harness::Cursor => home.join(".cursor/projects"),
+        Harness::Pi => std::env::var_os("PI_CODING_AGENT_SESSION_DIR")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .or_else(|| {
+                std::env::var_os("PI_CODING_AGENT_DIR")
+                    .map(PathBuf::from)
+                    .filter(|path| path.is_absolute())
+                    .map(|dir| dir.join("sessions"))
+            })
+            .unwrap_or_else(|| home.join(".pi/agent/sessions")),
         _ => home.join(harness.layout().root),
     }
 }
@@ -1127,6 +1137,9 @@ fn session_id(harness: Harness, path: &Path) -> String {
             .parent()
             .and_then(Path::file_name)
             .map_or_else(|| file_stem(path), |name| name.to_string_lossy().into_owned()),
+        // Pi's file is <timestamp>_<session-id>.jsonl; the timestamp has no underscore, so
+        // the first one separates a custom id that may contain more.
+        Harness::Pi => file_stem(path).split_once('_').map_or_else(|| file_stem(path), |(_, id)| id.into()),
         _ => file_stem(path),
     }
 }
@@ -1203,6 +1216,8 @@ pub fn version_of(candidate: &SessionCandidate) -> String {
                 record.pointer("/payload/cli_version").or_else(|| record.get("cli_version")).and_then(Value::as_str)
             }
             Harness::Cursor => record.get("version").and_then(Value::as_str),
+            // Pi's session header version is the file-format version, not the CLI version.
+            Harness::Pi => None,
             _ => None,
         };
         if let Some(version) = version {
@@ -1486,5 +1501,13 @@ mod tests {
     fn sanitizes_scenario_names() {
         assert_eq!(sanitize_component("A plain QA!"), "a-plain-qa");
         assert_eq!(sanitize_component("..."), "captured");
+    }
+
+    #[test]
+    fn pi_session_ids_keep_custom_underscores() {
+        let path = Path::new("/h/.pi/agent/sessions/--w-app--/2026-10-25T01-00-00-000Z_my_session_1.jsonl");
+        assert_eq!(session_id(Harness::Pi, path), "my_session_1");
+        let uuid = Path::new("/h/.pi/agent/sessions/--w-app--/2026-10-25T01-00-00-000Z_01a170a4.jsonl");
+        assert_eq!(session_id(Harness::Pi, uuid), "01a170a4");
     }
 }
