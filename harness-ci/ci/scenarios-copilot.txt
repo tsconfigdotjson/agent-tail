@@ -3,3 +3,5 @@
 copilot_plain_qa
 copilot_tool
 copilot_permission_denied
+copilot_parallel_tools
+copilot_api_error

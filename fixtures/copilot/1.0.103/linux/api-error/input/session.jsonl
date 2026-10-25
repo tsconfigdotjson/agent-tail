@@ -1,0 +1,7 @@
+{"type":"session.start","id":"e0","parentId":null,"timestamp":"2026-10-25T05:20:00.000Z","data":{"sessionId":"66666666-6666-4666-8666-666666666666","selectedModel":"test-model","context":{"cwd":"/home/<user>/work/copilot-api-error"}}}
+{"type":"user.message","id":"e1","parentId":"e0","timestamp":"2026-10-25T05:20:00.100Z","data":{"content":"trigger an error"}}
+{"type":"system.message","id":"e2","parentId":"e1","timestamp":"2026-10-25T05:20:00.150Z","data":{"role":"system","content":"Fixture system prompt."}}
+{"type":"assistant.turn_start","id":"e3","parentId":"e2","timestamp":"2026-10-25T05:20:00.200Z","data":{"turnId":"0"}}
+{"type":"assistant.turn_end","id":"e4","parentId":"e3","timestamp":"2026-10-25T05:20:15.000Z","data":{"turnId":"0"}}
+{"type":"session.error","id":"e5","parentId":"e4","timestamp":"2026-10-25T05:20:15.100Z","data":{"errorType":"query","message":"Failed to get response from the AI model; retried 5 times","statusCode":500}}
+{"type":"session.shutdown","id":"e6","parentId":"e5","timestamp":"2026-10-25T05:20:15.200Z","data":{"shutdownType":"routine"}}

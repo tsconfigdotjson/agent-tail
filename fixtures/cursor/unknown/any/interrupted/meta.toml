@@ -1,0 +1,6 @@
+harness = "cursor"
+version = "unknown"
+os = "any"
+capture = "handmade"
+date = "2026-10-25"
+description = "A synthetic Cursor transcript whose turn_ended error is the user-stop phrase `User aborted request`. Cursor uses status=error for user stops, so this must be firm Interrupted, not Errored."

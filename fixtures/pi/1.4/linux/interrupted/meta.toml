@@ -1,0 +1,6 @@
+harness = "pi"
+version = "1.4.0"
+os = "linux"
+capture = "handmade"
+date = "2026-10-25"
+description = "A hand-made Pi 1.4.0 aborted turn: an assistant message with stopReason aborted and a partial answer. It must read as Interrupted, not Done or Errored; the fixture also pins the shared 15-minute idle fallback."

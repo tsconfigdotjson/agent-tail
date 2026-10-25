@@ -1,0 +1,6 @@
+harness = "pi"
+version = "1.4.0"
+os = "linux"
+capture = "handmade"
+date = "2026-10-25"
+description = "A hand-made Pi 1.4.0 session with two toolCall blocks in one assistant message. The first toolResult leaves the second call pending (firm running_tool); after the second it is thinking, and the final stop ends Done. Per-call usage and cost are asserted as a session total."

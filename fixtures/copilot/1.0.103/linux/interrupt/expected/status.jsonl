@@ -1,0 +1,5 @@
+{"after_line":2,"now_offset_s":0.0,"activity":"thinking","certainty":"firm","reason":"prompt_sent","title":"write a long answer"}
+{"after_line":5,"now_offset_s":0.0,"activity":"done","certainty":"firm","reason":"turn_ended","title":"write a long answer"}
+{"after_line":6,"now_offset_s":0.0,"activity":"interrupted","certainty":"firm","reason":"interrupted","title":"write a long answer"}
+{"after_line":7,"now_offset_s":0.0,"activity":"interrupted","certainty":"firm","reason":"interrupted","title":"write a long answer"}
+{"after_line":7,"now_offset_s":901.0,"activity":"idle","certainty":"firm","reason":"no_writes_for","title":"write a long answer"}

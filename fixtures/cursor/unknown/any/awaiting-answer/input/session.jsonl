@@ -1,0 +1,2 @@
+{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Friday, Oct 16, 2026, 10:15 AM (UTC-7)</timestamp>"},{"type":"text","text":"<user_query>\nWhich color should I use?\n</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"I need your choice."},{"type":"tool_use","name":"AskUserQuestion","input":{"question":"Which color should the app use?","options":[{"label":"Blue"},{"label":"Green"}]}}]}}

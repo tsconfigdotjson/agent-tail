@@ -38,6 +38,7 @@ impl Adapter for Copilot {
             }
             "user.message" => {
                 state.copilot_tools_pending = false;
+                state.copilot_terminal = false;
                 let text = content_text(&data["content"]);
                 if !text.trim().is_empty() {
                     out.push(
@@ -58,7 +59,7 @@ impl Adapter for Copilot {
             "assistant.turn_end" => {
                 // Each model call has its own turn_start/turn_end. Only a final message
                 // without tool requests ends the user's interaction.
-                if !state.copilot_tools_pending {
+                if !state.copilot_tools_pending && !state.copilot_terminal {
                     out.push(
                         EventSeed::new(EventKind::TurnEnd {
                             reason: TurnEndReason::EndTurn,
@@ -102,23 +103,47 @@ impl Adapter for Copilot {
             "session.usage_record" => usage(data, at, &mut out),
             "session.shutdown" => {
                 let error = data["error"]["message"].as_str().or_else(|| data["error"].as_str());
+                // 1.0.103 writes a routine shutdown after `abort` or `session.error`. That
+                // shutdown is not a second turn end: keep the interrupted/errored state
+                // rather than reporting Done.
+                if error.is_some() || !state.copilot_terminal {
+                    out.push(
+                        EventSeed::new(EventKind::TurnEnd {
+                            reason: if error.is_some() { TurnEndReason::Error } else { TurnEndReason::EndTurn },
+                            error: error.map(String::from),
+                            background_agents: None,
+                        })
+                        .at(at),
+                    );
+                }
+            }
+            "abort" => {
+                state.copilot_terminal = true;
                 out.push(
                     EventSeed::new(EventKind::TurnEnd {
-                        reason: if error.is_some() { TurnEndReason::Error } else { TurnEndReason::EndTurn },
-                        error: error.map(String::from),
+                        reason: TurnEndReason::Interrupted,
+                        error: data["reason"].as_str().map(String::from),
                         background_agents: None,
                     })
                     .at(at),
                 );
             }
-            "abort" => out.push(
-                EventSeed::new(EventKind::TurnEnd {
-                    reason: TurnEndReason::Interrupted,
-                    error: data["reason"].as_str().map(String::from),
-                    background_agents: None,
-                })
-                .at(at),
-            ),
+            "session.error" => {
+                state.copilot_terminal = true;
+                let message = data["message"]
+                    .as_str()
+                    .or_else(|| data["error"]["message"].as_str())
+                    .or_else(|| data["error"].as_str())
+                    .unwrap_or("Copilot session error");
+                out.push(
+                    EventSeed::new(EventKind::TurnEnd {
+                        reason: TurnEndReason::Error,
+                        error: Some(message.into()),
+                        background_agents: None,
+                    })
+                    .at(at),
+                );
+            }
             "session.mode_changed" => {
                 if let Some(mode) = data["mode"].as_str().or_else(|| data["permissionMode"].as_str()) {
                     out.push(EventSeed::new(EventKind::PermissionMode { mode: PermissionMode::parse(mode) }).at(at));
@@ -303,6 +328,7 @@ fn known_record(kind: &str) -> bool {
             | "session.usage_record"
             | "session.shutdown"
             | "session.info"
+            | "session.error"
             | "session.mode_changed"
             | "session.plan_changed"
             | "session.background_tasks_changed"
@@ -544,6 +570,53 @@ mod tests {
         ]);
         assert!(s.pending_approvals.is_empty());
         assert_eq!(status(&s), (Status::Working, "working"));
+    }
+
+    #[test]
+    fn an_abort_survives_the_routine_shutdown_that_follows_it() {
+        let s = session(&[
+            start(),
+            user("write a long answer"),
+            event("assistant.turn_start", json!({"turnId":"0"})),
+            event("assistant.turn_end", json!({"turnId":"0"})),
+            event("abort", json!({"reason":"user_abort"})),
+            event("session.shutdown", json!({"shutdownType":"routine"})),
+        ]);
+        let st = s.state(
+            crate::time::Timestamp::from_secs_f64(crate::testutil::NOW),
+            &crate::ReducerOptions::default(),
+            crate::Diagnostics::default(),
+        );
+        assert_eq!(
+            (st.activity, st.certainty, st.reason),
+            (crate::Activity::Interrupted, crate::Certainty::Firm, crate::Reason::Interrupted),
+            "the shutdown after abort must not turn the turn back into Done"
+        );
+    }
+
+    #[test]
+    fn a_session_error_survives_the_routine_shutdown_that_follows_it() {
+        let s = session(&[
+            start(),
+            user("trigger an error"),
+            event("assistant.turn_start", json!({"turnId":"0"})),
+            event("assistant.turn_end", json!({"turnId":"0"})),
+            event(
+                "session.error",
+                json!({"errorType":"query","message":"model failed after retries","statusCode":500}),
+            ),
+            event("session.shutdown", json!({"shutdownType":"routine"})),
+        ]);
+        let st = s.state(
+            crate::time::Timestamp::from_secs_f64(crate::testutil::NOW),
+            &crate::ReducerOptions::default(),
+            crate::Diagnostics::default(),
+        );
+        assert_eq!(
+            (st.activity, st.certainty, st.reason),
+            (crate::Activity::Errored, crate::Certainty::Firm, crate::Reason::Errored)
+        );
+        assert_eq!(st.error.as_deref(), Some("model failed after retries"));
     }
 
     #[test]

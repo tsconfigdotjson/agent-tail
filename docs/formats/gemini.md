@@ -128,9 +128,11 @@ cargo run -p harness-driver -- --scenario driver/scenarios/gemini_plain_qa.json
 cargo run -p harness-driver -- --scenario driver/scenarios/gemini_tool.json
 ```
 
-Committed fixtures are under `fixtures/gemini/0.65.0/linux/`: `plain-qa` and `tool`. They
-were captured from the real CLI through the mock, then redacted by
-`agent-tail fixture capture`.
+Committed fixtures are under `fixtures/gemini/0.65.0/linux/`: `plain-qa` and `tool`, captured
+from the real CLI through the mock and redacted by `agent-tail fixture capture`; `error` is
+hand-made because a real model/API failure is not persisted as a `type:error` row (0.65.0
+rewinds the just-sent prompt instead), so the adapter's error mapping is exercised by the
+synthetic journal shape only.
 
 ## Open questions and limits
 

@@ -1,0 +1,12 @@
+{
+  "name": "copilot_parallel_tools",
+  "description": "Copilot receives two bash tool requests in one model turn. Both calls are persisted, the session samples RunningTool until the second result arrives, then ends Done.",
+  "harness": "copilot",
+  "mock": "../../mock-server/scenarios/copilot_parallel_tools.json",
+  "prompt": "run both tools",
+  "run_for_ms": 30000,
+  "expected_activity": [
+    { "activity": "running_tool", "when": "ever", "certainty": "firm" },
+    { "activity": "done", "when": "end", "certainty": "firm" }
+  ]
+}

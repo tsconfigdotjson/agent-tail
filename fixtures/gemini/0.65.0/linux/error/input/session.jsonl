@@ -1,0 +1,7 @@
+{"sessionId":"9a9a9a9a-1111-4222-8333-444444444444","projectHash":"fixture","startTime":"2026-10-25T07:00:00.000Z","lastUpdated":"2026-10-25T07:00:00.000Z","kind":"main"}
+{"id":"ctx-1","timestamp":"2026-10-25T07:00:00.010Z","type":"user","content":[{"text":"<session_context>\n- **Workspace Directories:**\n  - /home/<user>/work/gemini-error\n</session_context>"}]}
+{"$set":{"lastUpdated":"2026-10-25T07:00:00.011Z"}}
+{"id":"u-1","timestamp":"2026-10-25T07:00:00.100Z","type":"user","content":[{"text":"trigger an error"}]}
+{"$set":{"lastUpdated":"2026-10-25T07:00:00.101Z"}}
+{"id":"e-1","timestamp":"2026-10-25T07:00:01.000Z","type":"error","content":"invalid credential"}
+{"$set":{"lastUpdated":"2026-10-25T07:00:01.001Z"}}

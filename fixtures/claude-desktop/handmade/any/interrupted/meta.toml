@@ -1,0 +1,6 @@
+harness = "claude_desktop"
+version = "unknown"
+os = "any"
+capture = "handmade"
+date = "2026-10-25"
+description = "A success result frame with terminal_reason aborted_streaming, synthesized from the Claude Agent SDK shape. The adapter must report firm Interrupted for a user abort instead of treating every success result as Done."

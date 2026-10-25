@@ -177,6 +177,8 @@ the open question of *whether* a firm signal exists.
   `additionalData.status: pending` is firm `AwaitingApproval`; a pending ask-user tool is
   firm `AwaitingAnswer`. Cursor does not use the shared 20 s stall inference. The source
   shape is from the 3.27 IDE; the live snapshot is still the confirmation step above.
+  The committed transcript fixtures cover a pending `AskUserQuestion` (`awaiting-answer`)
+  and a `turn_ended` user stop (`interrupted`), alongside the original seed session.
 - **Times:** none in transcripts except the prompt's `<timestamp>` (to the minute). Use mtime.
   The database has millisecond `createdAt`/`lastUpdatedAt`; the reader uses those for its
   status freshness.

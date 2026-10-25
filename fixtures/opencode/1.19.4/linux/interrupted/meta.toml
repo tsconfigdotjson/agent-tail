@@ -1,0 +1,6 @@
+harness = "opencode"
+version = "1.19.4"
+os = "linux"
+capture = "handmade"
+date = "2026-10-25"
+description = "A hand-made OpenCode 1.19.4 row export ending in a step-finish reason aborted. The partial assistant text must not be mistaken for a completed turn; the session is firm Interrupted."

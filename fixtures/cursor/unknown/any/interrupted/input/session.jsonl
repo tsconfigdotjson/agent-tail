@@ -1,0 +1,2 @@
+{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Friday, Oct 16, 2026, 10:25 AM (UTC-7)</timestamp>"},{"type":"text","text":"<user_query>\nWrite a long answer.\n</user_query>"}]}}
+{"type":"turn_ended","status":"error","error":"User aborted request"}

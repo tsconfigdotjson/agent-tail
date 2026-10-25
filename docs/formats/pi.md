@@ -131,9 +131,10 @@ just the version (`1.4.0`).
 `harness-ci` has a Pi path that runs the real npm CLI against the local mock model server in
 `--mode json`, tails the session file with `agent-tail`, and fails on a wrong firm status or an
 unexpected event shape. It runs for pinned 1.4.0 and npm latest, on Linux and macOS, so a
-new release fails loudly instead of being skipped. The Pi path is transcript/status based,
-not PTY-screen scored; Pi's TUI screen reader is not part of this path. See
-`harness-ci/README.md`.
+new release fails loudly instead of being skipped. Scenarios cover plain text, one tool,
+parallel tool calls, a failing tool result, and a terminal API error. The fixtures also pin
+the aborted stop reason. The Pi path is transcript/status based, not PTY-screen scored;
+Pi's TUI screen reader is not part of this path. See `harness-ci/README.md`.
 
 ## Branches
 

@@ -19,23 +19,35 @@ The committed corpus lives in the versioned layout:
 | `claude-desktop/handmade/any/plain-qa` | Hand-made Claude Desktop local-agent-mode audit: `system/init`, a prompt, an assistant `end_turn`, then the SDK `result` frame; checks working → done → idle |
 | `claude-desktop/handmade/any/tool-turn` | Hand-made Desktop audit: a pending `Bash` tool call, its `tool_result`, the answer, then the result frame |
 | `claude-desktop/handmade/any/tool-stall` | Hand-made Desktop audit: a default-mode pending tool is firm `running_tool` at 0 s and inferred `awaiting_approval` at 25 s, because the audit stream has no permission request record |
+| `claude-desktop/handmade/any/error` | Hand-made Desktop audit: a terminal SDK `result` with `is_error`, `errors[]`, cost and usage; checks firm errored and the kept error text |
+| `claude-desktop/handmade/any/interrupted` | Hand-made Desktop audit: a `result` with `terminal_reason: aborted_streaming`; checks firm interrupted even though the subtype is `success` |
 | `codex/0.160/linux/seed-exec` | a real `codex exec` rollout against a stand-in model |
 | `codex/0.160/linux/seed-resume` | the same session after `codex exec resume`: a patch, a command, a `request_user_input` |
 | `cursor/unknown/any/seed-session` | a handmade Cursor transcript in the shape seen on a real Cursor install (October 2026) |
+| `cursor/unknown/any/awaiting-answer` | Hand-made Cursor transcript with a pending `AskUserQuestion`; the discovery spec's ask-user name makes it firm AwaitingAnswer |
+| `cursor/unknown/any/interrupted` | Hand-made Cursor transcript whose `turn_ended` error is the user-stop phrase `User aborted request`; checks interrupted rather than errored |
 | `pi/1.4/linux/plain-qa` | Pi 1.4.0 against the local mock: one prompt, one text answer, `stopReason: stop` |
 | `pi/1.4/linux/tool-call` | Pi 1.4.0: a `bash` tool call and result, then the final answer; proves a pending Pi tool is firm `running_tool`, not inferred approval |
 | `pi/1.4/linux/api-error` | Pi 1.4.0 with retries disabled: assistant `stopReason: error` and `errorMessage` |
 | `pi/1.4/linux/branched` | Hand-made Pi 1.4.0 tree: a main prompt, an abandoned tool-call/session-name/usage branch, then an active branch from the original prompt; checkpoints assert that only the active leaf's parent chain moves status, usage, cost, recent lines and title |
+| `pi/1.4/linux/parallel-tools` | Hand-made Pi 1.4.0 session with two `toolCall` blocks in one assistant message: one result still leaves the other call running; both results return to thinking, then done; per-call usage and cost are summed |
+| `pi/1.4/linux/interrupted` | Hand-made Pi 1.4.0 assistant message with `stopReason: aborted`; checks firm interrupted and the shared idle fallback |
 | `opencode/1.19.4/linux/plain-qa` | a real `opencode run` text turn, exported from its SQLite database |
 | `opencode/1.19.4/linux/tool` | a real `opencode run` bash call and the answer after its result |
 | `opencode/1.19.4/linux/tool-running` | a live SQLite snapshot during a `sleep 8` tool call, including the 20 s stall inference |
+| `opencode/1.19.4/linux/question` | Hand-made row export with a pending `question` tool part; the only firm needs-you OpenCode signal, so it is AwaitingAnswer rather than inferred approval |
+| `opencode/1.19.4/linux/interrupted` | Hand-made row export ending in `step-finish` reason `aborted`; a partial answer must read as interrupted, not done |
 | `gemini/0.65.0/linux/plain-qa` | Gemini CLI 0.65.0 against the mock: a session-context record, a prompt, one text answer |
 | `gemini/0.65.0/linux/tool` | Gemini CLI 0.65.0: a `run_shell_command` call written after completion with its result, then the final answer |
+| `gemini/0.65.0/linux/error` | Hand-made Gemini 0.65.0 journal with a terminal `type: "error"` record and its message; exercises the adapter's error mapping because a real API failure rewinds the prompt instead of writing this record |
 | `copilot/1.0.103/linux/plain-qa` | Copilot CLI 1.0.103 against the mock: a prompt, one text answer, normal shutdown |
 | `copilot/1.0.103/linux/tool` | Copilot CLI 1.0.103: a bash call pending for two seconds, then the answer after its result |
 | `copilot/1.0.103/linux/permission-denied` | Copilot CLI 1.0.103 prompt mode with no interactive user: `permission.requested`, unattended denial, failed tool result, then the answer |
 | `copilot/1.0.103/linux/permission-approved` | Hand-made 1.0.103 shape for a user approval: `permission.completed` with `result.kind: approved`, `decisionSource: human_response`, then a successful tool run and the answer |
 | `copilot/1.0.103/linux/permission-user-denied` | Hand-made 1.0.103 shape for a user denial: `result.kind: denied-interactively-by-user`, `decisionSource: human_response`, a failed tool result, then the answer |
+| `copilot/1.0.103/linux/parallel-tools` | Hand-made 1.0.103 shape for two bash requests in one assistant message: the first result leaves the second call pending, both results return to thinking, and the final text ends done; per-call usage is summed |
+| `copilot/1.0.103/linux/interrupt` | Hand-made 1.0.103 abort sequence in the real order: `assistant.turn_end`, `abort` / `user_abort`, then `session.shutdown`; checks the interrupted state survives the routine shutdown and falls to idle after 15 minutes |
+| `copilot/1.0.103/linux/api-error` | Hand-made 1.0.103 model failure: `assistant.turn_end`, `session.error` with `errorType: query`, then `session.shutdown`; checks the error survives the routine shutdown |
 
 The Claude Desktop fixtures are **handmade** from the public Claude Agent SDK record shape,
 not captured from an install; the matrix therefore says `ported-unverified`.

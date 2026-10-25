@@ -85,6 +85,12 @@ The pinned versions are the ones the committed fixtures were captured against. T
 matrix also resolves and runs npm `latest` for each harness, so a release that changes the
 transcript shape fails loudly.
 
+Recent coverage additions include Copilot parallel tool calls and a terminal `session.error`,
+and Pi parallel tool calls plus failing-tool recovery. Their fixtures also pin Copilot
+`abort`/`session.error` followed by a routine `session.shutdown` (which must not turn those
+terminal states back into `done`). The adapter-by-adapter table, including deferred cases, is
+[`docs/harness-coverage.md`](../docs/harness-coverage.md).
+
 Two Codex scenarios avoid host-dependent false failures. `codex_token_count` sends its second
 prompt on the first idle after a delay because a fast turn can finish without leaving the TUI
 idle screen long enough to count a second idle occurrence. `codex_approval_never` runs with

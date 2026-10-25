@@ -1,0 +1,13 @@
+{
+  "name": "pi_tool_error",
+  "description": "Pi runs a failing bash command. The error tool result returns the session to Thinking and the model still ends the turn Done.",
+  "harness": "pi",
+  "mock": "../../mock-server/scenarios/pi_tool_error.json",
+  "prompt": "run a failing tool",
+  "run_for_ms": 25000,
+  "no_approval": true,
+  "expected_activity": [
+    { "activity": "running_tool", "when": "ever", "certainty": "firm" },
+    { "activity": "done", "when": "end", "certainty": "firm" }
+  ]
+}

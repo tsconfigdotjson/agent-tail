@@ -1,0 +1,7 @@
+{"after_line":1,"now_offset_s":0.0,"activity":"unknown","certainty":"firm","reason":"no_entries"}
+{"after_line":2,"now_offset_s":0.0,"activity":"thinking","certainty":"firm","reason":"prompt_sent","title":"run both tools"}
+{"after_line":5,"now_offset_s":0.0,"activity":"running_tool","certainty":"firm","reason":"tool_call_pending","title":"run both tools"}
+{"after_line":8,"now_offset_s":0.0,"activity":"running_tool","certainty":"firm","reason":"tool_call_pending","title":"run both tools"}
+{"after_line":9,"now_offset_s":0.0,"activity":"thinking","certainty":"firm","reason":"tool_result_in","title":"run both tools"}
+{"after_line":14,"now_offset_s":0.0,"activity":"done","certainty":"firm","reason":"turn_ended","title":"run both tools","out_tokens":28,"usage":{"input_tokens":30,"output_tokens":28,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}
+{"after_line":15,"now_offset_s":0.0,"activity":"done","certainty":"firm","reason":"turn_ended","title":"run both tools"}

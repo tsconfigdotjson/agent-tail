@@ -1,0 +1,15 @@
+{"type":"session.start","id":"p0","parentId":null,"timestamp":"2026-10-25T05:00:00.000Z","data":{"sessionId":"44444444-4444-4444-8444-444444444444","selectedModel":"test-model","context":{"cwd":"/home/<user>/work/copilot-parallel"}}}
+{"type":"user.message","id":"p1","parentId":"p0","timestamp":"2026-10-25T05:00:00.100Z","data":{"content":"run both tools"}}
+{"type":"assistant.turn_start","id":"p2","parentId":"p1","timestamp":"2026-10-25T05:00:00.200Z","data":{"turnId":"0"}}
+{"type":"session.usage_record","id":"p3","parentId":"p2","timestamp":"2026-10-25T05:00:00.250Z","data":{"usage":{"apiCallId":"api-0","inputTokens":10,"outputTokens":20,"cacheReadTokens":0,"cacheWriteTokens":0}}}
+{"type":"assistant.message","id":"p4","parentId":"p3","timestamp":"2026-10-25T05:00:00.300Z","data":{"content":"","toolRequests":[{"toolCallId":"call_parallel_first","name":"bash","arguments":{"command":"sleep 1; printf first-ok","description":"Run the first tool"}},{"toolCallId":"call_parallel_second","name":"bash","arguments":{"command":"sleep 2; printf second-ok","description":"Run the second tool"}}]}}
+{"type":"tool.execution_start","id":"p5","parentId":"p4","timestamp":"2026-10-25T05:00:00.400Z","data":{"toolCallId":"call_parallel_first","toolName":"bash","arguments":{"command":"sleep 1; printf first-ok"}}}
+{"type":"tool.execution_start","id":"p6","parentId":"p5","timestamp":"2026-10-25T05:00:00.401Z","data":{"toolCallId":"call_parallel_second","toolName":"bash","arguments":{"command":"sleep 2; printf second-ok"}}}
+{"type":"tool.execution_complete","id":"p7","parentId":"p6","timestamp":"2026-10-25T05:00:01.400Z","data":{"toolCallId":"call_parallel_first","success":true,"result":{"content":"first-ok"}}}
+{"type":"tool.execution_complete","id":"p8","parentId":"p7","timestamp":"2026-10-25T05:00:02.400Z","data":{"toolCallId":"call_parallel_second","success":true,"result":{"content":"second-ok"}}}
+{"type":"assistant.turn_end","id":"p9","parentId":"p8","timestamp":"2026-10-25T05:00:02.500Z","data":{"turnId":"0"}}
+{"type":"assistant.turn_start","id":"p10","parentId":"p9","timestamp":"2026-10-25T05:00:02.600Z","data":{"turnId":"1"}}
+{"type":"session.usage_record","id":"p11","parentId":"p10","timestamp":"2026-10-25T05:00:02.650Z","data":{"usage":{"apiCallId":"api-1","inputTokens":20,"outputTokens":8,"cacheReadTokens":0,"cacheWriteTokens":0}}}
+{"type":"assistant.message","id":"p12","parentId":"p11","timestamp":"2026-10-25T05:00:02.700Z","data":{"content":"Both tools finished.","toolRequests":[]}}
+{"type":"assistant.turn_end","id":"p13","parentId":"p12","timestamp":"2026-10-25T05:00:02.800Z","data":{"turnId":"1"}}
+{"type":"session.shutdown","id":"p14","parentId":"p13","timestamp":"2026-10-25T05:00:02.900Z","data":{}}

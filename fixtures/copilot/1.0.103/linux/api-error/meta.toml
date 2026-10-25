@@ -1,0 +1,6 @@
+harness = "copilot"
+version = "1.0.103"
+os = "linux"
+capture = "handmade"
+date = "2026-10-25"
+description = "A synthetic 1.0.103 model failure in the order the real CLI writes it: assistant.turn_end, then session.error with errorType query and a message, then a routine session.shutdown. The shutdown must not turn Errored back into Done."
