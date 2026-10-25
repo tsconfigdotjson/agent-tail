@@ -102,7 +102,7 @@ pub enum EventKind {
         input: Value,
         asks_user: bool,
         /// The short activity line the reducer logs for this call, when it logs one.
-        line: Option<ActivityLine>,
+        activity_line: Option<ActivityLine>,
     },
     /// A tool result. `size` is the result content's length in bytes.
     ToolResult {
@@ -159,7 +159,7 @@ pub enum EventKind {
     /// A title and where it came from.
     Title {
         title: String,
-        source: TitleSource,
+        title_source: TitleSource,
     },
     Cost {
         usd: f64,
@@ -618,7 +618,7 @@ impl Session {
             }
             EventKind::PermissionMode { mode } => self.set_permission(Some(*mode)),
             EventKind::SandboxPolicy { policy } => self.set_sandbox(Some(*policy)),
-            EventKind::Title { title, source } => match source {
+            EventKind::Title { title, title_source } => match title_source {
                 TitleSource::SessionName => self.set_session_name_title(Some(title)),
                 _ => self.title = title.clone(),
             },
@@ -655,15 +655,15 @@ impl Session {
                     }
                 }
             }
-            EventKind::ToolCall { name: _name, call_id, asks_user, line, input, .. } => {
+            EventKind::ToolCall { name: _name, call_id, asks_user, activity_line, input, .. } => {
                 if self.harness == Harness::Cursor {
                     adapters::cursor::find_project(self, adapters::cursor::strings(input));
                 }
                 match call_id.as_deref() {
                     Some(call_id) if !call_id.is_empty() => {
-                        self.tool_call_id(call_id, *asks_user, line.clone(), t);
+                        self.tool_call_id(call_id, *asks_user, activity_line.clone(), t);
                     }
-                    _ => self.tool_call(*asks_user, line.clone(), t),
+                    _ => self.tool_call(*asks_user, activity_line.clone(), t),
                 }
             }
             EventKind::ToolResult { call_id, .. } => match call_id.as_deref() {
@@ -842,6 +842,29 @@ mod tests {
         let sourced = parse_events(Harness::ClaudeCode, 7, text.as_bytes(), ParseMode::Full);
         assert_eq!(sourced[0].provenance.source, 7);
         assert_ne!(sourced[0].id, first[0].id, "the source is part of the id");
+    }
+
+    #[test]
+    fn payload_fields_do_not_shadow_provenance() {
+        // `line` and `source` are common provenance. The payload's activity line and title
+        // origin must serialize under their own names or the JSON would have duplicate keys.
+        let events = parsed(
+            Harness::ClaudeCode,
+            concat!(
+                r#"{"type":"assistant","timestamp":"2026-10-23T10:00:00Z","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"true"}}]}}"#,
+                "\n",
+                r#"{"type":"ai-title","aiTitle":"A title","timestamp":"2026-10-23T10:00:01Z"}"#,
+                "\n",
+            ),
+        );
+        let tool = events.iter().find(|event| event.kind_name() == "tool_call").unwrap();
+        let value = serde_json::to_value(tool).unwrap();
+        assert_eq!(value["line"], 1, "provenance line survives");
+        assert_eq!(value["activity_line"]["kind"], "command");
+        let title = events.iter().find(|event| event.kind_name() == "title").unwrap();
+        let value = serde_json::to_value(title).unwrap();
+        assert_eq!(value["source"], 0, "provenance source survives");
+        assert_eq!(value["title_source"], "generated");
     }
 
     #[test]

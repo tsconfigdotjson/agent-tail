@@ -74,7 +74,8 @@ fn session(row: &Value) -> Vec<EventSeed> {
     );
     if let Some(title) = row["title"].as_str().map(str::trim).filter(|title| !title.is_empty()) {
         out.push(
-            EventSeed::new(EventKind::Title { title: title.into(), source: crate::event::TitleSource::Other }).at(at),
+            EventSeed::new(EventKind::Title { title: title.into(), title_source: crate::event::TitleSource::Other })
+                .at(at),
         );
     }
     if let Some(cost) = row["cost"].as_f64().filter(|cost| cost.is_finite() && *cost >= 0.0) {
@@ -272,7 +273,7 @@ fn tool_part(payload: &Value, at: Option<f64>, out: &mut Vec<EventSeed>) {
             kind: crate::event::ToolKind::of(name, &input),
             input,
             asks_user,
-            line,
+            activity_line: line,
         })
         .at(at),
     );

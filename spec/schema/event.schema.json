@@ -1,0 +1,874 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tsconfigdotjson/agenttail/spec/schema/event.schema.json",
+  "title": "agenttail event (v0.1)",
+  "description": "One normalized event as printed by `agenttail events`, one JSON object per line.",
+  "$defs": {
+    "common": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Deterministic for the same harness, source and bytes."
+        },
+        "harness": {
+          "enum": [
+            "claude_code",
+            "codex",
+            "cursor",
+            "pi",
+            "opencode",
+            "gemini",
+            "copilot"
+          ]
+        },
+        "source": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The caller's file/source index; parse_lines uses 0."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "One-based physical line."
+        },
+        "record_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "at": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Seconds since the Unix epoch, or null when the record carries no time."
+        },
+        "sidechain": {
+          "type": "boolean",
+          "description": "Present (true) only for Claude Code sidechain records."
+        }
+      },
+      "required": [
+        "id",
+        "harness",
+        "source",
+        "offset",
+        "length",
+        "line",
+        "record_ids"
+      ]
+    },
+    "token_usage": {
+      "type": "object",
+      "properties": {
+        "input_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "output_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cache_read_input_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cache_creation_input_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "prompt_wrapper": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "unevaluatedProperties": false
+    },
+    "activity_line": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "prompt"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "unevaluatedProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "command"
+            },
+            "command": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "command"
+          ],
+          "unevaluatedProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "tool"
+            },
+            "name": {
+              "type": "string"
+            },
+            "detail": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "unevaluatedProperties": false
+        }
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "user_prompt"
+        },
+        "text": {
+          "type": "string"
+        },
+        "raw": {
+          "type": "string"
+        },
+        "wrappers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/prompt_wrapper"
+          }
+        },
+        "starts_turn": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type",
+        "text",
+        "raw",
+        "wrappers",
+        "starts_turn"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "assistant_text"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "reasoning"
+        },
+        "signature": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "tool_call"
+        },
+        "name": {
+          "type": "string"
+        },
+        "call_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "shell",
+            "edit",
+            "read",
+            "search",
+            "web",
+            "agent",
+            "question",
+            "other"
+          ]
+        },
+        "input": true,
+        "asks_user": {
+          "type": "boolean"
+        },
+        "activity_line": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/activity_line"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "name",
+        "kind",
+        "input",
+        "asks_user"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "tool_result"
+        },
+        "call_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "is_error": {
+          "type": "boolean"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "type",
+        "is_error",
+        "size"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "approval_requested"
+        },
+        "call_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tool_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "request_kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "approval_completed"
+        },
+        "call_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "approved": {
+          "type": "boolean"
+        },
+        "result_kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "approved"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "turn_start"
+        },
+        "turn_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "turn_end"
+        },
+        "reason": {
+          "enum": [
+            "end_turn",
+            "interrupted",
+            "aborted",
+            "error",
+            "duration-record"
+          ]
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "background_agents": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "required": [
+        "type",
+        "reason"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "usage"
+        },
+        "usage": {
+          "$ref": "#/$defs/token_usage"
+        },
+        "reported": {
+          "$ref": "#/$defs/token_usage"
+        },
+        "message_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cumulative": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type",
+        "usage",
+        "reported",
+        "cumulative"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "permission_mode"
+        },
+        "mode": {
+          "enum": [
+            "default",
+            "accept_edits",
+            "plan",
+            "bypass_permissions",
+            "dont_ask",
+            "auto",
+            "manual",
+            "normal",
+            "never",
+            "on_request",
+            "untrusted",
+            "granular_ask",
+            "granular_no_ask",
+            "unknown"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "mode"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "sandbox_policy"
+        },
+        "policy": {
+          "enum": [
+            "danger_full_access",
+            "read_only",
+            "external_sandbox",
+            "workspace_write",
+            "unknown"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "policy"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "model_change"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "model"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "title"
+        },
+        "title": {
+          "type": "string"
+        },
+        "title_source": {
+          "enum": [
+            "generated",
+            "index",
+            "session_name",
+            "prompt",
+            "other"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "title_source"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "cost"
+        },
+        "usd": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "type",
+        "usd"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "helper_spawn"
+        },
+        "agent_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "task_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output_file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tool_use_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "helper_end"
+        },
+        "task_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tool_use_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output_file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "status"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "compaction"
+        },
+        "trigger": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pre_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "post_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "session_info"
+        },
+        "cwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "session_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "entrypoint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "approvals_reviewer": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "meta"
+        },
+        "record_type": {
+          "type": "string"
+        },
+        "subtype": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "record": true
+      },
+      "required": [
+        "type",
+        "record_type",
+        "record"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "unknown"
+        },
+        "record_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "record": true
+      },
+      "required": [
+        "type",
+        "reason",
+        "record"
+      ],
+      "unevaluatedProperties": false
+    }
+  ]
+}

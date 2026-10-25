@@ -1,0 +1,386 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tsconfigdotjson/agenttail/spec/schema/session-state.schema.json",
+  "title": "agenttail SessionState (v0.1)",
+  "description": "The object `SessionReducer::state(now)` serializes, including status provenance fields.",
+  "$defs": {
+    "activity": {
+      "enum": [
+        "awaiting_answer",
+        "awaiting_approval",
+        "running_tool",
+        "thinking",
+        "background_work",
+        "done",
+        "interrupted",
+        "errored",
+        "idle",
+        "unknown"
+      ]
+    },
+    "certainty": {
+      "enum": [
+        "firm",
+        "inferred"
+      ]
+    },
+    "reason": {
+      "enum": [
+        "no_entries",
+        "no_writes_for",
+        "ask_user_tool",
+        "approval_requested",
+        "tool_call_stalled",
+        "tool_call_pending",
+        "prompt_sent",
+        "tool_result_in",
+        "turn_ended",
+        "interrupted",
+        "errored",
+        "background_helpers",
+        "composer_status"
+      ]
+    },
+    "permission": {
+      "enum": [
+        "default",
+        "accept_edits",
+        "plan",
+        "bypass_permissions",
+        "dont_ask",
+        "auto",
+        "manual",
+        "normal",
+        "never",
+        "on_request",
+        "untrusted",
+        "granular_ask",
+        "granular_no_ask",
+        "unknown"
+      ]
+    },
+    "sandbox": {
+      "enum": [
+        "danger_full_access",
+        "read_only",
+        "external_sandbox",
+        "workspace_write",
+        "unknown"
+      ]
+    },
+    "token_usage": {
+      "type": "object",
+      "properties": {
+        "input_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "output_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cache_read_input_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cache_creation_input_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "activity_line": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "prompt"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "unevaluatedProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "command"
+            },
+            "command": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "command"
+          ],
+          "unevaluatedProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "tool"
+            },
+            "name": {
+              "type": "string"
+            },
+            "detail": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "unevaluatedProperties": false
+        }
+      ]
+    },
+    "helper_state": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "activity": {
+          "enum": [
+            "awaiting_answer",
+            "awaiting_approval",
+            "running_tool",
+            "thinking",
+            "background_work",
+            "done",
+            "interrupted",
+            "errored",
+            "idle",
+            "unknown"
+          ]
+        },
+        "certainty": {
+          "enum": [
+            "firm",
+            "inferred"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "no_entries",
+            "no_writes_for",
+            "ask_user_tool",
+            "approval_requested",
+            "tool_call_stalled",
+            "tool_call_pending",
+            "prompt_sent",
+            "tool_result_in",
+            "turn_ended",
+            "interrupted",
+            "errored",
+            "background_helpers",
+            "composer_status"
+          ]
+        },
+        "since": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "last_write": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "activity",
+        "certainty",
+        "reason"
+      ],
+      "unevaluatedProperties": false
+    },
+    "session_meta": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string"
+        },
+        "folder": {
+          "type": "string"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "project",
+        "folder",
+        "branch",
+        "title"
+      ],
+      "unevaluatedProperties": false
+    },
+    "diagnostics": {
+      "type": "object",
+      "properties": {
+        "lines": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unparsed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cut": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "lines",
+        "unparsed",
+        "cut"
+      ],
+      "unevaluatedProperties": false
+    }
+  },
+  "type": "object",
+  "properties": {
+    "harness": {
+      "enum": [
+        "claude_code",
+        "codex",
+        "cursor",
+        "pi",
+        "opencode",
+        "gemini",
+        "copilot"
+      ]
+    },
+    "activity": {
+      "$ref": "#/$defs/activity"
+    },
+    "certainty": {
+      "$ref": "#/$defs/certainty"
+    },
+    "reason": {
+      "$ref": "#/$defs/reason"
+    },
+    "since": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "last_at": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "last_write": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "background": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/helper_state"
+      }
+    },
+    "permission": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/permission"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sandbox": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/sandbox"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "error": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "meta": {
+      "$ref": "#/$defs/session_meta"
+    },
+    "cost_usd": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "usage": {
+      "$ref": "#/$defs/token_usage"
+    },
+    "out_tokens": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "recent": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/activity_line"
+      }
+    },
+    "diagnostics": {
+      "$ref": "#/$defs/diagnostics"
+    }
+  },
+  "required": [
+    "harness",
+    "activity",
+    "certainty",
+    "reason",
+    "background",
+    "meta",
+    "usage",
+    "out_tokens",
+    "recent",
+    "diagnostics"
+  ],
+  "unevaluatedProperties": false
+}

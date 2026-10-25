@@ -166,7 +166,7 @@ fn assistant_message(state: &mut crate::event::ParseState, data: &Value, at: Opt
                 kind: ToolKind::of(name, &input),
                 input: input.clone(),
                 asks_user: Harness::Copilot.discovery().asks_user(name),
-                line: Some(describe_tool(name, &input)),
+                activity_line: Some(describe_tool(name, &input)),
             })
             .at(at),
         );
@@ -188,7 +188,7 @@ fn tool_start(state: &mut crate::event::ParseState, data: &Value, at: Option<f64
             kind: ToolKind::of(name, &input),
             input: input.clone(),
             asks_user: Harness::Copilot.discovery().asks_user(name),
-            line: Some(describe_tool(name, &input)),
+            activity_line: Some(describe_tool(name, &input)),
         })
         .at(at),
     );

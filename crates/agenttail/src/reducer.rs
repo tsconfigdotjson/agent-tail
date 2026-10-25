@@ -64,6 +64,24 @@ pub struct ChunkCtx<'a> {
     pub path: &'a Path,
 }
 
+impl ChunkCtx<'_> {
+    /// The mtime to feed, substituting `arrival` for the remote convention's zero.
+    ///
+    /// A remote frame carries `mtime = 0` when the remote's `stat` failed. The reducer can't
+    /// read the clock, so before `feed` the caller substitutes the time the frame arrived:
+    ///
+    /// ```
+    /// # use agenttail::{ChunkCtx, Timestamp};
+    /// # use std::path::Path;
+    /// let arrival = Timestamp::from_secs_f64(1_792_756_800.0);
+    /// let frame = ChunkCtx { offset: 0, mtime: Timestamp::EPOCH, path: Path::new("remote.jsonl") };
+    /// assert_eq!(frame.mtime_or(arrival), arrival);
+    /// ```
+    pub fn mtime_or(self, arrival: Timestamp) -> Timestamp {
+        if self.mtime == Timestamp::EPOCH { arrival } else { self.mtime }
+    }
+}
+
 /// One transcript's session, fed a chunk at a time. Only complete lines are read; the
 /// unfinished end of a chunk is held back until the rest arrives.
 ///
@@ -513,6 +531,21 @@ mod tests {
 
     fn cursor_prompt(text: &str) -> Value {
         json!({"role": "user", "message": {"content": [{"type": "text", "text": format!("<user_query>{text}</user_query>")}]}})
+    }
+
+    #[test]
+    fn an_unknown_remote_mtime_becomes_the_arrival_time() {
+        let arrival = Timestamp::from_secs_f64(NOW);
+        assert_eq!(ctx(0).mtime_or(arrival), Timestamp::from_secs_f64(NOW));
+        let remote = ChunkCtx { mtime: Timestamp::EPOCH, ..ctx(0) };
+        assert_eq!(remote.mtime_or(arrival), arrival);
+
+        // An untimed entry (Cursor) is dated by the substituted arrival time, not the epoch.
+        let mut s = SessionReducer::new(Harness::Cursor, ReducerOptions::default());
+        let feed = ChunkCtx { offset: 0, mtime: remote.mtime_or(arrival), path: remote.path };
+        s.feed(format!("{}\n", cursor_prompt("go")).as_bytes(), feed).unwrap();
+        let st = s.state(arrival + Duration::from_secs(1));
+        assert_eq!((st.activity, st.last_at), (Activity::Thinking, Some(arrival)));
     }
 
     #[test]

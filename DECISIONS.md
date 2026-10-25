@@ -660,3 +660,47 @@ real CLI artifacts captured through the mock and redacted by `agenttail fixture 
 the Gemini `tool` fixture and status checkpoints record the "call only after completion"
 finding, and the Copilot `permission-denied` fixture records the persisted request and
 unattended denial.
+
+## Phase G: language-neutral schemas and status.md (issue #67, 2026-10-25)
+
+**The v0.1 contract is now frozen under `spec/schema/` and `spec/status.md`.** The schemas are
+hand-written from the Rust `Event`, `EventKind`, `SessionState` and fixture checkpoint types,
+not generated at build time, so they stay readable and reviewable. There are three:
+`event.schema.json` (every v0.1 event kind with common provenance and payloads),
+`session-state.schema.json` (the full reducer state, including certainty, reason, helpers,
+usage and diagnostics) and `status.schema.json` (a fixture checkpoint line, including the
+optional helper/meta steps). `spec/status.md` explains the event/status meaning, checkpoint
+protocol, canonical JSON and how a port passes. `docs/conformance.md` and the README link
+them.
+
+**The fixture corpus is the validation test.** `crates/agenttail/tests/schema_fixtures.rs`
+validates every committed `expected/events.jsonl` and `expected/status.jsonl` line, parses
+every scenario input so harnesses without an events fixture (OpenCode today) are covered,
+validates each final `SessionState` and checks one sample of every event kind. The test uses
+the `jsonschema` crate only as a dev-dependency.
+
+**Schema writing found and fixed two serde flatten collisions.** `EventKind::ToolCall.activity_line`
+and `EventKind::Title.title_source` used to serialize as `line` and `source`, colliding with
+the common provenance fields of the same names. The raw fixture lines therefore contained
+duplicate JSON keys, and a normal JSON parser silently kept the payload value and lost the
+provenance one. The fields are now named `activity_line` and `title_source`, the expected
+events were regenerated, and tests assert that provenance `source`/`line` survive alongside
+the payload fields. This is a pre-release event-shape change, made before any port froze it.
+
+**QUESTIONS #4 is resolved by keeping `Activity::class()`.** The library has shipped the
+four-class enum since Phase 1a; it has no wording and StatusWall maps it to its own labels.
+Moving it out would remove a useful sort key for no gain.
+
+**QUESTIONS #6 is resolved: untimed entries stay dated by transcript mtime.** This is the
+existing behaviour, and it is the better answer for a transcript first read long after it was
+written. Cursor's prompts still carry their own time; the mtime is the cap/fallback for its
+other records.
+
+**QUESTIONS #7 is resolved: `Timestamp` stays `f64` seconds for v0.1.** That matches tvdash
+and the remote frames. Integer milliseconds or nanoseconds would make equality exact but add
+conversion pain now; revisit only if an adopting port proves equality is a real problem.
+
+**QUESTIONS #9 is resolved: remote callers substitute arrival time for `mtime = 0`.** The
+sans-IO reducer cannot read the clock. `ChunkCtx::mtime_or(arrival)` now makes the remote
+convention explicit and tested, and `ChunkCtx`/`spec/status.md` document it. StatusWall's
+remote loop is still not wired to the reducer; #16 remains parked, as decided.

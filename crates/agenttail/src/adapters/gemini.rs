@@ -120,7 +120,7 @@ fn metadata(state: &mut crate::event::ParseState, set: &Value, at: Option<f64>, 
         moved = true;
     }
     if let Some(title) = set["summary"].as_str().map(str::trim).filter(|title| !title.is_empty()) {
-        out.push(EventSeed::new(EventKind::Title { title: title.into(), source: TitleSource::Other }).at(at));
+        out.push(EventSeed::new(EventKind::Title { title: title.into(), title_source: TitleSource::Other }).at(at));
         moved = true;
     }
     if let Some(id) = set["sessionId"].as_str().filter(|id| !id.is_empty()) {
@@ -293,7 +293,7 @@ fn tool_call(state: &mut crate::event::ParseState, call: &Value, at: Option<f64>
                 kind: ToolKind::of(name, &input),
                 input: input.clone(),
                 asks_user: Harness::Gemini.discovery().asks_user(name),
-                line: Some(describe_tool(name, &input)),
+                activity_line: Some(describe_tool(name, &input)),
             })
             .at(at),
         );

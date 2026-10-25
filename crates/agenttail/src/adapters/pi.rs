@@ -106,7 +106,7 @@ impl Adapter for Pi {
             "session_info" => out.push(
                 EventSeed::new(EventKind::Title {
                     title: e["name"].as_str().unwrap_or_default().into(),
-                    source: TitleSource::SessionName,
+                    title_source: TitleSource::SessionName,
                 })
                 .at(at),
             ),
@@ -186,7 +186,7 @@ fn message(state: &mut crate::event::ParseState, e: &Value, at: Option<f64>, out
                                 kind: ToolKind::of(name, &block["arguments"]),
                                 input: block["arguments"].clone(),
                                 asks_user: crate::Harness::Pi.discovery().asks_user(name),
-                                line: Some(describe_tool(name, &block["arguments"])),
+                                activity_line: Some(describe_tool(name, &block["arguments"])),
                             })
                             .at(at),
                         );

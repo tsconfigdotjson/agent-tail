@@ -162,7 +162,7 @@ impl Adapter for Codex {
                             kind: ToolKind::of(name, p),
                             input: p.clone(),
                             asks_user: crate::Harness::Codex.discovery().asks_user(name),
-                            line: describe_tool(name, p),
+                            activity_line: describe_tool(name, p),
                         })
                         .at(at),
                     );
