@@ -1,0 +1,54 @@
+{
+  "name": "opencode_tool",
+  "description": "A bash tool call runs for two seconds, then the model answers after its result.",
+  "title": "Run a short tool",
+  "steps": [
+    {
+      "expect": {
+        "user_contains": "run the tool"
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "bash",
+            "input": {
+              "command": "sleep 2",
+              "description": "wait a moment"
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 5
+        },
+        "fault": {
+          "type": "slow_first_token",
+          "delay_ms": 500
+        }
+      }
+    },
+    {
+      "expect": {
+        "has_tool_result": true,
+        "tool_result_id": "call_mock_0_0"
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "text",
+            "text": "The tool finished."
+          }
+        ],
+        "usage": {
+          "input_tokens": 20,
+          "output_tokens": 8
+        },
+        "fault": {
+          "type": "slow_first_token",
+          "delay_ms": 500
+        }
+      }
+    }
+  ]
+}

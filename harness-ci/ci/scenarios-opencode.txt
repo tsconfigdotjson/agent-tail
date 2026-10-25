@@ -1,0 +1,4 @@
+# Stable OpenCode scenarios for the pinned + latest matrix. The pinned version writes the
+# committed row fixtures; a latest failure is upstream drift, not a silent skip.
+opencode_plain_qa
+opencode_tool

@@ -206,12 +206,12 @@ impl ToolKind {
             "Bash" | "bash" | "Shell" | "shell" | "exec_command" | "shell_command" | "powershell" => ToolKind::Shell,
             "Edit" | "edit" | "Write" | "write" | "StrReplace" | "apply_patch" | "apply_diff" => ToolKind::Edit,
             "Read" | "read" | "read_file" | "ReadLints" | "view_image" => ToolKind::Read,
-            "Grep" | "grep" | "Glob" | "find" | "ls" | "search" | "codebase_search" | "tool_search" => ToolKind::Search,
-            "WebFetch" | "WebSearch" => ToolKind::Web,
-            "Agent" | "Task" => ToolKind::Agent,
-            "AskUserQuestion" | "ExitPlanMode" | "request_user_input" | "AskQuestion" | "ask_question" => {
-                ToolKind::Question
-            }
+            "Grep" | "grep" | "Glob" | "glob" | "find" | "ls" | "list" | "search" | "codebase_search"
+            | "tool_search" => ToolKind::Search,
+            "WebFetch" | "WebSearch" | "webfetch" | "websearch" => ToolKind::Web,
+            "Agent" | "Task" | "task" => ToolKind::Agent,
+            "AskUserQuestion" | "ExitPlanMode" | "request_user_input" | "AskQuestion" | "ask_question" | "question"
+            | "plan_exit" => ToolKind::Question,
             _ if input["command"].is_string() => ToolKind::Shell,
             _ => ToolKind::Other,
         }
@@ -494,6 +494,9 @@ pub(crate) struct ParseState {
     pub(crate) codex_usage: TokenUsage,
     /// Pi reports cost per model call; this is the session total so far.
     pub(crate) pi_cost: f64,
+    /// OpenCode message id -> the role its message row named, so its parts know whose
+    /// text they carry (a part row has no role of its own).
+    pub(crate) opencode_roles: HashMap<String, &'static str>,
 }
 
 /// A prompt's tag wrappers (`<user_query>…</user_query>`, `<timestamp>…</timestamp>`, …).

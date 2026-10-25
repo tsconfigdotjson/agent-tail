@@ -22,6 +22,9 @@ The seed corpus from tvdash now lives in the versioned layout:
 | `pi/1.4/linux/plain-qa` | Pi 1.4.0 against the local mock: one prompt, one text answer, `stopReason: stop` |
 | `pi/1.4/linux/tool-call` | Pi 1.4.0: a `bash` tool call and result, then the final answer; proves a pending Pi tool is firm `running_tool`, not inferred approval |
 | `pi/1.4/linux/api-error` | Pi 1.4.0 with retries disabled: assistant `stopReason: error` and `errorMessage` |
+| `opencode/1.19.4/linux/plain-qa` | a real `opencode run` text turn, exported from its SQLite database |
+| `opencode/1.19.4/linux/tool` | a real `opencode run` bash call and the answer after its result |
+| `opencode/1.19.4/linux/tool-running` | a live SQLite snapshot during a `sleep 8` tool call, including the 20 s stall inference |
 
 They were already scrubbed of prose when copied from tvdash; `agenttail fixture redact`
 then replaced their fake placeholder usernames (`dev`, `sam`) with canonical
@@ -92,3 +95,9 @@ through `AGENTTAIL_BIN` before its PR is opened.
 scenario: `input/state-vscdb.jsonl` holds synthetic `cursorDiskKV` key/value rows, and
 `crates/agenttail/src/sqlite.rs` builds a real SQLite database from it (with the rows left in
 the WAL) to test the snapshot reader.
+
+OpenCode's fixtures are **database row exports**, not transcript lines. Each line is
+`{"table": "session" | "message" | "part", "row": {…columns…}}`, in the reader's feed order:
+the session row, then each message row followed by its parts. The adapter,
+`parse_lines(Harness::OpenCode, …)` and the harness driver all consume the same shape. See
+[`docs/formats/opencode.md`](../docs/formats/opencode.md).

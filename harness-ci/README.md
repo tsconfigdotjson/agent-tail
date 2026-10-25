@@ -128,9 +128,9 @@ That run produced 0 hard failures and `Done` while the screen was idle.
 
 ## A1: mock model server (`mock-server/`)
 
-A scripted Anthropic Messages and OpenAI Responses server. It answers streaming and
-non-streaming requests, logs every request, and returns a 500 with a readable explanation
-when a request is not the next scripted step.
+A scripted Anthropic Messages, OpenAI Responses, and OpenAI Chat Completions server. It
+answers streaming and non-streaming requests, logs every request, and returns a 500 with a
+readable explanation when a request is not the next scripted step.
 
 ```sh
 cd harness-ci
@@ -177,6 +177,9 @@ A scenario is a list of steps:
   consume a step. Without that, the title request steals the scripted first reply.
 
 Codex's OpenAI Responses subset is implemented (`/v1/responses`); A4 exercises it from the live CLI.
+OpenCode's Chat Completions subset is implemented at `/v1/chat/completions` and
+`/chat/completions`; its title request (system prompt starts `You are a title generator.`) is
+answered without consuming a scenario step, like Claude's and Codex's title requests.
 
 ## A2: PTY driver (`driver/`)
 
@@ -379,6 +382,70 @@ snapshot of the IDE's `state.vscdb`; the missing piece is the live approval-wait
 (A5 #3), which needs Lee's Mac and is written up in
 [`docs/formats/cursor.md`](../docs/formats/cursor.md#needs-lee-the-live-approval-wait-a5-3).
 
+## OpenCode: real-harness spike and scenarios (2026-10-25)
+
+OpenCode **1.19.4** (`opencode-ai` on npm) runs fully offline through the same PTY driver.
+It is not a JSONL transcript harness: sessions live in
+`$XDG_DATA_HOME/opencode/opencode.db` (`~/.local/share/opencode/opencode.db` by default), with
+the legacy `session`/`message`/`part` tables in use even though the v2 `session_message` table
+also exists. `part` rows carry a tool call's mutable `state.status` (`pending`, `running`,
+`completed`, `error`), and a `step-finish` part carries the finish reason. Rows are rewritten
+in place, so the driver reads the database snapshot and rebuilds the session; it does not tail
+an append offset. See [`docs/formats/opencode.md`](../docs/formats/opencode.md).
+
+### Pointing it at the mock
+
+The driver gives OpenCode a temporary home and an inline provider config:
+
+```sh
+HOME="$TMP/home" \
+XDG_CONFIG_HOME="$TMP/home/.config" XDG_DATA_HOME="$TMP/home/.local/share" \
+XDG_STATE_HOME="$TMP/home/.local/state" XDG_CACHE_HOME="$TMP/home/.cache" \
+OPENCODE_CONFIG_CONTENT='{"provider":{"test":{...,"npm":"@ai-sdk/openai-compatible",
+  "options":{"baseURL":"http://127.0.0.1:<port>/v1"}}}}' \
+OPENCODE_DISABLE_PROJECT_CONFIG=1 OPENCODE_PURE=1 OPENCODE_DISABLE_AUTOUPDATE=1 \
+OPENCODE_DISABLE_AUTOCOMPACT=1 OPENCODE_DISABLE_MODELS_FETCH=1 OPENCODE_AUTH_CONTENT='{}' \
+opencode run --format json --auto -m test/test-model run the tool
+```
+
+`--auto` approves tools that are not explicitly denied. The driver additionally allows
+`bash`/`edit` in the provider config so the non-interactive tool scenario cannot block on a
+prompt. Pass prompt words as separate argv entries: `opencode run "run the tool"` stores the
+surrounding quotes in the database, while `opencode run run the tool` does not.
+
+The title request is a separate `/v1/chat/completions` call; the mock answers it with the
+scenario `title` and does not consume a step. A pending approval is not a row at all
+(`permission.asked` is ephemeral), so the library can only infer `AwaitingApproval` from a
+pending/running tool after the 20 s stall threshold.
+
+### Scenarios
+
+| scenario | what it checks |
+|---|---|
+| `opencode_plain_qa` | one text turn; the SQLite turn ends `stop`, library firm `done` |
+| `opencode_tool` | a bash `sleep 2` tool call is sampled as firm `running_tool`, then the answer after its result ends firm `done` |
+
+The three committed fixtures under `fixtures/opencode/1.19.4/linux/` are exported, redacted
+database rows: a complete text turn, a completed tool turn, and a live snapshot while the tool
+was running (including the inferred approval checkpoint). The driver writes the same row
+stream to each run's `transcripts/<session-id>.jsonl`, so scoring and survey see it.
+
+### Matrix: pinned + latest
+
+The `opencode` job installs a pinned **1.19.4** and npm **latest** on Linux and macOS, checks
+the reported `opencode --version`, and runs both scenarios. The pinned job is the
+reproduction; the latest job is deliberately red. A new release that changes the database
+shape or turn vocabulary fails the latest job with its run artifacts, rather than being
+silently ignored. A pinned failure means this repository regressed; a latest-only failure is
+upstream drift and needs a new exported fixture + adapter update.
+
+```sh
+cd harness-ci
+export PATH="$HOME/.cargo/bin:$PATH"
+cargo run -p harness-driver -- --scenario driver/scenarios/opencode_plain_qa.json
+cargo run -p harness-driver -- --scenario driver/scenarios/opencode_tool.json
+```
+
 ## A6: GitHub Actions, version matrix and nightly drift
 
 [`.github/workflows/harness-ci.yml`](../.github/workflows/harness-ci.yml) builds this workspace
@@ -390,7 +457,9 @@ explicitly. The root `cargo test` still does not build it.
   A separate `codex` job runs pinned Codex **0.160.1** on both OSes with
   `ci/scenarios-codex.txt`. The `pi` matrix runs pinned Pi **1.4.0** and npm **latest** on both
   OSes with `ci/scenarios-pi.txt`; a newer release that breaks the mocked turn, transcript or
-  status fails that job loudly rather than being skipped. Every job installs the CLI from npm into
+  status fails that job loudly rather than being skipped. The `opencode` job runs pinned
+  OpenCode **1.19.4** and npm **latest** on both OSes with `ci/scenarios-opencode.txt`, so its
+  latest lane also fails loudly on upstream drift. Every job installs the CLI from npm into
   `$RUNNER_TEMP`, checks the reported version, builds `harness-driver --release`, and runs its
   scenarios sequentially. A hard scoring failure fails the job; run artifacts are uploaded even
   when a scenario fails.

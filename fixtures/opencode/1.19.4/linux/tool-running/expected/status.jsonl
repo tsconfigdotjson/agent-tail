@@ -1,0 +1,4 @@
+{"after_line":1,"now_offset_s":0.0,"activity":"idle","certainty":"firm","reason":"no_entries","title":"Tool running capture"}
+{"after_line":3,"now_offset_s":0.0,"activity":"thinking","certainty":"firm","reason":"prompt_sent"}
+{"after_line":6,"now_offset_s":0.0,"activity":"running_tool","certainty":"firm","reason":"tool_call_pending"}
+{"after_line":6,"now_offset_s":30.0,"activity":"awaiting_approval","certainty":"inferred","reason":"tool_call_stalled"}

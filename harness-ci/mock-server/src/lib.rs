@@ -6,6 +6,7 @@
 //! change fails the run instead of hanging it.
 
 pub mod anthropic;
+pub mod chat;
 pub mod openai;
 pub mod request;
 pub mod scenario;
@@ -81,6 +82,7 @@ impl MockState {
         let view = match api {
             Api::Anthropic => RequestView::from_anthropic(body),
             Api::OpenAi => RequestView::from_openai(body),
+            Api::OpenAiChat => RequestView::from_openai_chat(body),
         };
         let mut inner = self.inner.lock().expect("mock state");
         let request_index = inner.requests as usize;
@@ -190,6 +192,7 @@ fn api_name(api: Api) -> &'static str {
     match api {
         Api::Anthropic => "anthropic",
         Api::OpenAi => "openai",
+        Api::OpenAiChat => "openai_chat",
     }
 }
 
@@ -198,6 +201,8 @@ pub fn router(state: Arc<MockState>) -> Router {
         .route("/v1/messages", post(anthropic_messages))
         .route("/v1/messages/count_tokens", post(count_tokens))
         .route("/v1/responses", post(openai_responses))
+        .route("/v1/chat/completions", post(openai_chat_completions))
+        .route("/chat/completions", post(openai_chat_completions))
         .route("/v1/models", get(models))
         .fallback(fallback)
         .with_state(state)
@@ -350,6 +355,65 @@ async fn openai_responses(State(state): State<Arc<MockState>>, body: Bytes) -> R
     }
 }
 
+async fn openai_chat_completions(State(state): State<Arc<MockState>>, body: Bytes) -> Response {
+    let body: Value = match serde_json::from_slice(&body) {
+        Ok(body) => body,
+        Err(error) => {
+            return fail(StatusCode::BAD_REQUEST, format!("request is not JSON: {error}"), Api::OpenAiChat);
+        }
+    };
+    if is_opencode_title_request(&body) {
+        state.log_simple("POST", "/v1/chat/completions?source=title");
+        return opencode_title_response(&body, state.scenario.title.as_deref());
+    }
+    let (index, step) = match state.take_step(Api::OpenAiChat, "/v1/chat/completions", &body) {
+        Ok(found) => found,
+        Err(error) => return failure_response(error, Api::OpenAiChat),
+    };
+    if let Some(Fault::Http { status, message }) = step.reply.fault {
+        return error_response(status, message.as_deref().unwrap_or("scripted failure"), Api::OpenAiChat);
+    }
+    let model = state.scenario.model(&step, "test-model");
+    let stop_reason = state.scenario.stop_reason(&step);
+    let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
+    if stream {
+        sse_response(chat::stream_events(index, &model, &step.reply, &stop_reason))
+    } else {
+        Json(chat::completion(index, &model, &step.reply, &stop_reason)).into_response()
+    }
+}
+
+/// OpenCode asks the model for a session title on its own request. Its system prompt starts
+/// with this fixed sentence; answer it without consuming a scenario step.
+fn is_opencode_title_request(body: &Value) -> bool {
+    body.get("messages").and_then(Value::as_array).is_some_and(|messages| {
+        messages.iter().any(|message| {
+            message.get("role").and_then(Value::as_str) == Some("system")
+                && message
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .is_some_and(|text| text.starts_with("You are a title generator."))
+        })
+    })
+}
+
+fn opencode_title_response(body: &Value, override_title: Option<&str>) -> Response {
+    let reply = scenario::Reply {
+        model: None,
+        content: vec![scenario::Block::Text { text: override_title.unwrap_or("Mock session title").to_string() }],
+        stop_reason: None,
+        usage: Default::default(),
+        fault: None,
+    };
+    let model = body.get("model").and_then(Value::as_str).unwrap_or("test-model");
+    let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
+    if stream {
+        sse_response(chat::stream_events(9000, model, &reply, "end_turn"))
+    } else {
+        Json(chat::completion(9000, model, &reply, "end_turn")).into_response()
+    }
+}
+
 async fn models(State(state): State<Arc<MockState>>) -> Response {
     state.log_simple("GET", "/v1/models");
     Json(json!({"object": "list", "data": [], "has_more": false})).into_response()
@@ -395,6 +459,7 @@ fn error_response(status: u16, message: &str, api: Api) -> Response {
     let body = match api {
         Api::Anthropic => anthropic::error(status.as_u16(), message),
         Api::OpenAi => openai::error(status.as_u16(), message),
+        Api::OpenAiChat => chat::error(status.as_u16(), message),
     };
     (status, Json(body)).into_response()
 }

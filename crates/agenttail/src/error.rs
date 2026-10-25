@@ -15,7 +15,8 @@ pub enum Error {
     ///
     /// [`SessionReducer::received`]: crate::SessionReducer::received
     OffsetMismatch { expected: u64, got: u64 },
-    /// Cursor's `state.vscdb` could not be copied, opened read-only, or read.
+    /// A harness database (`state.vscdb` or `opencode.db`) could not be copied, opened
+    /// read-only, or read.
     #[cfg(feature = "sqlite")]
     Sqlite { path: std::path::PathBuf, message: String },
 }

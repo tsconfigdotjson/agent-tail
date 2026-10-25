@@ -12,7 +12,8 @@ default = ["fs", "sqlite"]
 # Finding and tailing transcripts on this machine's disk (`Tracker`). Without it the crate
 # is sans-IO: bytes in, state out.
 fs = []
-# Reading Cursor's `state.vscdb` from a private, read-only snapshot (`sqlite`).
+# Reading Cursor's `state.vscdb` and OpenCode's `opencode.db` from private, read-only
+# snapshots (`sqlite`).
 sqlite = ["dep:rusqlite"]
 
 [dependencies]

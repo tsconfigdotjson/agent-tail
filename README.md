@@ -2,12 +2,13 @@
 
 **What every coding agent on this machine is doing right now**: thinking, running a tool,
 waiting for your answer, perhaps waiting for an approval, done, or idle. Read from the
-transcripts Claude Code, Codex, Cursor and Pi already write, so there's nothing to install
-into the agents and nothing to configure.
+sessions Claude Code, Codex, Cursor, Pi and OpenCode already write, so there's nothing to
+install into the agents and nothing to configure.
 
 Status: **pre-release, private.** The sans-IO core, the `fs` tracker, the CLI and the
 real-harness rig are in place. Permission modes, firm turn ends, interrupts, errors and
-background helpers are implemented; the harness CI matrix and StatusWall adoption are next.
+background helpers are implemented; harness CI covers Claude Code, Codex, OpenCode and Pi,
+while Cursor still needs a donated live-approval capture. StatusWall adoption is next.
 See [PLAN.md](PLAN.md) and [issue #1](https://github.com/tsconfigdotjson/agenttail/issues/1).
 
 ## Status is the headline
@@ -16,13 +17,13 @@ For each session you get a `SessionState`:
 
 | `activity` | when (today's rules) | `certainty` |
 |---|---|---|
-| `awaiting_answer` | the last entry calls an ask-the-user tool (`AskUserQuestion`, `ExitPlanMode`, `request_user_input`, Cursor's ask tools) | firm |
+| `awaiting_answer` | the last entry calls an ask-the-user tool (`AskUserQuestion`, `ExitPlanMode`, `request_user_input`, Cursor's ask tools, OpenCode's `question`/`plan_exit`) | firm |
 | `awaiting_approval` | a tool call has had no result for 20 s **and the mode can ask a human**: perhaps a permission prompt | **inferred** |
 | `running_tool` | a tool call is waiting for its result, including under bypass/`dontAsk`/`never`, an SDK entrypoint or an AI approval reviewer | firm |
 | `thinking` | a prompt was sent, a tool's result came back, or Cursor's composer status is `generating` | firm |
-| `done` | the turn ended normally (Claude `end_turn`/`stop_hook_summary`/`turn_duration`/`agents_killed`, or a rejected tool use; Codex `task_complete`/`turn_complete`; Cursor `turn_ended` or `composerData.status: completed`) | firm |
-| `interrupted` | the user interrupted or aborted (Claude's interrupt text, Codex `turn_aborted`, Cursor's `turn_ended` or `composerData.status: aborted`) | firm |
-| `errored` | the harness recorded an error ending the turn (Claude's synthetic API row, Codex `task_complete.error`, Cursor's error status and message) | firm |
+| `done` | the turn ended normally (Claude `end_turn`/`stop_hook_summary`/`turn_duration`/`agents_killed`, or a rejected tool use; Codex `task_complete`/`turn_complete`; Cursor `turn_ended` or `composerData.status: completed`; OpenCode's `step-finish` reason `stop`) | firm |
+| `interrupted` | the user interrupted or aborted (Claude's interrupt text, Codex `turn_aborted`, Cursor's `turn_ended` or `composerData.status: aborted`, OpenCode's aborted `step-finish`) | firm |
+| `errored` | the harness recorded an error ending the turn (Claude's synthetic API row, Codex `task_complete.error`, Cursor's error status and message, OpenCode's failed `step-finish`/assistant error) | firm |
 | `background_work` | the turn ended, but a subagent or background task is still writing (Claude's `pendingBackgroundAgentCount` makes this firm; a helper's own transcript makes it inferred) | firm / **inferred** |
 | `idle` | nothing written for 15 min, or nothing read yet | firm |
 
@@ -31,6 +32,8 @@ Codex `sandbox` policy, the `background` helpers still running, and, for `errore
 harness's `error` kind/message. For Cursor, the `sqlite` feature (on by default) reads the
 IDE's `state.vscdb` from a private snapshot: `composerData.name` becomes the title, and
 `composerData.status` can firm up thinking/done/interrupted where the transcript is older.
+For OpenCode the same feature reads a private snapshot of `opencode.db`; its permission
+prompts are ephemeral, so a pending tool stays `AwaitingApproval` only as an inference.
 
 Each state also says *why* (`reason`, one value per rule), and carries the project, branch,
 title, cost (where the harness records it), token usage (`input`, `output`, cache read and
@@ -83,8 +86,8 @@ and quirks with their evidence.
 The CLI, for looking at what a dashboard would show:
 
 ```
-agenttail ls [--hours N] [--agents claude_code,codex,cursor,pi]   # one poll, JSON lines
-agenttail watch [--hours N] [--agents …]                         # each change, with its reason
+agenttail ls [--hours N] [--agents claude_code,codex,cursor,pi,opencode]   # one poll, JSON lines
+agenttail watch [--hours N] [--agents …]                                   # each change, with its reason
 agenttail events [--agent ID] <path>                           # normalized events, JSON lines
 agenttail fixture redact|capture|scan …                        # offline fixture tooling
 ```
@@ -102,20 +105,23 @@ versioned fixture directory. `fixture redact` is deterministic and structure-pre
   `~/.codex/sessions/YYYY/MM/DD/*.jsonl` and `~/.codex/session_index.jsonl` (Codex;
   `CODEX_HOME` moves both; compressed `.jsonl.zst` history is skipped),
   `~/.cursor/projects/*/agent-transcripts/**.jsonl` and Cursor's
-  `User/globalStorage/state.vscdb` (Cursor), and
+  `User/globalStorage/state.vscdb` (Cursor),
   `~/.pi/agent/sessions/<encoded-cwd>/*.jsonl` (Pi; `PI_CODING_AGENT_DIR` and
-  `PI_CODING_AGENT_SESSION_DIR` move it). Claude Code subagent transcripts and their
-  sibling `.meta.json` are read too. Only the bytes appended since the last poll are read;
-  a session's first read goes 1 MB at a time. Cursor's database is never opened in place:
-  it is copied with `-wal`/`-shm` into a private temporary folder, opened `mode=ro`, and
-  that folder is deleted afterwards. Copies are throttled to once every 30 s and only
-  happen while a Cursor session is in the window.
+  `PI_CODING_AGENT_SESSION_DIR` move it), and
+  `~/.local/share/opencode/opencode.db` (OpenCode; `XDG_DATA_HOME` moves it and `OPENCODE_DB`
+  names the file). Claude Code subagent transcripts and their sibling `.meta.json` are read
+  too. Only the bytes appended since the last poll are read; a session's first read goes 1 MB
+  at a time. Cursor's and OpenCode's databases are never opened in place: they are copied with
+  `-wal`/`-shm` into a private temporary folder, opened `mode=ro`, and that folder is deleted
+  afterwards. Cursor's copy is throttled to once every 30 s; OpenCode's is taken when its
+  stamp changes, because its rows are rewritten as a turn progresses.
 - **Does not read** `~/.claude/sessions/<pid>.json`: the A3 registry run showed `waiting`
   also covers dialogs and a SIGKILL leaves a stale file, so it is evidence, not a source
   (see DECISIONS.md). No pid liveness probe is made.
 - **Touches nothing** in the agents: no hooks, config changes or subprocesses, and **no
-  network**. Symlinks are not followed. The only write is the private, read-only Cursor
-  database snapshot in the system temp folder, removed before the read returns.
+  network**. Symlinks are not followed. The only writes are private, read-only database
+  snapshots (Cursor's `state.vscdb` and OpenCode's `opencode.db`) in the system temp folder,
+  removed before the read returns.
 - **Keeps** a small state per session in memory (never the transcript), plus the start of
   a line still being written.
 
@@ -127,6 +133,7 @@ versioned fixture directory. `fixture redact` is deterministic and structure-pre
 | Codex CLI | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | scrubbed 0.160.1 recordings |
 | Cursor agent | `~/.cursor/projects/<project>/agent-transcripts/<id>/<id>.jsonl`, plus the IDE's `state.vscdb` | a handmade transcript and synthetic SQLite rows in the shape seen on a real Mac; live approval waits still need a donated capture |
 | Pi | `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<id>.jsonl` | Pi 1.4.0 (pinned and npm latest at the time); `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR` overrides; no approval prompt, so a pending tool is firm `RunningTool` |
+| OpenCode | `~/.local/share/opencode/opencode.db` (`XDG_DATA_HOME`, `OPENCODE_DB`) | a live 1.19.4 `opencode run` against the harness mock, with exported/redacted row fixtures; approvals remain inferred because they are not persisted |
 
 ## Building
 

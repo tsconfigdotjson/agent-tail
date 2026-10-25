@@ -22,29 +22,35 @@ pub enum Harness {
     Cursor,
     /// Pi (the `pi` coding-agent CLI).
     Pi,
+    /// OpenCode's CLI, whose sessions live in a SQLite database.
+    #[serde(rename = "opencode")]
+    OpenCode,
 }
 
 impl Harness {
     /// Every harness, in the order their folders are scanned.
-    pub const ALL: [Harness; 4] = [Harness::ClaudeCode, Harness::Codex, Harness::Cursor, Harness::Pi];
+    pub const ALL: [Harness; 5] =
+        [Harness::ClaudeCode, Harness::Codex, Harness::Cursor, Harness::Pi, Harness::OpenCode];
 
-    /// A stable id: `claude_code`, `codex`, `cursor`, `pi`.
+    /// A stable id: `claude_code`, `codex`, `cursor`, `pi`, `opencode`.
     pub fn id(self) -> &'static str {
         match self {
             Harness::ClaudeCode => "claude_code",
             Harness::Codex => "codex",
             Harness::Cursor => "cursor",
             Harness::Pi => "pi",
+            Harness::OpenCode => "opencode",
         }
     }
 
-    /// The tool's own name: "Claude Code", "Codex", "Cursor".
+    /// The tool's own name: "Claude Code", "Codex", "Cursor", "Pi", "OpenCode".
     pub fn name(self) -> &'static str {
         match self {
             Harness::ClaudeCode => "Claude Code",
             Harness::Codex => "Codex",
             Harness::Cursor => "Cursor",
             Harness::Pi => "Pi",
+            Harness::OpenCode => "OpenCode",
         }
     }
 
@@ -59,6 +65,7 @@ impl Harness {
             Harness::Codex => &adapters::codex::Codex,
             Harness::Cursor => &adapters::cursor::Cursor,
             Harness::Pi => &adapters::pi::Pi,
+            Harness::OpenCode => &adapters::opencode::OpenCode,
         }
     }
 }
@@ -225,13 +232,22 @@ mod tests {
     #[test]
     fn lists_every_harness() {
         let got: Vec<_> = Harness::ALL.iter().map(|h| (h.id(), h.name())).collect();
-        assert_eq!(got, [("claude_code", "Claude Code"), ("codex", "Codex"), ("cursor", "Cursor"), ("pi", "Pi")]);
+        assert_eq!(
+            got,
+            [
+                ("claude_code", "Claude Code"),
+                ("codex", "Codex"),
+                ("cursor", "Cursor"),
+                ("pi", "Pi"),
+                ("opencode", "OpenCode"),
+            ]
+        );
     }
 
     #[test]
     fn unknown_ids_get_a_useful_message() {
         for (id, want) in [
-            ("vim", "no agent \"vim\" (there are: claude_code, codex, cursor, pi)"),
+            ("vim", "no agent \"vim\" (there are: claude_code, codex, cursor, pi, opencode)"),
             ("Claude Code", "no agent \"Claude Code\""),
             ("", "no agent \"\""),
         ] {

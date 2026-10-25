@@ -36,7 +36,7 @@ pub fn read_screen(harness: Harness, screen: &str) -> ScreenReading {
     match harness {
         Harness::ClaudeCode => read_claude(screen),
         Harness::Codex => read_codex(screen),
-        Harness::Cursor => ScreenReading { state: ScreenState::Unknown, background_agents: false },
+        Harness::Cursor | Harness::OpenCode => ScreenReading { state: ScreenState::Unknown, background_agents: false },
         _ => ScreenReading { state: ScreenState::Unknown, background_agents: false },
     }
 }

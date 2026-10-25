@@ -32,6 +32,7 @@ fn harness_for(scenario: &Path, root: &Path) -> Harness {
         "codex" => Harness::Codex,
         "cursor" => Harness::Cursor,
         "pi" => Harness::Pi,
+        "opencode" => Harness::OpenCode,
         other => panic!("{}: unknown harness folder {other}", scenario.display()),
     }
 }
@@ -76,11 +77,7 @@ fn every_expected_status_checkpoint_holds() {
         let mut last_time = Timestamp::EPOCH;
         for raw in bytes.split_inclusive(|&b| b == b'\n') {
             let entry: Option<Value> = serde_json::from_slice(raw.trim_ascii()).ok();
-            let time = entry
-                .as_ref()
-                .and_then(|e| e["timestamp"].as_str())
-                .and_then(Timestamp::parse_rfc3339)
-                .unwrap_or(last_time);
+            let time = entry.as_ref().and_then(entry_time).unwrap_or(last_time);
             last_time = time;
             let ctx = ChunkCtx { offset, mtime: time, path: file };
             reducer.feed(raw, ctx).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
@@ -102,11 +99,7 @@ fn every_expected_status_checkpoint_holds() {
                     let id = format!("subagents/{key}.jsonl");
                     for raw in &lines[*fed..want.min(lines.len())] {
                         let entry: Option<Value> = serde_json::from_slice(raw.trim_ascii()).ok();
-                        let time = entry
-                            .as_ref()
-                            .and_then(|e| e["timestamp"].as_str())
-                            .and_then(Timestamp::parse_rfc3339)
-                            .unwrap_or(last_time);
+                        let time = entry.as_ref().and_then(entry_time).unwrap_or(last_time);
                         let helper_offset = helper_offsets.entry(key.into()).or_default();
                         let ctx = ChunkCtx { offset: *helper_offset, mtime: time, path: file };
                         reducer
@@ -147,6 +140,20 @@ fn every_expected_status_checkpoint_holds() {
         }
     }
 }
+/// A record's own time: an RFC 3339 field for file harnesses, or an OpenCode row's
+/// `time_created`/`time_updated` in Unix milliseconds.
+fn entry_time(entry: &Value) -> Option<Timestamp> {
+    if let Some(time) = entry["timestamp"].as_str().and_then(Timestamp::parse_rfc3339) {
+        return Some(time);
+    }
+    let row = entry.get("row").unwrap_or(entry);
+    row.get("time_created")
+        .or_else(|| row.get("time_updated"))
+        .and_then(Value::as_f64)
+        .filter(|&millis| millis > 0.0)
+        .map(|millis| Timestamp::from_secs_f64(millis / 1000.0))
+}
+
 struct HelperFiles {
     transcripts: BTreeMap<String, String>,
     metas: BTreeMap<String, Vec<u8>>,
