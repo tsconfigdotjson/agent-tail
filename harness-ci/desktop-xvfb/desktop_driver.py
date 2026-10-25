@@ -31,6 +31,7 @@ from typing import Any
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_SCENARIO = HERE / "scenarios" / "standin_plain_qa.json"
+DEFAULT_CURSOR_SCENARIO = HERE / "scenarios" / "cursor_standin_plain_qa.json"
 JEV_ENDPOINT = "https://openrouter.ai/api/alpha/decisions"
 JEV_MODEL = "typesafe/jev-1.14"
 DEFAULT_CONFIDENCE = 0.55
@@ -232,7 +233,11 @@ def load_scenario(path: Path | None) -> dict[str, Any]:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scenario", type=Path, help="scenario JSON (default: stand-in plain QA)")
-    parser.add_argument("--target", choices=["standin", "claude-desktop"], default="standin")
+    parser.add_argument(
+        "--target",
+        choices=["standin", "cursor-standin", "claude-desktop", "cursor-desktop"],
+        default="standin",
+    )
     parser.add_argument("--chooser", choices=["scripted", "jev"], default=None)
     parser.add_argument("--probe-only", action="store_true", help="launch and observe, do not drive")
     parser.add_argument("--out", type=Path, default=Path(os.environ.get("AGENT_TAIL_OUT", "/out")))
@@ -346,6 +351,26 @@ def desktop_launch_command(cdp_port: int | None) -> list[str]:
             ]
         )
     return command
+
+
+def cursor_desktop_launch_command() -> list[str]:
+    binary = os.environ.get("AGENT_TAIL_CURSOR_BIN", "/usr/share/cursor/cursor")
+    return [
+        binary,
+        "--no-sandbox",
+        "--force-renderer-accessibility",
+        "--disable-gpu",
+        "--disable-updates",
+        "--enable-logging=stderr",
+    ]
+
+
+def default_window_title(target: str) -> str:
+    return {
+        "standin": "agent-tail desktop stand-in",
+        "cursor-standin": "agent-tail Cursor stand-in",
+        "cursor-desktop": "Cursor",
+    }.get(target, "Claude")
 
 
 def desktop_coords() -> int:
@@ -1607,10 +1632,10 @@ def tail(path: Path, limit: int = 4000) -> str:
     return text[-limit:]
 
 
-def desktop_version() -> str | None:
+def package_version(package: str) -> str | None:
     try:
         result = subprocess.run(
-            ["dpkg-query", "-W", "-f=${Version}", "claude-desktop"],
+            ["dpkg-query", "-W", "-f=${Version}", package],
             capture_output=True,
             text=True,
             timeout=5,
@@ -1620,6 +1645,11 @@ def desktop_version() -> str | None:
     except Exception:
         pass
     return None
+
+
+def desktop_version(target: str) -> str | None:
+    package = {"claude-desktop": "claude-desktop", "cursor-desktop": "cursor"}.get(target)
+    return package_version(package) if package else None
 
 
 def start_mock(args: argparse.Namespace, scenario: dict[str, Any], out: Path, env: dict[str, str]) -> tuple[subprocess.Popen[bytes] | None, str | None]:
@@ -1655,6 +1685,10 @@ def start_mock(args: argparse.Namespace, scenario: dict[str, Any], out: Path, en
 def launch_target(args: argparse.Namespace, scenario: dict[str, Any], out: Path, home: Path, env: dict[str, str]) -> subprocess.Popen[bytes]:
     if args.target == "standin":
         command = [sys.executable, str(HERE / "standin.py")]
+    elif args.target == "cursor-standin":
+        command = [sys.executable, str(HERE / "cursor_standin.py")]
+    elif args.target == "cursor-desktop":
+        command = cursor_desktop_launch_command()
     else:
         command = desktop_launch_command(desktop_cdp_port(args))
     return start_process(command, env, out / f"{args.target}.log")
@@ -1689,7 +1723,7 @@ def run_probe(args: argparse.Namespace, scenario: dict[str, Any], out: Path, hom
     if args.target == "claude-desktop":
         mock, mock_error = start_mock(args, scenario, out, env)
     process = launch_target(args, scenario, out, home, env)
-    window_title = args.window_title or scenario.get("window_title") or ("agent-tail desktop stand-in" if args.target == "standin" else "Claude")
+    window_title = args.window_title or scenario.get("window_title") or default_window_title(args.target)
     startup = float(scenario_value(scenario, args, "startup_timeout_s", 45.0))
     try:
         observation, error = wait_for_window(window_title, startup, process, out, cdp_port)
@@ -1715,7 +1749,9 @@ def run_probe(args: argparse.Namespace, scenario: dict[str, Any], out: Path, hom
         "target": args.target,
         "remote_debugging_port": cdp_port,
         "window_title": window_title,
-        "claude_desktop_version": desktop_version(),
+        "desktop_version": desktop_version(args.target),
+        "claude_desktop_version": desktop_version("claude-desktop") if args.target == "claude-desktop" else None,
+        "cursor_desktop_version": desktop_version("cursor-desktop") if args.target == "cursor-desktop" else None,
         "mock_error": mock_error,
         "found": bool(observation and observation.get("found")),
         "candidate_count": len(observation["candidates"]) if observation else 0,
@@ -1742,7 +1778,7 @@ def run_scenario(args: argparse.Namespace, scenario: dict[str, Any], out: Path, 
         if mock_error and mock is None:
             raise DriverError(mock_error)
     process = launch_target(args, scenario, out, home, env)
-    window_title = args.window_title or scenario.get("window_title") or ("agent-tail desktop stand-in" if args.target == "standin" else "Claude")
+    window_title = args.window_title or scenario.get("window_title") or default_window_title(args.target)
     goal = args.goal or scenario.get("goal") or "Drive the desktop and finish the task."
     prompt = args.prompt or scenario.get("prompt") or "say hello"
     timeout = float(scenario_value(scenario, args, "timeout_s", 45.0, "timeout"))
@@ -1869,7 +1905,9 @@ def run_scenario(args: argparse.Namespace, scenario: dict[str, Any], out: Path, 
         "observations": observations,
         "actions": history,
         "mock_error": mock_error,
-        "claude_desktop_version": desktop_version(),
+        "desktop_version": desktop_version(args.target),
+        "claude_desktop_version": desktop_version("claude-desktop") if args.target == "claude-desktop" else None,
+        "cursor_desktop_version": desktop_version("cursor-desktop") if args.target == "cursor-desktop" else None,
         "agent_tail_bin": str(args.agent_tail),
         "agents": agents,
         "home": str(home),
@@ -1884,6 +1922,8 @@ def main(argv: list[str] | None = None) -> int:
     scenario_path = args.scenario
     if scenario_path is None and args.target == "standin" and not args.probe_only:
         scenario_path = DEFAULT_SCENARIO
+    if scenario_path is None and args.target == "cursor-standin" and not args.probe_only:
+        scenario_path = DEFAULT_CURSOR_SCENARIO
     if scenario_path is not None and not scenario_path.is_absolute():
         scenario_path = (HERE / scenario_path).resolve()
     try:

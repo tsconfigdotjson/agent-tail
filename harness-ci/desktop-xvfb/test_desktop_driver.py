@@ -122,6 +122,16 @@ class ScenarioTests(unittest.TestCase):
         self.assertFalse(stale.exists())
         self.assertNotEqual(stale, resolved)
 
+    def test_cursor_standin_scenario_scores_the_cursor_artifact_path(self):
+        scenario = driver.load_scenario(Path(__file__).with_name("scenarios") / "cursor_standin_plain_qa.json")
+        self.assertEqual(scenario["target"], "cursor-standin")
+        self.assertEqual(scenario["chooser"], "scripted")
+        self.assertEqual(scenario["agents"], "cursor")
+        self.assertIn("not Cursor Desktop", scenario["description"])
+        self.assertEqual(scenario["expect"]["end"], "done")
+        self.assertEqual([step["action"] for step in scenario["script"]], ["type", "click"])
+        self.assertEqual(driver.default_window_title("cursor-standin"), scenario["window_title"])
+
     def test_invalid_script_action_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "bad.json"
@@ -342,6 +352,31 @@ class ConfidenceAndChooseTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"AGENT_TAIL_CDP_PORT": "9223"}):
             self.assertEqual(driver.desktop_cdp_port(desktop), 9223)
             self.assertIn("--remote-debugging-port=9223", driver.desktop_launch_command(driver.desktop_cdp_port(desktop)))
+
+    def test_cursor_desktop_launch_probe_does_not_use_claude_flags(self):
+        command = driver.cursor_desktop_launch_command()
+        self.assertEqual(command[:2], ["/usr/share/cursor/cursor", "--no-sandbox"])
+        self.assertIn("--force-renderer-accessibility", command)
+        self.assertNotIn("claude-desktop", command)
+        self.assertFalse(any("remote-debugging" in arg for arg in command))
+        self.assertIsNone(driver.desktop_cdp_port(driver.parse_args(["--target", "cursor-desktop"])))
+        self.assertEqual(driver.default_window_title("cursor-desktop"), "Cursor")
+        with mock.patch.dict(os.environ, {"AGENT_TAIL_CURSOR_BIN": "/opt/cursor/cursor"}):
+            self.assertEqual(driver.cursor_desktop_launch_command()[0], "/opt/cursor/cursor")
+
+    def test_cursor_standin_launches_the_cursor_writer(self):
+        args = driver.parse_args(["--target", "cursor-standin"])
+        process = mock.sentinel.process
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(
+            driver, "start_process", return_value=process
+        ) as start:
+            root = Path(temp)
+            launched = driver.launch_target(args, {}, root, root / "home", {})
+        self.assertIs(launched, process)
+        command = start.call_args.args[0]
+        self.assertEqual(command[0], driver.sys.executable)
+        self.assertEqual(Path(command[1]).name, "cursor_standin.py")
+        self.assertEqual(start.call_args.args[2], root / "cursor-standin.log")
 
     def test_jev_waits_until_candidates_exist(self):
         now = 10.0

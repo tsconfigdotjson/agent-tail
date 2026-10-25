@@ -11,7 +11,7 @@ There are four pieces:
 | `mock-server/` | Local Anthropic Messages, OpenAI-compatible, and Gemini protocol mock. Scenario files control replies, tool calls, delays, and errors. |
 | `driver/` | Starts a CLI under a PTY, parses its screen, tails the session artifact it writes, and scores `agent-tail`'s state against the screen. |
 | `ci/` | Scenario lists, pinned/latest matrix generation, offline runner, shape survey, drift checks, and the first-read budget. |
-| `desktop-xvfb/` | Headless Xvfb path for the Desktop stand-in, live Jev lane, and launch probe. |
+| `desktop-xvfb/` | Headless Xvfb path for the Claude and Cursor stand-ins, live Jev lane, and launch probes. |
 
 This directory is a separate Cargo workspace so the library's dependencies stay small. The
 root `cargo test` does not build it; CI does.
@@ -110,6 +110,13 @@ through OpenRouter to choose UI actions and scores the on-disk Desktop audit log
 is documented in the [desktop-xvfb README](desktop-xvfb/README.md#configure-the-live-jev-secret).
 Its adapter status is documented in
 [`docs/formats/claude-desktop.md`](../docs/formats/claude-desktop.md).
+
+Cursor Desktop has the same offline Xvfb plumbing lane: the nightly Cursor stand-in writes a
+synthetic transcript and `state.vscdb` composer row for `agent-tail` to score, and a manual
+`run_cursor_probe` dispatch installs Cursor and probes its launch under Xvfb. There is no live
+Cursor lane because its chat needs Cursor's auth/backend protocol. These checks do not make
+Cursor CI-verified; its adapter status and the remaining capture work are documented in
+[`docs/formats/cursor.md`](../docs/formats/cursor.md).
 
 ## What the driver checks
 

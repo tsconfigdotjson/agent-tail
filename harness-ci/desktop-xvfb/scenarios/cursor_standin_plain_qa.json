@@ -1,0 +1,30 @@
+{
+  "name": "cursor_standin_plain_qa",
+  "description": "Offline plumbing smoke test for Cursor: a GTK/X11 stand-in UI is observed through AT-SPI, a scripted chooser picks a field and Send button, and agent-tail scores the Cursor-shaped transcript plus state.vscdb composer as idle -> thinking -> done. This is not Cursor Desktop and needs no Cursor package or account.",
+  "target": "cursor-standin",
+  "chooser": "scripted",
+  "window_title": "agent-tail Cursor stand-in",
+  "goal": "Type the prompt into the message field and send it, then wait for the turn to finish.",
+  "prompt": "say hello from Cursor on Xvfb",
+  "agents": "cursor",
+  "script": [
+    {
+      "action": "type",
+      "role": "entry",
+      "name": "Prompt",
+      "text": "{{prompt}}"
+    },
+    {
+      "action": "click",
+      "role": "push button",
+      "name": "Send"
+    }
+  ],
+  "expect": {
+    "activities": ["thinking", "done"],
+    "end": "done"
+  },
+  "startup_timeout_s": 20,
+  "timeout_s": 30,
+  "max_steps": 4
+}

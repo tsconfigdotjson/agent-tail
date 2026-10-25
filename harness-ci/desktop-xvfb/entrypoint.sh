@@ -56,11 +56,17 @@ case "$MODE" in
   standin)
     set -- --target standin --scenario /opt/agent-tail-desktop/scenarios/standin_plain_qa.json "$@"
     ;;
+  cursor-standin)
+    set -- --target cursor-standin --scenario /opt/agent-tail-desktop/scenarios/cursor_standin_plain_qa.json "$@"
+    ;;
   probe)
     set -- --target claude-desktop --probe-only "$@"
     ;;
   desktop-probe)
     set -- --target claude-desktop --probe-only "$@"
+    ;;
+  cursor-probe)
+    set -- --target cursor-desktop --probe-only "$@"
     ;;
   desktop)
     set -- --target claude-desktop --chooser jev --scenario /opt/agent-tail-desktop/scenarios/claude_desktop_plain_qa.json "$@"
@@ -68,7 +74,7 @@ case "$MODE" in
   driver)
     ;;
   *)
-    echo "unknown mode $MODE (use standin, probe, desktop-probe, desktop, or driver)" >&2
+    echo "unknown mode $MODE (use standin, cursor-standin, probe, desktop-probe, cursor-probe, desktop, or driver)" >&2
     exit 2
     ;;
 esac

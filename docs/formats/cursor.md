@@ -4,6 +4,11 @@ This note is based on a read-only survey of 12 session transcripts and 1 subagen
 across 5 project folders, plus a 5-minute look at a copy of `state.vscdb` (the copy was deleted
 afterwards). No version string exists in either source.
 
+Support status is **ported-unverified**. An offline Cursor-shaped stand-in and an optional
+Cursor launch probe now run under `harness-ci/desktop-xvfb`, but they use synthetic artifacts
+or a package launch with no account; no real Cursor turn or redacted capture is committed.
+See [Cursor Desktop in the Xvfb CI](#cursor-desktop-in-the-xvfb-ci).
+
 ## Paths and layout
 ```
 ~/.cursor/projects/<workspace path, every non-alnum run made ->/
@@ -107,6 +112,32 @@ protobuf model catalogue and streaming chat protocol. **Decision:** Cursor does 
 mock/PTY matrix; it ships through donated fixtures and, if a key is available later, a
 budget-capped nightly real run. A freshly created IDE `state.vscdb` during a live approval
 wait is still needed.
+
+### Cursor Desktop in the Xvfb CI
+
+Cursor Desktop is covered in the Desktop Xvfb lane without joining the CLI mock/PTY matrix:
+
+- **Offline stand-in, nightly.** `harness-ci/desktop-xvfb/cursor_standin.py` is a GTK window,
+  not Cursor. Under Xvfb the driver observes it through AT-SPI, types a prompt, clicks Send,
+  and `agent-tail --agents cursor` scores the artifacts. The stand-in writes a synthetic
+  Cursor transcript under
+  `~/.cursor/projects/<encoded-workspace>/agent-transcripts/<id>/<id>.jsonl` and a
+  `state.vscdb` `composerData:<id>` row whose `status` moves from `generating` to
+  `completed`. This exercises the transcript reader, the database snapshot/status reader,
+  and the `idle → thinking → done` score path with no Cursor package or account.
+- **Launch probe, manual `workflow_dispatch`.** `run_cursor_probe` installs Cursor's Linux
+  `.deb` (pinned by default, currently 3.27.12) under Xvfb and observes its launch screen via
+  `/usr/share/cursor/cursor`. It needs no account and does not drive a turn. The package
+  version is recorded in the probe evidence.
+- **No live Cursor lane yet.** Cursor's chat needs its auth exchange and private
+  Connect/protobuf streaming backend, so there is no secret-gated live lane or mock chat
+  path. The Desktop workflow remains schedule/dispatch-only and is absent from push/PR.
+
+These are plumbing and launch checks, not Cursor verification. Synthetic artifacts and a
+render-only probe do not make Cursor **CI-verified**. The support matrix stays
+**ported-unverified** until a real, redacted Cursor question/answer (and ideally the approval
+wait below) is captured and scored. Related issue #43 is specifically the live
+approval-wait `state.vscdb` capture; the stand-in does not claim that state.
 
 ### Unverified: the live approval wait
 

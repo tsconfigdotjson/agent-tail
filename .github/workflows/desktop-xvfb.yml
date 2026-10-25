@@ -1,12 +1,13 @@
 # Desktop Xvfb nightly and manual lanes.
 #
-# The nightly schedule always runs the offline stand-in observe/act/score job.
-# When the OPENROUTER_API_KEY Actions secret is present, the same schedule also
-# runs the live Jev Desktop lane; without the secret that lane is skipped cleanly
-# and the stand-in is unaffected. The live lane can also be run manually with
-# workflow_dispatch. It is never part of the push/PR matrix, so pull requests do
-# not spend OpenRouter credits. The stand-in is an offline plumbing test, not a
-# claim that Claude Desktop is CI-verified.
+# The nightly schedule always runs both offline stand-in observe/act/score jobs:
+# Claude Desktop and Cursor. When the OPENROUTER_API_KEY Actions secret is
+# present, the same schedule also runs the live Jev Desktop lane; without the
+# secret that lane is skipped cleanly and the stand-ins are unaffected. The
+# live lane can also be run manually with workflow_dispatch. It is never part
+# of the push/PR matrix, so pull requests do not spend OpenRouter credits. The
+# stand-ins are offline plumbing tests, not claims that Claude Desktop or
+# Cursor Desktop is CI-verified. The Cursor install/launch probe is manual only.
 name: Desktop Xvfb (nightly)
 
 on:
@@ -17,6 +18,10 @@ on:
     inputs:
       run_desktop_probe:
         description: "Install Claude Desktop and probe its Xvfb launch (heavier)"
+        type: boolean
+        default: false
+      run_cursor_probe:
+        description: "Install Cursor and probe its Xvfb launch (no account needed; heavier)"
         type: boolean
         default: false
       run_live_jev:
@@ -62,6 +67,37 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
+  cursor-standin:
+    name: Xvfb Cursor stand-in observe/act/score
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.88
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustc --version
+
+      - name: Build agent-tail
+        run: cargo build --release --locked -p agent-tail-cli
+
+      - name: Run offline Cursor stand-in scenario
+        env:
+          INSTALL_CLAUDE_DESKTOP: "0"
+          INSTALL_CURSOR_DESKTOP: "0"
+        run: harness-ci/desktop-xvfb/run.sh cursor-standin
+
+      - name: Upload Xvfb failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-xvfb-cursor-standin
+          path: harness-ci/desktop-xvfb/runs
+          if-no-files-found: warn
+          retention-days: 3
+
   desktop-probe:
     name: Claude Desktop Xvfb launch probe
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_desktop_probe }}
@@ -89,6 +125,38 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: desktop-xvfb-probe
+          path: harness-ci/desktop-xvfb/runs
+          if-no-files-found: warn
+          retention-days: 3
+
+  cursor-probe:
+    name: Cursor Desktop Xvfb launch probe
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_cursor_probe }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.88
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustc --version
+
+      - name: Build agent-tail
+        run: cargo build --release --locked -p agent-tail-cli
+
+      - name: Probe the Cursor launch screen under Xvfb
+        env:
+          INSTALL_CLAUDE_DESKTOP: "0"
+          INSTALL_CURSOR_DESKTOP: "1"
+        run: harness-ci/desktop-xvfb/run.sh cursor-probe
+
+      - name: Upload Xvfb failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-xvfb-cursor-probe
           path: harness-ci/desktop-xvfb/runs
           if-no-files-found: warn
           retention-days: 3
