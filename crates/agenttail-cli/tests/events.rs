@@ -53,6 +53,16 @@ fn prints_normalized_events_as_json_lines() {
     assert!(pi.iter().any(|event| event["type"] == "tool_call"), "{pi:#?}");
     assert!(pi.iter().any(|event| event["type"] == "usage"), "{pi:#?}");
     assert!(pi.iter().any(|event| event["type"] == "turn_end"), "{pi:#?}");
+
+    let gemini = events("gemini/0.65.0/linux/tool/input/session.jsonl");
+    assert!(gemini.iter().any(|event| event["type"] == "tool_call"), "{gemini:#?}");
+    assert!(gemini.iter().any(|event| event["type"] == "tool_result"), "{gemini:#?}");
+    assert!(gemini.iter().any(|event| event["type"] == "turn_end"), "{gemini:#?}");
+
+    let copilot = events("copilot/1.0.103/linux/permission-denied/input/session.jsonl");
+    assert!(copilot.iter().any(|event| event["type"] == "approval_requested"), "{copilot:#?}");
+    assert!(copilot.iter().any(|event| event["type"] == "approval_completed"), "{copilot:#?}");
+    assert!(copilot.iter().any(|event| event["type"] == "tool_call"), "{copilot:#?}");
 }
 
 #[test]
@@ -65,6 +75,11 @@ fn committed_expected_events_match_their_inputs() {
         "pi/1.4/linux/plain-qa",
         "pi/1.4/linux/tool-call",
         "pi/1.4/linux/api-error",
+        "gemini/0.65.0/linux/plain-qa",
+        "gemini/0.65.0/linux/tool",
+        "copilot/1.0.103/linux/plain-qa",
+        "copilot/1.0.103/linux/tool",
+        "copilot/1.0.103/linux/permission-denied",
     ] {
         let got = events(&format!("{input}/input/session.jsonl"));
         let expected = fixture(&format!("{input}/expected/events.jsonl"));

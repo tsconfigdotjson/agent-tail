@@ -1,0 +1,16 @@
+{
+  "name": "copilot_permission_denied",
+  "description": "Prompt mode with no interactive answer persists permission.requested then a denied permission.completed; the model still answers after the tool error.",
+  "harness": "copilot",
+  "mock": "../../mock-server/scenarios/opencode_tool.json",
+  "command": [
+    "copilot",
+    "--output-format",
+    "json",
+    "--trust-folder",
+    "-p"
+  ],
+  "prompt": "run the tool",
+  "run_for_ms": 30000,
+  "expected_activity": [{ "activity": "done", "when": "end", "certainty": "firm" }]
+}

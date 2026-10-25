@@ -1,0 +1,7 @@
+{"sessionId":"2b4aece3-ca4a-4bbf-b3a7-26737182d196","projectHash":"78d95f2f1784204b5401378712ba11f7940aaf61afe56489c3d7395d3e9a8c91","startTime":"2026-10-25T03:00:39.270Z","lastUpdated":"2026-10-25T03:00:39.270Z","kind":"main"}
+{"id":"d04923d38bb0f6017037e74183378ef4","timestamp":"2026-10-25T03:00:39.272Z","type":"user","content":[{"text":"<session_context>\nThis is the Gemini CLI. We are setting up the context for our chat.\nToday's date is Sunday, October 25, 2026 (formatted according to the user's locale).\nMy operating system is: linux\nThe project's temporary directory is: /home/<user>/.cache/agenttail-issue27/gemini-install/home5/.gemini/tmp/work5\n- **Workspace Directories:**\n  - /home/<user>/.cache/agenttail-issue27/gemini-install/work5\n- **Directory Structure:**\n\nShowing up to 200 items (files + folders).\n\n/home/<user>/.cache/agenttail-issue27/gemini-install/work5/\n\n\n\n</session_context>"}]}
+{"$set":{"lastUpdated":"2026-10-25T03:00:39.274Z"}}
+{"id":"39bbbb90-7cbb-46ed-a047-153d0784d043","timestamp":"2026-10-25T03:00:39.497Z","type":"user","content":[{"text":"say hello"}]}
+{"$set":{"lastUpdated":"2026-10-25T03:00:39.498Z"}}
+{"id":"2c3e233c-0423-4ccd-8ac4-fc6397c18315","timestamp":"2026-10-25T03:00:40.701Z","type":"gemini","content":"Hello from the mock.","thoughts":[],"tokens":{"input":10,"output":5,"cached":0,"thoughts":0,"tool":0,"total":15},"model":"gemini-3.8-flash"}
+{"$set":{"lastUpdated":"2026-10-25T03:00:40.702Z"}}

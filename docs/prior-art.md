@@ -307,3 +307,17 @@ nobody's list.
 8. Cursor: what do `store.db` and `toolFormerData.userDecision` show while a tool awaits approval?
 9. Is Gemini `awaiting_approval` ever on disk (inference says no)? Is Copilot `permission.requested` still written? Check both in harness CI.
 10. Does any harness write CRLF, or several objects on one line, in practice?
+
+
+## Verification against real artifacts (2026-10-25)
+
+- **Gemini CLI 0.65.0:** the claim that tool calls are written only once they complete is
+  **confirmed**. A `run_shell_command` call appeared only in the second append of its
+  message, with `result`, `status: "success"` and the tool's own timestamp. The approval
+  mode and a pending/`awaiting_approval` call were not written. See
+  [`docs/formats/gemini.md`](formats/gemini.md).
+- **Copilot CLI 1.0.103:** the claim that `permission.requested` / `permission.completed`
+  are persisted is **confirmed**. The request carries `toolCallId` and `permissionMode:
+  "manual"`; prompt mode without a user completed it with
+  `denied-no-approval-rule-and-could-not-request-from-user`. See
+  [`docs/formats/copilot.md`](formats/copilot.md).

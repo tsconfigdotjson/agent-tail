@@ -1,0 +1,9 @@
+{
+  "name": "gemini_plain_qa",
+  "description": "One Gemini CLI prompt, one text answer, the journal ends at a firm Done.",
+  "harness": "gemini",
+  "mock": "../../mock-server/scenarios/plain_qa.json",
+  "prompt": "say hello",
+  "run_for_ms": 30000,
+  "expected_activity": [{ "activity": "done", "when": "end", "certainty": "firm" }]
+}

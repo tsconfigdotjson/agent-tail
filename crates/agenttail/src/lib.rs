@@ -1,5 +1,5 @@
 //! What every coding agent on this machine is doing right now, read from the transcripts
-//! the agents write: Claude Code, Codex, Cursor, Pi and OpenCode.
+//! the agents write: Claude Code, Codex, Cursor, Pi, OpenCode, Gemini CLI and Copilot CLI.
 //!
 //! The core is sans-IO. A [`SessionReducer`] takes one transcript's bytes, a chunk at a
 //! time, with where they came from ([`ChunkCtx`]), and says what that session is doing as

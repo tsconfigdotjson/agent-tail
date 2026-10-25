@@ -14,6 +14,8 @@ artifact yet), and **unsupported** (no discovery spec or adapter).
 | Cursor | **ported-unverified** | 0 | 2 | unknown | 2 hand-made/synthetic fixture(s); no real capture |
 | Pi | **CI-verified** | 3 | 3 | `1.4.0` | 3 CI scenario(s); 3 ci-scripted, 0 donated, 0 hand-made fixture(s) |
 | OpenCode | **CI-verified** | 2 | 3 | `1.19.4` | 2 CI scenario(s); 3 ci-scripted, 0 donated, 0 hand-made fixture(s) |
+| Gemini CLI | **CI-verified** | 2 | 2 | `0.65.0` | 2 CI scenario(s); 2 ci-scripted, 0 donated, 0 hand-made fixture(s) |
+| GitHub Copilot CLI | **CI-verified** | 3 | 3 | `1.0.103` | 3 CI scenario(s); 3 ci-scripted, 0 donated, 0 hand-made fixture(s) |
 
 ## What each harness can read
 
@@ -24,6 +26,8 @@ artifact yet), and **unsupported** (no discovery spec or adapter).
 | Cursor | `.cursor/projects` | `AskQuestion`, `AskUserQuestion`, `AskFollowupQuestion`, `RequestUserInput` | none observed | yes | 5 |
 | Pi | `.pi/agent/sessions` | none observed | none observed | no | 7 |
 | OpenCode | `.local/share/opencode` | `question`, `plan_exit` | none observed | no | 5 |
+| Gemini CLI | `.gemini/tmp` | none observed | none observed | no | 5 |
+| GitHub Copilot CLI | `.copilot/session-state` | none observed | `manual` | no | 5 |
 
 ## Fixture detail
 
@@ -39,8 +43,13 @@ artifact yet), and **unsupported** (no discovery spec or adapter).
 | codex | `0.160.1` | `linux` | `handmade` | `codex/0.160/linux/approval-on-request` |
 | codex | `0.160.1` | `linux` | `donated` | `codex/0.160/linux/seed-exec` |
 | codex | `0.160.1` | `linux` | `donated` | `codex/0.160/linux/seed-resume` |
+| copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/permission-denied` |
+| copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/plain-qa` |
+| copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/tool` |
 | cursor | `unknown` | `any` | `handmade` | `cursor/handmade/vscdb-reader` |
 | cursor | `unknown` | `any` | `handmade` | `cursor/unknown/any/seed-session` |
+| gemini | `0.65.0` | `linux` | `ci-scripted` | `gemini/0.65.0/linux/plain-qa` |
+| gemini | `0.65.0` | `linux` | `ci-scripted` | `gemini/0.65.0/linux/tool` |
 | opencode | `1.19.4` | `linux` | `ci-scripted` | `opencode/1.19.4/linux/plain-qa` |
 | opencode | `1.19.4` | `linux` | `ci-scripted` | `opencode/1.19.4/linux/tool` |
 | opencode | `1.19.4` | `linux` | `ci-scripted` | `opencode/1.19.4/linux/tool-running` |

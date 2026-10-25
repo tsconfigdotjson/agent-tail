@@ -233,7 +233,14 @@ fn meta_value(text: &str, key: &str) -> Option<String> {
 
 fn ci_scenarios(root: &Path) -> Result<BTreeMap<String, BTreeSet<String>>, String> {
     let mut scenarios = BTreeMap::new();
-    for name in ["scenarios.txt", "scenarios-codex.txt", "scenarios-pi.txt", "scenarios-opencode.txt"] {
+    for name in [
+        "scenarios.txt",
+        "scenarios-codex.txt",
+        "scenarios-pi.txt",
+        "scenarios-opencode.txt",
+        "scenarios-gemini.txt",
+        "scenarios-copilot.txt",
+    ] {
         let path = root.join("harness-ci/ci").join(name);
         let Ok(text) = std::fs::read_to_string(&path) else { continue };
         for line in text.lines() {
@@ -253,6 +260,10 @@ fn ci_scenarios(root: &Path) -> Result<BTreeMap<String, BTreeSet<String>>, Strin
                         "pi".into()
                     } else if name.contains("opencode") {
                         "opencode".into()
+                    } else if name.contains("gemini") {
+                        "gemini".into()
+                    } else if name.contains("copilot") {
+                        "copilot".into()
                     } else {
                         "claude_code".into()
                     }

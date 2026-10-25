@@ -21,7 +21,7 @@ pub fn events(args: &[String]) -> Result<(), String> {
     let harness =
         agent.or_else(|| harness_for(&input.main)).or_else(|| harness_from_bytes(&bytes)).ok_or_else(|| {
             format!(
-                "can't tell which harness wrote {}; pass --agent claude_code|codex|cursor|pi|opencode",
+                "can't tell which harness wrote {}; pass --agent claude_code|codex|cursor|pi|opencode|gemini|copilot",
                 input.main.display()
             )
         })?;
@@ -58,7 +58,7 @@ pub fn status(args: &[String]) -> Result<ExitCode, String> {
     let harness =
         agent.or_else(|| harness_for(&input.main)).or_else(|| harness_from_bytes(&bytes)).ok_or_else(|| {
             format!(
-                "can't tell which harness wrote {}; pass --agent claude_code|codex|cursor|pi|opencode",
+                "can't tell which harness wrote {}; pass --agent claude_code|codex|cursor|pi|opencode|gemini|copilot",
                 input.main.display()
             )
         })?;

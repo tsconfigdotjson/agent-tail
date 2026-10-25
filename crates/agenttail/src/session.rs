@@ -144,7 +144,8 @@ pub(crate) struct Session {
     pub(crate) entrypoint_sdk: bool,
     /// Codex: an AI reviewer, not a human, handles approval requests.
     pub(crate) approval_reviewer_auto: bool,
-    /// Pi: tools run without a permission prompt, so a pending tool never waits for a human.
+    /// Pi never prompts; Copilot records a separate permission request when it does, so a
+    /// pending tool without one is firmly running.
     pub(crate) no_approval: bool,
     /// The error the harness recorded, if the last thing was an error.
     pub(crate) error: Option<String>,
@@ -172,6 +173,8 @@ pub(crate) struct Session {
     /// Codex tool calls still waiting for their `call_id` output, and whether each asks the
     /// user something. Parallel calls stay pending until the last one comes back.
     pub(crate) pending_tools: HashMap<String, bool>,
+    /// Tool calls with a persisted permission request that has not completed (Copilot).
+    pub(crate) pending_approvals: HashSet<String>,
     /// When the transcript was last written: the time of entries that carry none.
     pub(crate) mtime: f64,
     /// When a helper's transcript (a Cursor subagent's) was last written.
@@ -206,7 +209,9 @@ impl Session {
             sandbox: None,
             entrypoint_sdk: false,
             approval_reviewer_auto: false,
-            no_approval: harness == Harness::Pi,
+            // Pi never prompts. Copilot persists a permission request before a tool can
+            // wait on a human, so a pending tool without one is firmly running.
+            no_approval: matches!(harness, Harness::Pi | Harness::Copilot),
             error: None,
             background_agents: 0,
             background_kills: 0,
@@ -220,6 +225,7 @@ impl Session {
             last_at: 0.0,
             seen: HashSet::new(),
             pending_tools: HashMap::new(),
+            pending_approvals: HashSet::new(),
             mtime: 0.0,
             helper_mtime: 0.0,
             db_status: None,
@@ -296,6 +302,9 @@ impl Session {
         if let Some((activity, _)) = db {
             return (activity, Firm, ComposerStatus);
         }
+        if !self.pending_approvals.is_empty() {
+            return (AwaitingApproval, Firm, ApprovalRequested);
+        }
         match self.last {
             Last::Question => (AwaitingAnswer, Firm, AskUserTool),
             // A pending tool can only be waiting on a human when this mode can ask one.
@@ -335,6 +344,7 @@ impl Session {
         // A new turn (or its end) discards any calls left over from the last one.
         if matches!(last, Last::Prompt | Last::EndTurn | Last::Interrupted | Last::Errored) {
             self.pending_tools.clear();
+            self.pending_approvals.clear();
         }
         if matches!(last, Last::Prompt | Last::Interrupted | Last::Errored) {
             self.background_agents = 0;
@@ -586,10 +596,25 @@ impl Session {
         }
     }
 
+    /// A permission request was persisted for `call_id`: firm `AwaitingApproval` until its
+    /// completion record arrives.
+    pub(crate) fn approval_requested(&mut self, call_id: &str, t: f64) {
+        self.pending_approvals.insert(call_id.into());
+        self.set(Last::ToolUse, t);
+    }
+
+    /// The permission request was answered. The tool still has to run and report a result,
+    /// so this only clears the firm approval state.
+    pub(crate) fn approval_completed(&mut self, call_id: &str, t: f64) {
+        self.pending_approvals.remove(call_id);
+        self.last_at = self.last_at.max(t);
+    }
+
     /// A tool result arrived for `call_id`. With other calls still pending, the session is
     /// still running a tool; the last result makes it `Thinking` again.
     pub(crate) fn tool_result_id(&mut self, call_id: &str, t: f64) {
         self.pending_tools.remove(call_id);
+        self.pending_approvals.remove(call_id);
         if self.pending_tools.is_empty() {
             self.set(Last::ToolResult, t);
             return;

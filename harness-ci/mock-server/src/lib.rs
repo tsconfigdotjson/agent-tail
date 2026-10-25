@@ -7,6 +7,7 @@
 
 pub mod anthropic;
 pub mod chat;
+pub mod gemini;
 pub mod openai;
 pub mod request;
 pub mod scenario;
@@ -15,7 +16,7 @@ use crate::request::{Api, RequestView};
 use crate::scenario::{Dispatch, Fault, Scenario, Step};
 use axum::body::{Body, Bytes};
 use axum::extract::{Request, State};
-use axum::http::{StatusCode, header};
+use axum::http::{StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -83,6 +84,7 @@ impl MockState {
             Api::Anthropic => RequestView::from_anthropic(body),
             Api::OpenAi => RequestView::from_openai(body),
             Api::OpenAiChat => RequestView::from_openai_chat(body),
+            Api::Gemini => RequestView::from_gemini(body),
         };
         let mut inner = self.inner.lock().expect("mock state");
         let request_index = inner.requests as usize;
@@ -193,6 +195,7 @@ fn api_name(api: Api) -> &'static str {
         Api::Anthropic => "anthropic",
         Api::OpenAi => "openai",
         Api::OpenAiChat => "openai_chat",
+        Api::Gemini => "gemini",
     }
 }
 
@@ -203,6 +206,7 @@ pub fn router(state: Arc<MockState>) -> Router {
         .route("/v1/responses", post(openai_responses))
         .route("/v1/chat/completions", post(openai_chat_completions))
         .route("/chat/completions", post(openai_chat_completions))
+        .route("/v1beta/models/{*path}", post(gemini_generate))
         .route("/v1/models", get(models))
         .fallback(fallback)
         .with_state(state)
@@ -414,6 +418,72 @@ fn opencode_title_response(body: &Value, override_title: Option<&str>) -> Respon
     }
 }
 
+async fn gemini_generate(State(state): State<Arc<MockState>>, uri: Uri, body: Bytes) -> Response {
+    let path = uri.path().to_string();
+    let body: Value = match serde_json::from_slice(&body) {
+        Ok(body) => body,
+        Err(error) => {
+            return fail(StatusCode::BAD_REQUEST, format!("request is not JSON: {error}"), Api::Gemini);
+        }
+    };
+    if is_gemini_classifier_request(&body) {
+        state.log_simple("POST", &format!("{path}?source=classifier"));
+        return Json(gemini::classifier_response()).into_response();
+    }
+    if !path.contains(":streamGenerateContent") && is_gemini_auxiliary_request(&body) {
+        state.log_simple("POST", &format!("{path}?source=auxiliary"));
+        let reply = scenario::Reply {
+            model: None,
+            content: vec![scenario::Block::Text {
+                text: state.scenario.title.clone().unwrap_or_else(|| "Mock session title".into()),
+            }],
+            stop_reason: None,
+            usage: Default::default(),
+            fault: None,
+        };
+        let model = body.get("model").and_then(Value::as_str).unwrap_or("gemini-test");
+        return Json(gemini::response(9000, model, &reply, "end_turn")).into_response();
+    }
+    let (index, step) = match state.take_step(Api::Gemini, &path, &body) {
+        Ok(found) => found,
+        Err(error) => return failure_response(error, Api::Gemini),
+    };
+    if let Some(Fault::Http { status, message }) = step.reply.fault {
+        return error_response(status, message.as_deref().unwrap_or("scripted failure"), Api::Gemini);
+    }
+    let requested = body
+        .get("model")
+        .and_then(Value::as_str)
+        .or_else(|| path.split("/models/").nth(1).and_then(|rest| rest.split(':').next()))
+        .unwrap_or("gemini-test");
+    let model = state.scenario.model(&step, requested);
+    let stop_reason = state.scenario.stop_reason(&step);
+    if path.contains(":streamGenerateContent") {
+        sse_response(gemini::stream_events(index, &model, &step.reply, &stop_reason))
+    } else {
+        Json(gemini::response(index, &model, &step.reply, &stop_reason)).into_response()
+    }
+}
+
+fn is_gemini_classifier_request(body: &Value) -> bool {
+    body.pointer("/generationConfig/responseJsonSchema/properties/complexity_score").is_some()
+}
+
+fn is_gemini_auxiliary_request(body: &Value) -> bool {
+    if body.get("tools").is_some() {
+        return false;
+    }
+    let system = body
+        .pointer("/systemInstruction/parts")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|part| part.get("text").and_then(Value::as_str))
+        .collect::<Vec<_>>()
+        .join("\n");
+    system.contains("session title") || system.contains("summarize") || system.contains("summary of the conversation")
+}
+
 async fn models(State(state): State<Arc<MockState>>) -> Response {
     state.log_simple("GET", "/v1/models");
     Json(json!({"object": "list", "data": [], "has_more": false})).into_response()
@@ -460,6 +530,7 @@ fn error_response(status: u16, message: &str, api: Api) -> Response {
         Api::Anthropic => anthropic::error(status.as_u16(), message),
         Api::OpenAi => openai::error(status.as_u16(), message),
         Api::OpenAiChat => chat::error(status.as_u16(), message),
+        Api::Gemini => gemini::error(status.as_u16(), message),
     };
     (status, Json(body)).into_response()
 }
@@ -592,6 +663,29 @@ mod tests {
         let (status, body) = post(app, "/v1/messages", json!({"stream": false, "messages": []})).await;
         assert_eq!(status, StatusCode::from_u16(529).unwrap());
         assert!(body.contains("overloaded_error"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn answers_gemini_classifier_and_main_turn() {
+        let app = router(state(vec![text_step("hello")]));
+        let classifier = json!({
+            "generationConfig": {
+                "responseJsonSchema": {"properties": {"complexity_score": {"type": "INTEGER"}}}
+            },
+            "contents": [{"role": "user", "parts": [{"text": "say hello"}]}]
+        });
+        let (status, body) = post(app.clone(), "/v1beta/models/gemini-test:generateContent", classifier).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("complexity_score"), "{body}");
+        let (status, body) = post(
+            app,
+            "/v1beta/models/gemini-test:streamGenerateContent?alt=sse",
+            json!({"contents": [{"role": "user", "parts": [{"text": "say hello"}]}]}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("data: {"), "{body}");
+        assert!(body.contains("hello"), "{body}");
     }
 
     #[tokio::test]

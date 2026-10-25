@@ -21,6 +21,8 @@ PINNED = {
     "codex": ("0.160.1",),
     "opencode": ("1.19.4",),
     "cursor": ("2026.10.01-e373342",),
+    "gemini": ("0.65.0",),
+    "copilot": ("1.0.103",),
 }
 DEFAULT_OSES = ("ubuntu-latest", "macos-latest")
 

@@ -1,0 +1,5 @@
+# Stable Copilot CLI scenarios for the pinned + latest matrix. The permission scenario uses
+# prompt mode's unattended fallback, not a GitHub sign-in.
+copilot_plain_qa
+copilot_tool
+copilot_permission_denied

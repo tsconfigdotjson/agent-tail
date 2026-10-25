@@ -214,6 +214,9 @@ pub enum Reason {
     NoWritesFor,
     /// The last entry calls a tool that asks the user something: `AwaitingAnswer`.
     AskUserTool,
+    /// The harness persisted a permission request that has not completed: `AwaitingApproval`,
+    /// firm (GitHub Copilot CLI's `permission.requested`).
+    ApprovalRequested,
     /// A tool call has had no result for `stall_after`: perhaps a permission prompt.
     /// `AwaitingApproval`, inferred.
     ToolCallStalled,

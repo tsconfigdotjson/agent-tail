@@ -1,0 +1,215 @@
+{
+  "format": 1,
+  "files": [
+    {
+      "format": 1,
+      "file": "session.jsonl",
+      "lorem": false,
+      "lines": 14,
+      "bytes_before": 42189,
+      "bytes_after": 41941,
+      "replacements": {
+        "email": 1,
+        "home_path": 3,
+        "secret_entropy": 11
+      },
+      "offsets": [
+        {
+          "line": 1,
+          "before_start": 0,
+          "before_end": 466,
+          "after_start": 0,
+          "after_end": 466,
+          "delta": 0
+        },
+        {
+          "line": 2,
+          "before_start": 466,
+          "before_end": 997,
+          "after_start": 466,
+          "after_end": 997,
+          "delta": 0
+        },
+        {
+          "line": 3,
+          "before_start": 997,
+          "before_end": 34275,
+          "after_start": 997,
+          "after_end": 34027,
+          "delta": -248
+        },
+        {
+          "line": 4,
+          "before_start": 34275,
+          "before_end": 34517,
+          "after_start": 34027,
+          "after_end": 34269,
+          "delta": -248
+        },
+        {
+          "line": 5,
+          "before_start": 34517,
+          "before_end": 35744,
+          "after_start": 34269,
+          "after_end": 35496,
+          "delta": -248
+        },
+        {
+          "line": 6,
+          "before_start": 35744,
+          "before_end": 36381,
+          "after_start": 35496,
+          "after_end": 36133,
+          "delta": -248
+        },
+        {
+          "line": 7,
+          "before_start": 36381,
+          "before_end": 36799,
+          "after_start": 36133,
+          "after_end": 36551,
+          "delta": -248
+        },
+        {
+          "line": 8,
+          "before_start": 36799,
+          "before_end": 37539,
+          "after_start": 36551,
+          "after_end": 37291,
+          "delta": -248
+        },
+        {
+          "line": 9,
+          "before_start": 37539,
+          "before_end": 37724,
+          "after_start": 37291,
+          "after_end": 37476,
+          "delta": -248
+        },
+        {
+          "line": 10,
+          "before_start": 37724,
+          "before_end": 37966,
+          "after_start": 37476,
+          "after_end": 37718,
+          "delta": -248
+        },
+        {
+          "line": 11,
+          "before_start": 37966,
+          "before_end": 39173,
+          "after_start": 37718,
+          "after_end": 38925,
+          "delta": -248
+        },
+        {
+          "line": 12,
+          "before_start": 39173,
+          "before_end": 39637,
+          "after_start": 38925,
+          "after_end": 39389,
+          "delta": -248
+        },
+        {
+          "line": 13,
+          "before_start": 39637,
+          "before_end": 39822,
+          "after_start": 39389,
+          "after_end": 39574,
+          "delta": -248
+        },
+        {
+          "line": 14,
+          "before_start": 39822,
+          "before_end": 42189,
+          "after_start": 39574,
+          "after_end": 41941,
+          "delta": -248
+        }
+      ],
+      "findings": [
+        {
+          "line": 1,
+          "kind": "home_path",
+          "placeholder": "<user>"
+        },
+        {
+          "line": 3,
+          "kind": "home_path",
+          "placeholder": "<user>"
+        },
+        {
+          "line": 3,
+          "kind": "home_path",
+          "placeholder": "<user>"
+        },
+        {
+          "line": 3,
+          "kind": "email",
+          "placeholder": "<email>"
+        },
+        {
+          "line": 3,
+          "kind": "secret_entropy",
+          "placeholder": "<secret-0001>"
+        },
+        {
+          "line": 3,
+          "kind": "secret_entropy",
+          "placeholder": "<secret-0002>"
+        },
+        {
+          "line": 3,
+          "kind": "secret_entropy",
+          "placeholder": "<secret-0002>"
+        },
+        {
+          "line": 3,
+          "kind": "secret_entropy",
+          "placeholder": "<secret-0002>"
+        },
+        {
+          "line": 3,
+          "kind": "secret_entropy",
+          "placeholder": "<secret-0003>"
+        },
+        {
+          "line": 3,
+          "kind": "secret_entropy",
+          "placeholder": "<secret-0004>"
+        },
+        {
+          "line": 3,
+          "kind": "secret_entropy",
+          "placeholder": "<secret-0005>"
+        },
+        {
+          "line": 3,
+          "kind": "secret_entropy",
+          "placeholder": "<secret-0003>"
+        },
+        {
+          "line": 3,
+          "kind": "secret_entropy",
+          "placeholder": "<secret-0006>"
+        },
+        {
+          "line": 3,
+          "kind": "secret_entropy",
+          "placeholder": "<secret-0007>"
+        },
+        {
+          "line": 3,
+          "kind": "secret_entropy",
+          "placeholder": "<secret-0008>"
+        }
+      ],
+      "malformed_lines": []
+    }
+  ],
+  "replacements": {
+    "email": 1,
+    "home_path": 3,
+    "secret_entropy": 11
+  }
+}

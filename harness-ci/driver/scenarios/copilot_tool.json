@@ -1,0 +1,12 @@
+{
+  "name": "copilot_tool",
+  "description": "Copilot runs a bash tool long enough to sample RunningTool, then the interaction ends Done.",
+  "harness": "copilot",
+  "mock": "../../mock-server/scenarios/opencode_tool.json",
+  "prompt": "run the tool",
+  "run_for_ms": 30000,
+  "expected_activity": [
+    { "activity": "running_tool", "when": "ever", "certainty": "firm" },
+    { "activity": "done", "when": "end", "certainty": "firm" }
+  ]
+}

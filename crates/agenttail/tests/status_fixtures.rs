@@ -33,6 +33,8 @@ fn harness_for(scenario: &Path, root: &Path) -> Harness {
         "cursor" => Harness::Cursor,
         "pi" => Harness::Pi,
         "opencode" => Harness::OpenCode,
+        "gemini" => Harness::Gemini,
+        "copilot" => Harness::Copilot,
         other => panic!("{}: unknown harness folder {other}", scenario.display()),
     }
 }
@@ -144,6 +146,9 @@ fn every_expected_status_checkpoint_holds() {
 /// `time_created`/`time_updated` in Unix milliseconds.
 fn entry_time(entry: &Value) -> Option<Timestamp> {
     if let Some(time) = entry["timestamp"].as_str().and_then(Timestamp::parse_rfc3339) {
+        return Some(time);
+    }
+    if let Some(time) = entry["startTime"].as_str().and_then(Timestamp::parse_rfc3339) {
         return Some(time);
     }
     let row = entry.get("row").unwrap_or(entry);

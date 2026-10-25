@@ -469,12 +469,14 @@ explicitly. The root `cargo test` still does not build it.
   The `pi` matrix runs pinned Pi **1.4.0** and npm **latest** on both OSes with
   `ci/scenarios-pi.txt`; the `codex` matrix runs pinned Codex **0.160.1** and npm **latest**
   with `ci/scenarios-codex.txt`; the `opencode` matrix runs pinned OpenCode **1.19.4** and npm
-  **latest** with `ci/scenarios-opencode.txt`; and the `cursor` matrix runs pinned Cursor
-  Agent **2026.10.01-e373342** and the latest build. Every lane runs on both
-  **ubuntu-latest** and **macos-latest**. Every job installs exactly the version named in its
-  matrix entry into `$RUNNER_TEMP`, checks the binary's reported version, builds
-  `harness-driver --release`, and runs its scenarios sequentially. A hard scoring failure
-  fails the job; run artifacts are uploaded even when a scenario fails.
+  **latest** with `ci/scenarios-opencode.txt`; the `gemini` matrix runs pinned Gemini CLI
+  **0.65.0** and npm **latest** with `ci/scenarios-gemini.txt`; the `copilot` matrix runs
+  pinned Copilot CLI **1.0.103** and npm **latest** with `ci/scenarios-copilot.txt`; and the
+  `cursor` matrix runs pinned Cursor Agent **2026.10.01-e373342** and the latest build. Every
+  lane runs on both **ubuntu-latest** and **macos-latest**. Every job installs exactly the
+  version named in its matrix entry into `$RUNNER_TEMP`, checks the binary's reported version,
+  builds `harness-driver --release`, and runs its scenarios sequentially. A hard scoring
+  failure fails the job; run artifacts are uploaded even when a scenario fails.
 - **Cursor:** Cursor needs its own backend for a chat, so it still cannot join the mock/PTY rig
   (A5). Its pinned + latest lane installs the versioned official download, proves `cursor-agent`
   reports that version and renders `--help` with networking blocked, and runs the offline
@@ -483,9 +485,9 @@ explicitly. The root `cargo test` still does not build it.
 - **Offline:** `ci/offline-run.sh` wraps each driver in `sandbox-exec -f offline.sb` on macOS and
   in a fresh network namespace with loopback up on Linux. CI sets
   `HARNESS_CI_REQUIRE_OFFLINE=1`, so a host that cannot enforce either one fails instead of
-  silently running with egress. The Claude/Codex/Pi/OpenCode jobs only ever receive the
-  driver's dummy keys; the Cursor smoke uses a temp `HOME`. No repository secret is configured
-  or read.
+  silently running with egress. The Claude/Codex/Pi/OpenCode/Gemini/Copilot jobs only ever
+  receive the driver's dummy keys; the Cursor smoke uses a temp `HOME`. No repository secret is
+  configured or read.
 - **Version resolution:** `ci/matrix.py` owns the pinned versions and builds the pinned + latest
   matrix for every lane. `ci/cursor_version.py` reads the versioned download URL from Cursor's
   official installer; it does not execute the script. npm latest is resolved with `npm view`.
@@ -726,3 +728,58 @@ python3 ci/survey.py compare --baseline drift/baseline/claude-code/2.1.281.json 
 
 - The detector and scorer unit tests do not spawn Claude Code. A real PTY run of the four green
   scenarios is still the check that the new disagreement list stays empty on those timelines.
+
+## Gemini CLI: real harness and scenarios (2026-10-25)
+
+Gemini CLI **0.65.0** runs fully offline through a one-shot JSON mode, not a PTY. The
+driver gives it a temp home, selects the API-key auth path in `.gemini/settings.json`, and
+points `GOOGLE_GEMINI_BASE_URL` at the in-process mock:
+
+```sh
+GEMINI_CLI_HOME="$TMP/home" GEMINI_API_KEY=dummy \
+GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:<port> \
+CI=true GEMINI_CLI_TRUST_WORKSPACE=true GEMINI_TELEMETRY_ENABLED=false \
+gemini -p 'say hello' --output-format json --approval-mode yolo --skip-trust
+```
+
+The mock implements `:generateContent` and `:streamGenerateContent?alt=sse`. 0.65.0 sends a
+routing-classifier request first (a `complexity_score` JSON schema); the mock answers it
+without consuming a scenario step. Scenarios:
+
+| scenario | what it checks |
+|---|---|
+| `gemini_plain_qa` | one text turn; the journal ends firm `done` |
+| `gemini_tool` | a `run_shell_command` call; the call is written only after completion, so there is no sampled `running_tool` or `awaiting_approval`, then firm `done` |
+
+The committed fixtures under `fixtures/gemini/0.65.0/linux/` are real CLI journals captured
+through the mock and redacted. See [`docs/formats/gemini.md`](../docs/formats/gemini.md).
+
+## GitHub Copilot CLI: real harness and scenarios (2026-10-25)
+
+Copilot CLI **1.0.103** runs offline through its BYOK provider, so GitHub sign-in is not
+needed:
+
+```sh
+HOME="$TMP/home" COPILOT_HOME="$TMP/home/.copilot" COPILOT_OFFLINE=true \
+COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:<port>/v1 \
+COPILOT_PROVIDER_TYPE=openai COPILOT_PROVIDER_API_KEY=dummy \
+COPILOT_PROVIDER_MODEL_ID=test-model COPILOT_MODEL=test-model CI=true \
+copilot -p 'say hello' --allow-all-tools --trust-folder --output-format json
+```
+
+The mock's OpenAI Chat Completions route is enough. Scenarios:
+
+| scenario | what it checks |
+|---|---|
+| `copilot_plain_qa` | one text turn; firm `done` |
+| `copilot_tool` | a two-second bash call sampled as firm `running_tool`, then firm `done` |
+| `copilot_permission_denied` | prompt mode without `--allow-all-tools`; `permission.requested`, unattended denial, failed tool result, then firm `done` |
+
+The permission event is persisted, so the adapter's `awaiting_approval` is firm when a
+request is pending; the prompt-mode denial completes it too quickly for a reliable screen
+sample, so the committed `permission-denied` status fixture checks the checkpoint after the
+request line. See [`docs/formats/copilot.md`](../docs/formats/copilot.md).
+
+Both lanes have pinned + latest entries in `.github/workflows/harness-ci.yml`; the latest
+job is not soft-skipped. The local green runs in this change used 0.65.0 and 1.0.103 on
+Linux. GHA was not run for this PR, so CI verification is not claimed.

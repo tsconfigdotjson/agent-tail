@@ -205,6 +205,56 @@ jobs:
           echo "Pi npm latest: $latest"
           python3 harness-ci/ci/matrix.py pi --latest "$latest" --github-output >> "$GITHUB_OUTPUT"
 
+  prepare-gemini:
+    name: Resolve npm latest Gemini CLI
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the pinned + latest Gemini CLI matrix once
+        id: matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest="$(npm view @google/gemini-cli version)"
+          echo "Gemini CLI npm latest: $latest"
+          python3 harness-ci/ci/matrix.py gemini --latest "$latest" --github-output >> "$GITHUB_OUTPUT"
+
+  prepare-copilot:
+    name: Resolve npm latest Copilot CLI
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the pinned + latest Copilot CLI matrix once
+        id: matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest="$(npm view @github/copilot version)"
+          echo "Copilot CLI npm latest: $latest"
+          python3 harness-ci/ci/matrix.py copilot --latest "$latest" --github-output >> "$GITHUB_OUTPUT"
+
   harness:
     name: Claude Code ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
     needs: [unit, prepare]
@@ -637,6 +687,168 @@ jobs:
         with:
           name: cursor-${{ matrix.label }}-${{ runner.os }}
           path: ${{ runner.temp }}/cursor-help.txt
+          if-no-files-found: warn
+          retention-days: 7
+
+  gemini:
+    name: Gemini CLI ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
+    needs: [unit, prepare-gemini]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare-gemini.outputs.matrix) }}
+    env:
+      HARNESS_CI_REQUIRE_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.88
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustc --version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Gemini CLI ${{ matrix.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          requested='${{ matrix.version }}'
+          echo "Gemini CLI npm latest: $(npm view @google/gemini-cli version)"
+          prefix="$RUNNER_TEMP/gemini-$requested"
+          npm install --prefix "$prefix" --no-save --no-audit --no-fund "@google/gemini-cli@$requested"
+          bin="$prefix/node_modules/.bin/gemini"
+          actual="$("$bin" --version | head -n1 | tr -d '[:space:]')"
+          test -n "$actual"
+          if [[ "$actual" != "$requested" ]]; then
+            echo "installed $actual, wanted $requested" >&2
+            exit 1
+          fi
+          echo "$prefix/node_modules/.bin" >> "$GITHUB_PATH"
+          echo "GEMINI_VERSION=$actual" >> "$GITHUB_ENV"
+          echo "GEMINI_BIN=$bin" >> "$GITHUB_ENV"
+          echo "Testing Gemini CLI $actual"
+
+      - name: Build harness-ci explicitly
+        working-directory: harness-ci
+        run: cargo build -p harness-driver --release --locked
+
+      - name: Run Gemini CLI scenarios offline
+        shell: bash
+        run: |
+          set -uo pipefail
+          runs="$RUNNER_TEMP/gemini-runs"
+          rm -rf "$runs"
+          mkdir -p "$runs"
+          failed=0
+          while IFS= read -r scenario; do
+            [[ -z "$scenario" || "$scenario" == \#* ]] && continue
+            echo "::group::$scenario ($GEMINI_VERSION on ${{ runner.os }})"
+            if ! harness-ci/ci/offline-run.sh \
+              "$PWD/harness-ci/target/release/harness-driver" \
+              --scenario "$PWD/harness-ci/driver/scenarios/$scenario.json" \
+              --out "$runs/$scenario"; then
+              failed=1
+            fi
+            echo "::endgroup::"
+          done < harness-ci/ci/scenarios-gemini.txt
+          exit "$failed"
+
+      - name: Upload runs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemini-${{ matrix.label }}-${{ runner.os }}
+          path: ${{ runner.temp }}/gemini-runs
+          if-no-files-found: warn
+          retention-days: 7
+
+  copilot:
+    name: Copilot CLI ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
+    needs: [unit, prepare-copilot]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare-copilot.outputs.matrix) }}
+    env:
+      HARNESS_CI_REQUIRE_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.88
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustc --version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Copilot CLI ${{ matrix.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          requested='${{ matrix.version }}'
+          echo "Copilot CLI npm latest: $(npm view @github/copilot version)"
+          prefix="$RUNNER_TEMP/copilot-$requested"
+          npm install --prefix "$prefix" --no-save --no-audit --no-fund "@github/copilot@$requested"
+          bin="$prefix/node_modules/.bin/copilot"
+          actual="$("$bin" --version | head -n1 | awk '{print $4}' | tr -d '.')"
+          test -n "$actual"
+          if [[ "$actual" != "$requested" ]]; then
+            echo "installed $actual, wanted $requested" >&2
+            exit 1
+          fi
+          echo "$prefix/node_modules/.bin" >> "$GITHUB_PATH"
+          echo "COPILOT_VERSION=$actual" >> "$GITHUB_ENV"
+          echo "COPILOT_BIN=$bin" >> "$GITHUB_ENV"
+          echo "Testing Copilot CLI $actual"
+
+      - name: Build harness-ci explicitly
+        working-directory: harness-ci
+        run: cargo build -p harness-driver --release --locked
+
+      - name: Run Copilot CLI scenarios offline
+        shell: bash
+        run: |
+          set -uo pipefail
+          runs="$RUNNER_TEMP/copilot-runs"
+          rm -rf "$runs"
+          mkdir -p "$runs"
+          failed=0
+          while IFS= read -r scenario; do
+            [[ -z "$scenario" || "$scenario" == \#* ]] && continue
+            echo "::group::$scenario ($COPILOT_VERSION on ${{ runner.os }})"
+            if ! harness-ci/ci/offline-run.sh \
+              "$PWD/harness-ci/target/release/harness-driver" \
+              --scenario "$PWD/harness-ci/driver/scenarios/$scenario.json" \
+              --out "$runs/$scenario"; then
+              failed=1
+            fi
+            echo "::endgroup::"
+          done < harness-ci/ci/scenarios-copilot.txt
+          exit "$failed"
+
+      - name: Upload runs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: copilot-${{ matrix.label }}-${{ runner.os }}
+          path: ${{ runner.temp }}/copilot-runs
           if-no-files-found: warn
           retention-days: 7
 

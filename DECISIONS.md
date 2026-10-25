@@ -585,4 +585,45 @@ than the observed floor. The workflow's `first-read` job runs the same script on
 `ubuntu-latest`; it is Linux-only because the gate needs GNU time, and it is ready but was not
 required while this month's Actions billing was exhausted.
 
+## Phase F: Gemini CLI 0.65.0 and Copilot CLI 1.0.103 (2026-10-25)
 
+**Gemini is a journal harness, not a plain append log.** 0.65.0 writes
+`~/.gemini/tmp/<project>/chats/session-*.jsonl` (or below `GEMINI_CLI_HOME`), with message
+records upserted by id, `$set` metadata updates, `$patch` tool-result patches and
+`$rewindTo` records. The adapter reads the top-level journal, skips the `<session_context>`
+record as a prompt but takes its workspace path, and treats a `gemini` message with text and
+no tool calls as the firm end of the turn. Project short-id folders are labels, not decoded.
+
+**The prior-art claim about Gemini tool calls is confirmed on 0.65.0.** A tool call is
+written only after it completes, with `result` and `status`; there is no on-disk pending or
+`awaiting_approval` state, and the approval mode is not recorded. A tool call therefore
+arrives as a result, not as `RunningTool`, and a normal Gemini session cannot produce firm
+`AwaitingApproval`. The adapter still recognises an explicit future `awaiting_approval`
+status, but that is not observed support. Subagent journals under
+`chats/<parent-session-id>/` are not followed.
+
+**Copilot persists permission requests.** 1.0.103 writes
+`~/.copilot/session-state/<uuid>/events.jsonl` (or below `COPILOT_HOME`). A tool call is in
+`assistant.message.toolRequests` before execution; a request that may need a human is
+followed by `permission.requested` (with `toolCallId` and `permissionMode`) and then
+`permission.completed`. That makes a pending approval firm, unlike every other harness
+except an explicit ask-user tool. In prompt mode without an interactive user, the completed
+result is `denied-no-approval-rule-and-could-not-request-from-user`, followed by a failed
+tool result. Because Copilot always records the request when it needs one, a pending tool
+without a request is firm `RunningTool`; the shared 20 s stall inference is disabled for
+Copilot.
+
+**Copilot's `assistant.turn_end` is a model-step boundary.** A tool-requesting model call
+has a `turn_end` before the tool runs and the next model call has another. The adapter only
+turns that record into `Done` after an assistant message with no tool requests; otherwise it
+keeps the interaction at `RunningTool`/`Thinking`.
+
+**Both harnesses run through the mock without accounts.** Gemini uses a dummy
+`GEMINI_API_KEY`, an absolute `GEMINI_CLI_HOME`, settings selecting `gemini-api-key`, and
+`GOOGLE_GEMINI_BASE_URL`; the mock answers the routing classifier and the Gemini SSE stream.
+Copilot uses its BYOK provider (`COPILOT_PROVIDER_BASE_URL`, `COPILOT_OFFLINE=true`) against
+the existing OpenAI Chat Completions mock, so GitHub sign-in is not required. Fixtures are
+real CLI artifacts captured through the mock and redacted by `agenttail fixture capture`;
+the Gemini `tool` fixture and status checkpoints record the "call only after completion"
+finding, and the Copilot `permission-denied` fixture records the persisted request and
+unattended denial.

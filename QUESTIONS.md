@@ -46,3 +46,14 @@ repeated here when they're still open.
     `fixtures/<harness>/<version>/<os>/<scenario>/` with `meta.toml`,
     `expected/events.jsonl` and `expected/status.jsonl`. `agenttail fixture redact|capture`
     and the fixture scan landed with #24.
+
+
+## Resolved by the Gemini and Copilot runs (2026-10-25)
+
+9. **Gemini `awaiting_approval` on disk / Copilot `permission.requested` still written?**
+   Gemini 0.65.0 writes a tool call only after it completes, with its result; neither a
+   pending nor an `awaiting_approval` call was on disk, and the approval mode is not
+   recorded. Copilot 1.0.103 does persist `permission.requested` and
+   `permission.completed`, joined by `toolCallId`, so its pending approval is firm. See
+   [`docs/formats/gemini.md`](docs/formats/gemini.md) and
+   [`docs/formats/copilot.md`](docs/formats/copilot.md).

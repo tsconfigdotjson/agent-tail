@@ -15,7 +15,7 @@ use crate::time::Timestamp;
 use serde::Serialize;
 use serde_json::Value;
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Where a record came from: its source (a caller's file index), byte span, physical line,
 /// and the ids the harness itself wrote for it. Offsets and lengths are in the original
@@ -103,6 +103,20 @@ pub enum EventKind {
         call_id: Option<String>,
         is_error: bool,
         size: u64,
+    },
+    /// The harness persisted a permission request for a tool call (GitHub Copilot CLI's
+    /// `permission.requested`). Unlike a stalled tool, this is firm evidence that a human
+    /// (or an unattended fallback) must answer before the tool can run.
+    ApprovalRequested {
+        call_id: Option<String>,
+        tool_name: Option<String>,
+        request_kind: Option<String>,
+    },
+    /// A permission request was answered (GitHub Copilot CLI's `permission.completed`).
+    ApprovalCompleted {
+        call_id: Option<String>,
+        approved: bool,
+        result_kind: Option<String>,
     },
     /// A turn started (`task_started`, `turn_started`).
     TurnStart {
@@ -497,6 +511,15 @@ pub(crate) struct ParseState {
     /// OpenCode message id -> the role its message row named, so its parts know whose
     /// text they carry (a part row has no role of its own).
     pub(crate) opencode_roles: HashMap<String, &'static str>,
+    /// Gemini tool call ids already emitted, so a `$patch` result does not repeat the call.
+    pub(crate) gemini_tools: HashSet<String>,
+    /// Gemini tool call ids whose result has already been emitted.
+    pub(crate) gemini_results: HashSet<String>,
+    /// Copilot's current model step contains tool requests: its `assistant.turn_end` is not
+    /// the end of the user interaction.
+    pub(crate) copilot_tools_pending: bool,
+    /// Copilot tool call ids already emitted from `assistant.message` or a tool event.
+    pub(crate) copilot_tools: HashSet<String>,
 }
 
 /// A prompt's tag wrappers (`<user_query>…</user_query>`, `<timestamp>…</timestamp>`, …).
@@ -575,7 +598,7 @@ impl Session {
                             self.set_title_from_prompt(first);
                         }
                     }
-                    Harness::Codex | Harness::Pi => {
+                    Harness::Codex | Harness::Pi | Harness::Gemini | Harness::Copilot => {
                         if let Some(first) = self.prompt(text, t) {
                             self.set_title_from_prompt(first);
                         }
@@ -600,6 +623,12 @@ impl Session {
                 Some(call_id) if !call_id.is_empty() => self.tool_result_id(call_id, t),
                 _ => self.set(Last::ToolResult, t),
             },
+            EventKind::ApprovalRequested { call_id, .. } => {
+                self.approval_requested(call_id.as_deref().unwrap_or_default(), t);
+            }
+            EventKind::ApprovalCompleted { call_id, .. } => {
+                self.approval_completed(call_id.as_deref().unwrap_or_default(), t);
+            }
             EventKind::TurnStart { .. } => self.set(Last::Prompt, t),
             EventKind::TurnEnd { reason, error, background_agents } => {
                 match reason {
@@ -696,6 +725,8 @@ impl Event {
             EventKind::Reasoning { .. } => "reasoning",
             EventKind::ToolCall { .. } => "tool_call",
             EventKind::ToolResult { .. } => "tool_result",
+            EventKind::ApprovalRequested { .. } => "approval_requested",
+            EventKind::ApprovalCompleted { .. } => "approval_completed",
             EventKind::TurnStart { .. } => "turn_start",
             EventKind::TurnEnd { .. } => "turn_end",
             EventKind::Usage { .. } => "usage",

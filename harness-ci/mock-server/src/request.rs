@@ -8,6 +8,7 @@ pub enum Api {
     Anthropic,
     OpenAi,
     OpenAiChat,
+    Gemini,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -108,6 +109,41 @@ impl RequestView {
         view
     }
 
+    pub fn from_gemini(body: &Value) -> RequestView {
+        let mut view = RequestView::default();
+        if let Some(parts) = body.pointer("/systemInstruction/parts").and_then(Value::as_array) {
+            for part in parts {
+                if let Some(text) = part.get("text").and_then(Value::as_str) {
+                    append(&mut view.all_text, text);
+                }
+            }
+        }
+        let Some(contents) = body.get("contents").and_then(Value::as_array) else { return view };
+        for content in contents {
+            let role = content.get("role").and_then(Value::as_str).unwrap_or("");
+            for part in content.get("parts").and_then(Value::as_array).into_iter().flatten() {
+                if let Some(text) = part.get("text").and_then(Value::as_str) {
+                    append(&mut view.all_text, text);
+                    if role == "user" {
+                        append(&mut view.user_text, text);
+                    }
+                }
+                if let Some(response) = part.get("functionResponse") {
+                    let call_id = response.get("id").and_then(Value::as_str).unwrap_or("");
+                    let text = content_text(response.get("response"));
+                    append(&mut view.all_text, &text);
+                    view.tool_results.push(ToolResult { call_id: call_id.into(), text });
+                }
+                if let Some(call) = part.get("functionCall")
+                    && let Some(name) = call.get("name").and_then(Value::as_str)
+                {
+                    append(&mut view.all_text, name);
+                }
+            }
+        }
+        view
+    }
+
     pub fn from_openai(body: &Value) -> RequestView {
         let mut view = RequestView::default();
         match body.get("input") {
@@ -157,9 +193,20 @@ fn content_text(value: Option<&Value>) -> String {
             .collect::<Vec<_>>()
             .join("\n"),
         Some(Value::Object(_)) => {
-            value.and_then(|v| v.get("text")).and_then(Value::as_str).unwrap_or_default().to_string()
+            let mut texts = Vec::new();
+            flatten_text(value.unwrap(), &mut texts);
+            texts.join("\n")
         }
         _ => String::new(),
+    }
+}
+
+fn flatten_text(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::String(text) => out.push(text.clone()),
+        Value::Array(items) => items.iter().for_each(|item| flatten_text(item, out)),
+        Value::Object(map) => map.values().for_each(|item| flatten_text(item, out)),
+        _ => {}
     }
 }
 

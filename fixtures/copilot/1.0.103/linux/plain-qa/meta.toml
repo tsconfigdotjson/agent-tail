@@ -1,0 +1,7 @@
+harness = "copilot"
+version = "1.0.103"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-25"
+description = "Captured offline from a GitHub Copilot CLI session (b7dbd22c-3f6c-4009-89d3-95c874c66f91) and redacted by `agenttail fixture capture`."
+redaction = "redaction.json"

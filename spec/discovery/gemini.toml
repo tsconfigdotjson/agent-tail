@@ -1,0 +1,90 @@
+# Gemini CLI discovery, as observed in 0.65.0. This file is embedded by
+# crates/agenttail/build.rs. Gemini's chat files are JSONL journals below a project folder.
+schema = 1
+harness = "gemini"
+name = "Gemini CLI"
+
+[roots]
+# The project registry lives here; each project has its own short-id folder below it.
+default = ".gemini/tmp"
+evidence = "docs/formats/gemini.md#paths-and-layout; harness-ci/README.md#gemini-cli-real-harness-2026-10-25"
+
+[[roots.env]]
+# GEMINI_CLI_HOME replaces the home directory Gemini uses, so .gemini/tmp moves with it.
+var = "GEMINI_CLI_HOME"
+append = ".gemini/tmp"
+absolute = true
+semantics = "Gemini's home directory; .gemini/tmp below it holds project chat folders; relative values are ignored"
+evidence = "docs/formats/gemini.md#paths-and-layout; packages/core/dist/src/utils/paths.js in google-gemini/gemini-cli 0.65.0"
+
+[layout]
+# <project-short-id>/chats/session-<timestamp>-<short-session-id>.jsonl. Subagent journals
+# live one folder deeper (<project>/chats/<parent-session-id>/<session-id>.jsonl) and are not
+# followed by this version.
+max_depth = 3
+session_pattern = "*.jsonl"
+sessions_in = "chats"
+day_folders = false
+evidence = "docs/formats/gemini.md#paths-and-layout; crates/agenttail/src/adapters/gemini.rs"
+
+[project]
+# The initial journal record has no cwd, only a projectHash. The project short-id folder is
+# therefore the fallback; a `directories` metadata update (when present) is authoritative.
+source = "the first entry of a $set directories metadata record; otherwise the <project-short-id> folder"
+encoding = "project folders are short ids from projects.json, not a reversible encoding of the workspace path; they are used as a label, never decoded"
+evidence = "docs/formats/gemini.md#paths-and-layout; packages/core/dist/src/utils/paths.js and chatRecordingService in google-gemini/gemini-cli 0.65.0"
+
+[[project.examples]]
+cwd = "/home/ubuntu/workspace/example"
+folder = "example"
+
+[timestamps]
+field = "timestamp"
+format = "ISO 8601"
+timezone = "as written (UTC with Z in every observed entry)"
+fallback = "file mtime when an entry has no timestamp"
+evidence = "docs/formats/gemini.md#journal-records; fixtures/gemini/0.65/linux/plain-qa/input/session.jsonl"
+
+[asks_user]
+# 0.65.0 offered no ask-the-user tool in the captured tool catalogue. Do not guess at a
+# future or extension-provided tool name.
+match = "exact"
+evidence = "docs/formats/gemini.md#status-signals; harness-ci/README.md#gemini-cli-real-harness-2026-10-25"
+values = []
+
+[never_prompt]
+# Approval mode is not persisted in the journal, and tool calls are written only after they
+# complete, so no tool name is known to be never-prompt from disk evidence.
+evidence = "docs/formats/gemini.md#status-signals; docs/prior-art.md#gemini-cli"
+values = []
+
+[modes]
+# `--approval-mode` has default, auto_edit, yolo and plan, but the journal records none of
+# them. The adapter leaves SessionState.permission None rather than inventing a mode.
+evidence = "docs/formats/gemini.md#status-signals; gemini --help in 0.65.0"
+values = []
+
+[[quirks]]
+id = "tool-calls-written-after-completion"
+summary = "A model tool call is recorded only after the tool completes, with its result and status; there is no on-disk pending/awaiting-approval record."
+evidence = "docs/formats/gemini.md#status-signals; recordCompletedToolCalls in packages/core/dist/src/core/geminiChat.js of google-gemini/gemini-cli 0.65.0"
+
+[[quirks]]
+id = "approval-mode-not-recorded"
+summary = "The journal has no approval-mode field, so a pending approval cannot be made firm or ruled out from the transcript."
+evidence = "docs/formats/gemini.md#status-signals; docs/prior-art.md#gemini-cli"
+
+[[quirks]]
+id = "journal-upserts-and-patches"
+summary = "Messages are appended under stable ids; later `$set` metadata updates, `$patch` message/tool-result patches and `$rewindTo` records mutate the logical conversation."
+evidence = "docs/formats/gemini.md#journal-records; ChatRecordingService in google-gemini/gemini-cli 0.65.0"
+
+[[quirks]]
+id = "routing-classifier-request"
+summary = "0.65.0 sends a separate generateContent request with a complexity-score JSON schema before the main stream; the harness mock answers it without consuming a scenario step."
+evidence = "docs/formats/gemini.md#harness-ci; harness-ci/mock-server/src/gemini.rs"
+
+[[quirks]]
+id = "subagent-journals"
+summary = "Subagent journals are nested below chats/<parent-session-id>/; this adapter and tracker read only the top-level journal."
+evidence = "docs/formats/gemini.md#paths-and-layout; chatRecordingService in google-gemini/gemini-cli 0.65.0"

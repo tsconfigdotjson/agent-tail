@@ -25,6 +25,11 @@ The seed corpus from tvdash now lives in the versioned layout:
 | `opencode/1.19.4/linux/plain-qa` | a real `opencode run` text turn, exported from its SQLite database |
 | `opencode/1.19.4/linux/tool` | a real `opencode run` bash call and the answer after its result |
 | `opencode/1.19.4/linux/tool-running` | a live SQLite snapshot during a `sleep 8` tool call, including the 20 s stall inference |
+| `gemini/0.65.0/linux/plain-qa` | Gemini CLI 0.65.0 against the mock: a session-context record, a prompt, one text answer |
+| `gemini/0.65.0/linux/tool` | Gemini CLI 0.65.0: a `run_shell_command` call written after completion with its result, then the final answer |
+| `copilot/1.0.103/linux/plain-qa` | Copilot CLI 1.0.103 against the mock: a prompt, one text answer, normal shutdown |
+| `copilot/1.0.103/linux/tool` | Copilot CLI 1.0.103: a bash call pending for two seconds, then the answer after its result |
+| `copilot/1.0.103/linux/permission-denied` | Copilot CLI 1.0.103 prompt mode with no interactive user: `permission.requested`, unattended denial, failed tool result, then the answer |
 
 They were already scrubbed of prose when copied from tvdash; `agenttail fixture redact`
 then replaced their fake placeholder usernames (`dev`, `sam`) with canonical
