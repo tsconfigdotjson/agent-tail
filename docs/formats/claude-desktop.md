@@ -29,7 +29,7 @@ Do not conflate the Code tab with Cowork / Chat / local agent mode:
 | Surface | Artifacts | Read by `agenttail` |
 |---|---|---|
 | **Code tab** | Desktop metadata under app-data `claude-code-sessions/`; the transcript is a Claude Code transcript at `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl` | The existing **Claude Code** adapter, once the transcript appears there. Desktop metadata is not read. See [`claude-code.md`](claude-code.md). |
-| **Cowork / agent / Chat (local agent mode)** | Self-contained under app-data `local-agent-mode-sessions/…/local_<id>.json` plus `local_<id>/audit.jsonl` (HMAC-chained) | The new **`claude_desktop`** adapter and discovery spec. Dispatch sessions at `<org>/agent/local_ditto_<id>/audit.jsonl` are read as their own sessions. |
+| **Cowork / agent / Chat (local agent mode)** | Self-contained under app-data `local-agent-mode-sessions/…/local_<id>.json` plus `local_<id>/audit.jsonl` or `<first-8-hex>/audit.jsonl` (HMAC-chained) | The new **`claude_desktop`** adapter and discovery spec. Dispatch sessions at `<org>/agent/local_ditto_<id>/audit.jsonl` are read as their own sessions. |
 
 Official data-storage page:
 <https://claude.com/docs/third-party/claude-desktop/data-storage>.
@@ -61,14 +61,18 @@ not handled yet.
 ```text
 <root>/<user>/<org>/local_<uuid>/audit.jsonl
 <root>/<user>/<org>/local_<uuid>.json                 # sidecar metadata
+<root>/<user>/<org>/<first-8-hex>/audit.jsonl         # Desktop 3.6556.2 short folder
 <root>/<user>/<org>/agent/local_ditto_<uuid>/audit.jsonl
 <root>/<user>/<org>/agent/local_ditto_<uuid>.json     # dispatch metadata
 ```
 
-The discovery layout requires `audit.jsonl` inside a folder whose name starts with `local_`,
-allows five folders below the root (so dispatch's extra `agent/` level fits), and walks no
-other file as a session. The metadata file is `.json`, so it is not a second transcript; it
-is read as a sidecar.
+The discovery layout requires `audit.jsonl` inside a folder whose name starts with `local_`
+or is the first eight hex characters of the session id, allows five folders below the root
+(so dispatch's extra `agent/` level fits), and walks no other file as a session. The short
+folder is not a different session shape: Claude Desktop 3.6556.2's `getSessionStorageDir`
+chooses `<first-8-hex>` for a new session, while the sidecar stays `local_<uuid>.json` in the
+parent folder. The metadata file is `.json`, so it is not a second transcript; it is read as
+a sidecar, found by that eight-character prefix when the folder is short.
 
 Dispatch sessions (`local_ditto_*`) are delegated background agents. They are **not** helpers
 of an interactive session in this adapter: each has its own audit log and is reported as its
@@ -156,9 +160,10 @@ normal fixture tests; the adapter also has unit tests for the sidecar, error/abo
 no-prompt modes and the shared record parser. `agenttail fixture scan` is clean.
 
 What is still missing: a real redacted artifact, a scored Desktop turn, a CI lane, and
-verification of the consumer/3P roots on macOS, Linux and Windows. A live Xvfb Jev run has
-reached the Chat UI and a mock probe; see the Docker section below. It did not leave a
-session on disk.
+verification of the consumer/3P roots on macOS, Linux and Windows. A live Xvfb Jev run
+reached the Chat UI and a mock probe, but no scored turn yet. Its `idle_no_session` was
+consistent with Desktop 3.6556.2 writing `<first-8-hex>/audit.jsonl`; the layout now reads
+that shape and its unit test covers the sidecar lookup. See the Docker section below.
 
 ---
 

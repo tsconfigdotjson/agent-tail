@@ -761,7 +761,9 @@ single `roots.default` used by one-root tooling; the 3P roots are vendor-documen
 the consumer Linux/Windows rows remain prior art/TBD. A `session_dir_prefix = "local_"`
 layout field keeps the walker from treating arbitrary `audit.jsonl` files as sessions, the
 bare `audit.jsonl` pattern requires that exact file name inside each `local_*` folder, and
-the five-folder depth allows dispatch's extra `agent/` level.
+the five-folder depth allows dispatch's extra `agent/` level. Desktop 3.6556.2 also names a
+new session folder with the first eight hex characters of `local_<uuid>`; `session_dir_hex8`
+accepts that shape and the sidecar lookup finds `local_<uuid>.json` by the same prefix.
 
 **The sidecar is read but is not a transcript.** The tracker reads the sibling
 `local_<id>.json` when it appears or changes and feeds its cwd/title/model/session id through

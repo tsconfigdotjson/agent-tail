@@ -66,6 +66,8 @@ struct LayoutSpec {
     session_pattern: String,
     sessions_in: Option<String>,
     session_dir_prefix: Option<String>,
+    #[serde(default)]
+    session_dir_hex8: bool,
     helpers_in: Option<String>,
     helper_owner: Option<String>,
     day_folders: bool,
@@ -398,6 +400,7 @@ fn render(out: &mut String, spec: &Spec, variant: &str) {
     let max_depth = opt_usize(layout.max_depth);
     let sessions_in = opt_string(layout.sessions_in.as_deref());
     let session_dir_prefix = opt_string(layout.session_dir_prefix.as_deref());
+    let session_dir_hex8 = layout.session_dir_hex8;
     let helpers_in = opt_string(layout.helpers_in.as_deref());
     let helper_owner = layout
         .helper_owner
@@ -450,7 +453,7 @@ fn render(out: &mut String, spec: &Spec, variant: &str) {
     .unwrap();
     writeln!(
         out,
-        "        layout: Layout {{ root: {}, max_depth: {max_depth}, sessions_in: {sessions_in}, session_dir_prefix: {session_dir_prefix}, helpers_in: {helpers_in}, helper_owner: {helper_owner}, day_folders: {}, session_suffix: {}, session_file: {session_file} }},",
+        "        layout: Layout {{ root: {}, max_depth: {max_depth}, sessions_in: {sessions_in}, session_dir_prefix: {session_dir_prefix}, session_dir_hex8: {session_dir_hex8}, helpers_in: {helpers_in}, helper_owner: {helper_owner}, day_folders: {}, session_suffix: {}, session_file: {session_file} }},",
         lit(&spec.roots.default),
         layout.day_folders,
         lit(suffix)

@@ -17,7 +17,7 @@ pub enum Harness {
     /// Claude Code (the CLI, and the Code tab's transcripts from the desktop app).
     ClaudeCode,
     /// Claude Desktop's local agent mode (Cowork / Chat), whose sessions are app-data
-    /// `local-agent-mode-sessions/…/local_<id>/audit.jsonl`.
+    /// `local-agent-mode-sessions/…/local_<id>/audit.jsonl` (or `<first-8-hex>/audit.jsonl`).
     #[serde(rename = "claude_desktop")]
     ClaudeDesktop,
     /// OpenAI's Codex CLI.
@@ -121,6 +121,9 @@ pub struct Layout {
     /// The prefix of the folder directly above a session's transcript (Claude Desktop's
     /// `local_<id>/audit.jsonl` and `local_ditto_<id>/audit.jsonl`); None: any folder name.
     pub session_dir_prefix: Option<&'static str>,
+    /// Whether that folder may instead be the first eight hex characters of the session id
+    /// (Claude Desktop's newer `<ab12cd34>/audit.jsonl` next to `local_<uuid>.json`).
+    pub session_dir_hex8: bool,
     /// The folder, beside a session's transcript, that holds its helpers' transcripts
     /// (Cursor's subagents: `<id>/<id>.jsonl`, and `<id>/subagents/*.jsonl` one level below
     /// `max_depth`). They aren't sessions of their own and aren't read as one: their bytes
@@ -172,10 +175,17 @@ impl Layout {
         {
             return None;
         }
-        if let Some(prefix) = self.session_dir_prefix
-            && (n < 2 || !c[n - 2].to_string_lossy().starts_with(prefix))
-        {
-            return None;
+        if self.session_dir_prefix.is_some() || self.session_dir_hex8 {
+            if n < 2 {
+                return None;
+            }
+            let name = c[n - 2].to_string_lossy();
+            let prefix_matches = self.session_dir_prefix.is_some_and(|prefix| name.starts_with(prefix));
+            let hex8_matches =
+                self.session_dir_hex8 && name.len() == 8 && name.bytes().all(|byte| byte.is_ascii_hexdigit());
+            if !prefix_matches && !hex8_matches {
+                return None;
+            }
         }
         if let Some(file) = self.session_file
             && (n == 0 || c[n - 1] != file)
@@ -335,9 +345,18 @@ mod tests {
         let rel = |p: &str| desktop.role(Path::new(p));
         assert_eq!(rel("u/o/local_a/audit.jsonl"), Some(Role::Session));
         assert_eq!(rel("u/o/agent/local_ditto_a/audit.jsonl"), Some(Role::Session));
-        for not in
-            ["u/o/other/audit.jsonl", "u/o/local_a/transcript.jsonl", "u/o/agent/notes/local_ditto_a/audit.jsonl"]
-        {
+        // Newer Desktop builds use the first eight hex characters of `local_<uuid>` as the
+        // folder, with `local_<uuid>.json` beside it.
+        assert_eq!(rel("u/o/ab12cd34/audit.jsonl"), Some(Role::Session));
+        assert_eq!(rel("u/o/agent/ab12cd34/audit.jsonl"), Some(Role::Session));
+        for not in [
+            "u/o/other/audit.jsonl",
+            "u/o/local_a/transcript.jsonl",
+            "u/o/agent/notes/local_ditto_a/audit.jsonl",
+            "u/o/nothex!!/audit.jsonl",
+            "u/o/ab12cd3/audit.jsonl",
+            "u/o/ab12cd345/audit.jsonl",
+        ] {
             assert_eq!(rel(not), None, "{not}");
         }
         assert_eq!(desktop.walk_depth(), 5);

@@ -57,9 +57,10 @@ data-storage pages linked from the format note.
 - **Code tab:** Desktop metadata below app-data `claude-code-sessions/`; the transcript is a
   Claude Code transcript under `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`.
 - **Cowork / agent / Chat (local agent mode):** app-data
-  `local-agent-mode-sessions/…/local_<id>.json` plus `local_<id>/audit.jsonl` (HMAC-chained).
-  This is **not** `~/.claude/projects`. The `claude_desktop` adapter reads it today; the
-  committed fixtures are handmade from prior art, so support stays **ported-unverified**.
+  `local-agent-mode-sessions/…/local_<id>.json` plus `local_<id>/audit.jsonl` or
+  `<first-8-hex>/audit.jsonl` (HMAC-chained). This is **not** `~/.claude/projects`. The
+  `claude_desktop` adapter reads both folder shapes today; the committed fixtures are
+  handmade from prior art, so support stays **ported-unverified**.
 
 3P app-data roots are documented as `Claude-3p` (macOS `~/Library/Application Support`,
 Linux `~/.config`, Windows `%LOCALAPPDATA%`). Consumer builds commonly use `Claude` without

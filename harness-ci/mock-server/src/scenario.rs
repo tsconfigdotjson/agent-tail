@@ -67,6 +67,12 @@ pub struct Expect {
     /// A substring of the user's text only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_contains: Option<String>,
+    /// The whole user text, after trimming and ignoring app context blocks such as
+    /// `<system-reminder>…</system-reminder>`. Use this when an auxiliary request may embed
+    /// the prompt in a longer template; a substring match would consume the step on that
+    /// request instead of the real turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_equals: Option<String>,
     /// Requires at least one tool result with this call id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_result_id: Option<String>,
@@ -349,13 +355,19 @@ mod tests {
         let plain: Value = serde_json::from_str(&plain_text).unwrap();
         let desktop: Value = serde_json::from_str(&desktop_text).unwrap();
         assert!(plain.get("probes").is_none(), "CLI plain_qa stays strict");
-        assert_eq!(plain["steps"], desktop["steps"]);
+        assert_eq!(plain["steps"].as_array().unwrap().len(), desktop["steps"].as_array().unwrap().len());
+        assert_eq!(plain["steps"][0]["reply"], desktop["steps"][0]["reply"]);
+        assert_eq!(plain["steps"][0]["expect"]["user_contains"], "say hello", "the CLI step stays a substring match");
         let strict = Scenario::parse(&plain_text).unwrap();
         let allowed = Scenario::parse(&desktop_text).unwrap();
         let probe = serde_json::json!({"max_tokens": 1});
         assert!(!strict.is_probe(&probe, "."));
         assert!(allowed.is_probe(&probe, "."));
         assert_eq!(allowed.probes.max_tokens_at_most, Some(1));
-        assert_eq!(allowed.steps[0].expect.user_contains.as_deref(), Some("say hello"));
+        assert_eq!(allowed.steps[0].expect.user_equals.as_deref(), Some("say hello"));
+        assert_eq!(
+            allowed.steps[0].expect.user_contains, None,
+            "a title request embeds the prompt, so match the chat turn exactly"
+        );
     }
 }
