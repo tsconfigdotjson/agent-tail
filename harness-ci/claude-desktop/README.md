@@ -14,15 +14,20 @@ driver is a Jev computer-use loop, not a PTY prompt:
 - `agenttail` scores the resulting session from disk. It is not a screenshot/VLM scorer.
 - The reference `typesafe-computer-use` agent is macOS-first and needs Screen Recording and
   Accessibility permissions.
+- Jev is called through **OpenRouter** by default (`OPENROUTER_API_KEY`, model
+  `typesafe/jev-1.14` or `~typesafe/jev-latest`), not a separate TypeSafe console key. Code
+  that still reads `TYPESAFE_*` needs `TYPESAFE_API_KEY="$OPENROUTER_API_KEY"` and
+  `TYPESAFE_BASE_URL=https://openrouter.ai/api` so the key and endpoint stay paired.
 
-No `TYPESAFE_API_KEY` was available for the spike, so no live Jev call was made and no
-Desktop install was driven.
+No OpenRouter key was used for the spike, so no live Jev call was made and no Desktop install
+was driven. Source inspection of `typesafe-computer-use` shows its bare `TypeSafeClient()`
+inherits `TYPESAFE_BASE_URL` from `typesafe-sdk` 0.6.0, but that handoff has not been run.
 
 ## Candidate lanes
 
 | lane | what it would prove | blocker |
 |---|---|---|
-| macOS manual/scripted | Desktop can be observed and driven by a Jev choice loop; Code/Cowork artifacts appear where expected | TypeSafe key, Desktop install, screen/accessibility permission |
+| macOS manual/scripted | Desktop can be observed and driven by a Jev choice loop; Code/Cowork artifacts appear where expected | OpenRouter key + credits, Desktop install, screen/accessibility permission |
 | Linux + Xvfb, Code/Chat UI | the same loop on Linux | a Linux AT-SPI observe/act adapter; Xvfb/desktop automation not written |
 | Linux + Xvfb, Cowork | Cowork transcript scoring on Linux | KVM/QEMU (about 25 GB disk, 8 GB RAM) is often unavailable |
 | 3P gateway + mock, no computer use | Desktop can talk to the Anthropic Messages mock and write scoreable Code/Cowork artifacts | real Desktop install, 3P managed settings, gateway auth; Desktop↔mock handshake never run |

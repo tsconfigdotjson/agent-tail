@@ -22,7 +22,7 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 
 | Target | Status | CI scenarios | Fixtures | Versions | Evidence |
 |---|---|---:|---:|---|---|
-| Claude Desktop (agent mode) | **spike** | 0 | 0 | unknown | docs-only Jev computer-use loop; no adapter, fixture or CI run |
+| Claude Desktop (agent mode) | **spike** | 0 | 0 | unknown | docs-only Jev computer-use loop over OpenRouter; no adapter, fixture or CI run |
 
 Claude Desktop is a spike-only target, not a supported harness: it has no discovery spec or adapter and is not in the table above. See [docs/formats/claude-desktop.md](formats/claude-desktop.md).
 

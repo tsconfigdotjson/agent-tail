@@ -1,17 +1,18 @@
-# Claude Desktop agent mode + Jev (spike)
+# Claude Desktop agent mode + Jev via OpenRouter (spike)
 
 **Status: documentation spike only.** This is not a supported harness. There is no
 discovery spec, adapter, fixture or harness-CI scenario, and no Claude Desktop job runs in
-GitHub Actions. The Jev/TypeSafe path below was written from public documentation, not from
-a live API call or a real Desktop session. `TYPESAFE_API_KEY` was not available for this
-spike.
+GitHub Actions. The Jev/OpenRouter path below was written from public documentation and
+source inspection, not from a live API call or a real Desktop session. No OpenRouter or
+TypeSafe key was used for this spike.
 
-Scope: issue #74 under parent #33, and the remaining Claude Desktop part of #27. The goal is
-to decide whether a **Jev computer-use loop** can drive Claude Desktop while `agenttail`
-scores the session from disk. It is not a claim that Desktop is supported.
+Scope: issue #74 under parent #33, retargeted by #76, and the remaining Claude Desktop part
+of #27. The goal is to decide whether a **Jev computer-use loop** can drive Claude Desktop
+while `agenttail` scores the session from disk. It is not a claim that Desktop is supported.
 
-Evidence is labelled **documented** (vendor docs), **prior art** (another project's code or
-survey), or **TBD** (needs a real install or key). Nothing here is CI-verified.
+Evidence is labelled **documented** (vendor docs), **source-inspected** (public repository
+or pinned package source, not a live call), **prior art** (another project's code or survey),
+or **TBD** (needs a real install or key). Nothing here is CI-verified.
 
 ## What is being proposed
 
@@ -36,21 +37,74 @@ design; a screenshots-only judge would not prove that the transcript state is co
 
 Reference points:
 
-- System One quickstart: <https://docs.typesafe.ai/introduction/quickstart>
-- Product computer-use page: <https://www.jevtypesafeai.com/jev-computer-use>
+- Jev on OpenRouter: <https://openrouter.ai/docs/guides/community/jev>
+- TypeSafe SDK pointed at OpenRouter: <https://openrouter.ai/docs/guides/community/typesafe-sdk>
+- Jev tutorial and Decisions API examples: <https://openrouter.ai/docs/guides/community/jev-tutorial>
+- Decisions API reference: <https://openrouter.ai/docs/api/api-reference/alphadecisions/submit-a-decisions-questions-and-answers-request>
+- TypeSafe System One concepts: <https://docs.typesafe.ai/introduction/quickstart>
 - Reference Mac agent: <https://github.com/awlevin/typesafe-computer-use>
+- TypeSafe-direct API (optional alternate): <https://docs.typesafe.ai/sdk/python>
 
-The documented API is `POST https://api.typesafe.ai/v1/systemone` with
-`Authorization: Bearer $TYPESAFE_API_KEY` and model `jev-latest`; the SDKs are
-`typesafe-sdk` / `@typesafe-ai/sdk`. The marketing computer-use page also mentions a
-`JEV_API_KEY` and a decide endpoint. Unless that alias is confirmed with TypeSafe, the spike
-uses the official `TYPESAFE_API_KEY` + systemone docs.
+## Auth: OpenRouter by default
 
-The reference `typesafe-computer-use` project is **macOS-first** (macOS 14+): it needs
-Screen Recording and Accessibility permissions, requires `TYPESAFE_API_KEY`, and takes an
-optional `ANTHROPIC_API_KEY` for `type_text`. It supports a dry run (`uv run clicker "goal"`)
-and live driving (`--act`). Windows is experimental, and although the repository discusses
-OSWorld/Linux sandboxes, the `clicker` itself is not a drop-in Linux driver.
+Lee's default is Jev through **OpenRouter**, billed to the existing OpenRouter credits. No
+separate TypeSafe account or TypeSafe console key is needed.
+
+**Documented:** Jev is `typesafe/jev-1.14`, with `~typesafe/jev-latest` tracking the newest
+release. OpenRouter exposes it on two surfaces, both authenticated with
+`Authorization: Bearer $OPENROUTER_API_KEY`:
+
+| Surface | Endpoint | Use it when |
+|---|---|---|
+| Decisions API | `POST https://openrouter.ai/api/alpha/decisions` | Calling from any language with plain HTTP, or through OpenRouter's Decisions SDKs |
+| System One API | `POST https://openrouter.ai/api/v1/systemone` | Using the TypeSafe SDK with base URL `https://openrouter.ai/api` |
+
+**Documented and source-inspected:** the OpenRouter SDK guide says both official TypeSafe
+SDKs (`typesafe-sdk`, `@typesafe-ai/sdk`) read the API key from `TYPESAFE_API_KEY` and the
+base URL from `TYPESAFE_BASE_URL`. The pinned Python `typesafe-sdk` 0.6.0 source confirms
+both variables, a default base URL of `https://api.typesafe.ai`, and a default model of
+`jev-latest`. An existing `TypeSafeClient()` can therefore be migrated without code changes:
+
+```sh
+export OPENROUTER_API_KEY=…
+export TYPESAFE_API_KEY="$OPENROUTER_API_KEY"
+export TYPESAFE_BASE_URL=https://openrouter.ai/api
+# optional: pin instead of the SDK default `jev-latest`
+export TYPESAFE_DEFAULT_MODEL=typesafe/jev-1.14
+```
+
+The two `TYPESAFE_*` variables are an adapter for code that still reads them, not a second
+account. Do not set `TYPESAFE_API_KEY` to the OpenRouter key while leaving the base URL at
+`api.typesafe.ai`: the key and endpoint must travel as a pair. `jev-latest` (the SDK default)
+is mapped by OpenRouter to `~typesafe/jev-latest`; IDs that already carry an author prefix,
+such as `typesafe/jev-1.14`, are used as-is.
+
+**Optional TypeSafe-direct alternate:** with a TypeSafe console key instead, set
+`TYPESAFE_API_KEY` and leave `TYPESAFE_BASE_URL` unset (the SDK defaults to
+`https://api.typesafe.ai`). This is no longer a prerequisite for the Mac run; OpenRouter is
+the preferred path because Lee already has credits there.
+
+## Does `typesafe-computer-use` work through OpenRouter?
+
+**Source-inspected, not live-verified.** The reference `typesafe-computer-use` project is
+**macOS-first** (macOS 14+): it needs Screen Recording and Accessibility permissions, and it
+supports a dry run (`uv run clicker "goal"`) and live driving (`--act`). Its README and
+`.env.example` mention only `TYPESAFE_API_KEY`, but the agent constructs a bare
+`TypeSafeClient()` with no explicit `base_url` in `runner.py` and `browser/runner.py`. The
+pinned Python SDK then resolves `TYPESAFE_BASE_URL` as described above, so the env migration
+should point its classifier at OpenRouter. The CLI preflight checks only that
+`TYPESAFE_API_KEY` is present; it does not validate the base URL.
+
+That is not a live proof: no `clicker` run was made for this spike. Start with the Decisions
+API curl smoke below, then a dry `clicker` run. The clicker's **writer** is separate:
+`type_text`, writer-proposed URLs and the final answer still use `ANTHROPIC_API_KEY` unless
+`CLICKER_WRITER_*` points at another Anthropic or OpenAI-compatible endpoint
+(`CLICKER_WRITER_API`, `CLICKER_WRITER_BASE_URL`, `CLICKER_WRITER_API_KEY`). Exporting
+`OPENROUTER_API_KEY` does not configure the writer by itself, so a classifier-only dry run can
+work while typing and final answers are disabled.
+
+Windows is experimental, and although the repository discusses OSWorld/Linux sandboxes, the
+`clicker` itself is not a drop-in Linux driver.
 
 ## Claude Desktop availability
 
@@ -154,23 +208,59 @@ same as a first-class computer-use loop:
 
 Recommendation, in order:
 
-1. **Manual Mac spike** with `typesafe-computer-use` + Claude Desktop once Lee supplies
-   `TYPESAFE_API_KEY`. Start with a dry run, then a short `--act` run. This is the cheapest
-   way to test the decision loop against a real desktop.
+1. **Manual Mac spike** with `typesafe-computer-use` + Claude Desktop using Lee's OpenRouter
+   key. Start with a dry run, then a short `--act` run. This is the cheapest way to test the
+   decision loop against a real desktop, and it needs no TypeSafe console key.
 2. **Linux + Xvfb** for the Desktop Code/Chat UI only after a Linux observe/act adapter
    exists. Expect to skip Cowork there if the box has no KVM.
 3. **Gateway/mock path** if the immediate goal is only transcript scoring: prove 3P settings
    and the Desktop↔mock handshake without computer use. This still needs a real install and
    gateway auth, and is not claimed here.
 
-## How to run once the key arrives
+## How to run once Lee's OpenRouter key is available
 
-From the `typesafe-computer-use` clone, with Claude Desktop installed and signed in:
+Preconditions: macOS 14+ (the reference clicker is macOS-first), Python 3.12+, `uv`, Claude
+Desktop installed and signed in, and Screen Recording + Accessibility granted to the terminal.
+
+First check the OpenRouter path without the clicker. This is the only live call needed to
+validate the key and endpoint before a desktop run, and it costs one small Jev request:
 
 ```sh
-export TYPESAFE_API_KEY=…   # from Lee / TypeSafe console
-# optional for typing:
-export ANTHROPIC_API_KEY=…
+export OPENROUTER_API_KEY=…   # Lee's OpenRouter key; never commit it
+
+curl --fail-with-body https://openrouter.ai/api/alpha/decisions \
+  -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data @- <<'JSON'
+{
+  "model": "typesafe/jev-1.14",
+  "state": {"probe": "agenttail Jev smoke test"},
+  "questions": {
+    "ok": {
+      "type": "noul",
+      "instructions": "Is this request a smoke test?",
+      "criteria": {
+        "true": "The state says it is a smoke test.",
+        "false": "It is a real task."
+      }
+    }
+  }
+}
+JSON
+```
+
+Expect JSON with `answers.ok.noul` and `usage.cost`. A `401` means the key is bad, `402`
+means the OpenRouter account has no credits.
+
+Then, from the `typesafe-computer-use` clone, point its TypeSafe client at OpenRouter:
+
+```sh
+export TYPESAFE_API_KEY="$OPENROUTER_API_KEY"
+export TYPESAFE_BASE_URL=https://openrouter.ai/api
+export TYPESAFE_DEFAULT_MODEL=typesafe/jev-1.14   # optional pin; default is jev-latest
+
+# optional for type_text / final answer (the writer does not use the OpenRouter key):
+export ANTHROPIC_API_KEY=…                         # or configure CLICKER_WRITER_*
 
 # dry-run first: observe and choose, but do not act
 uv run clicker "open Claude Desktop and start a Cowork task that …"
@@ -178,6 +268,12 @@ uv run clicker "open Claude Desktop and start a Cowork task that …"
 # live run, with explicit limits
 uv run clicker "…" --act --steps 40 --delay 2
 ```
+
+Use `--handoffs 0` on the first dry run to make the first classifier stop final instead of
+handing back to the classifier again. If no writer key is configured, the run logs that the
+writer is disabled and makes no writer call. If using a TypeSafe console key instead, replace
+the two `TYPESAFE_*` exports with `export TYPESAFE_API_KEY=…` and leave `TYPESAFE_BASE_URL`
+unset; the SDK then calls `https://api.typesafe.ai`.
 
 Stop with Ctrl-C, move the mouse to the top-left corner, or let the driver stop on a
 classifier `done`, low confidence, `noul`, the step limit or a stall.
@@ -193,7 +289,11 @@ whether Jev can drive the UI; keep the scorer separate.
 
 ## What remains unverified
 
-- No live TypeSafe/Jev request was made, and no `TYPESAFE_API_KEY` was used.
+- No live OpenRouter/Jev or TypeSafe request was made, and no API key was used.
+- The `typesafe-computer-use` → OpenRouter handoff is source-inspected only; no `clicker`
+  dry-run decision was made.
+- The clicker writer/`type_text` path was not evaluated through OpenRouter; it still expects
+  `ANTHROPIC_*` or `CLICKER_WRITER_*`.
 - No Claude Desktop install was launched, on macOS or Linux.
 - No Desktop↔mock-gateway handshake or 3P managed-settings run exists.
 - No Code-tab or Cowork artifact was captured or parsed.

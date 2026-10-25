@@ -130,7 +130,7 @@ fn generate(root: &Path) -> Result<String, String> {
     lines.push("| Target | Status | CI scenarios | Fixtures | Versions | Evidence |".to_string());
     lines.push("|---|---|---:|---:|---|---|".to_string());
     lines.push(
-        "| Claude Desktop (agent mode) | **spike** | 0 | 0 | unknown | docs-only Jev computer-use loop; no adapter, fixture or CI run |"
+        "| Claude Desktop (agent mode) | **spike** | 0 | 0 | unknown | docs-only Jev computer-use loop over OpenRouter; no adapter, fixture or CI run |"
             .to_string(),
     );
     lines.push(String::new());
@@ -328,5 +328,6 @@ mod tests {
         assert!(text.contains("| Pi | **CI-verified** |"), "{text}");
         assert!(text.contains("| Cursor | **unsupported** |"), "{text}");
         assert!(text.contains("| Claude Desktop (agent mode) | **spike** |"), "{text}");
+        assert!(text.contains("Jev computer-use loop over OpenRouter"), "{text}");
     }
 }
