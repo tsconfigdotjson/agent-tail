@@ -444,13 +444,14 @@ mod tests {
             assert_eq!(status(&s), (Status::NeedsYou, "needs your answer"), "{name}");
         }
         let mut s = session(&[prompt("go"), tool_call("Shell", json!({"command": "rm -rf build"}))]);
-        // Cursor's entries are as old as the file's last write.
+        // Cursor's entries are as old as the file's last write. The approval wait is read from
+        // state.vscdb's pending bubble decision, so an old transcript entry is not a guess.
         s.last_at -= STALL_AFTER * 2.0;
         s.mtime -= STALL_AFTER * 2.0;
         assert_eq!(
             status(&s),
-            (Status::NeedsYou, "may need approval"),
-            "a tool call with nothing after it for a while"
+            (Status::Working, "working"),
+            "a pending tool without a pending decision in the database is firmly running"
         );
     }
 

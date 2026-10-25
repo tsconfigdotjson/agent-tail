@@ -148,6 +148,9 @@ pub(crate) struct Session {
     /// Pi never prompts; Copilot records a separate permission request when it does, so a
     /// pending tool without one is firmly running.
     pub(crate) no_approval: bool,
+    /// Cursor records an approval wait in `state.vscdb` (a bubble's pending decision). A
+    /// transcript tool with nothing after it is not guessed to be an approval.
+    pub(crate) no_stall_inference: bool,
     /// The error the harness recorded, if the last thing was an error.
     pub(crate) error: Option<String>,
     /// Claude Code's `turn_duration.pendingBackgroundAgentCount`, when it records one.
@@ -218,6 +221,8 @@ impl Session {
             // Pi never prompts. Copilot persists a permission request before a tool can
             // wait on a human, so a pending tool without one is firmly running.
             no_approval: matches!(harness, Harness::Pi | Harness::Copilot),
+            // Cursor's database says when an approval card is up; don't also guess from age.
+            no_stall_inference: harness == Harness::Cursor,
             error: None,
             background_agents: 0,
             background_kills: 0,
@@ -353,7 +358,7 @@ impl Session {
             Last::Question => (AwaitingAnswer, Firm, AskUserTool),
             // A pending tool can only be waiting on a human when this mode can ask one.
             // Under bypass/dontAsk/never, or with no human at an SDK entrypoint, it runs.
-            Last::ToolUse if !self.can_ask_human() => (RunningTool, Firm, ToolCallPending),
+            Last::ToolUse if !self.can_ask_human() || self.no_stall_inference => (RunningTool, Firm, ToolCallPending),
             Last::ToolUse if age > o.stall_after.as_secs_f64() => (AwaitingApproval, Inferred, ToolCallStalled),
             Last::ToolUse => (RunningTool, Firm, ToolCallPending),
             Last::Prompt => (Thinking, Firm, PromptSent),

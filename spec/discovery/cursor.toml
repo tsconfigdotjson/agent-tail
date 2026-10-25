@@ -79,8 +79,8 @@ evidence = "docs/formats/cursor.md#paths-and-layout; crates/agent-tail/src/adapt
 
 [[quirks]]
 id = "state-vscdb-snapshot"
-summary = "`state.vscdb` is copied with -wal/-shm to a private temp dir and opened read-only; composerData status/name and bubbleId toolFormerData are read, while the live approval-waiting value remains unverified."
-evidence = "docs/formats/cursor.md#reader-b9-2026-10-24; DECISIONS.md#phase-b9-cursor-statevscdb-and-the-a5-decision-2026-10-24"
+summary = "`state.vscdb` is copied with -wal/-shm to a private temp dir and opened read-only; composerData status/name and bubbleId toolFormerData are read. A pending bubble decision is firm AwaitingApproval (or AwaitingAnswer for ask-user tools), so Cursor no longer uses the 20 s stall inference; the live wait capture is still outstanding."
+evidence = "docs/formats/cursor.md#reader-b9-2026-10-24; docs/formats/cursor.md#live-approval-wait-capture; crates/agent-tail/src/sqlite.rs"
 
 [[quirks]]
 id = "no-real-harness-run"

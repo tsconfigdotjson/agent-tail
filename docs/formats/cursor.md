@@ -73,9 +73,15 @@ It reads:
   transcript. `name` is the Cursor title; the opening prompt remains the fallback.
 - `bubbleId:*`: `toolFormerData.name`, `status`, `userDecision`, `additionalData.status`,
   `additionalData.userDecision` and `error`. Cursor also writes `status: loading`,
-  `completed`, `error` and `cancelled`, and `userDecision: accepted`, `rejected` or
-  `pending` (public Cursor storage/export code and public snapshots; the
-  survey copy was idle, so it did not show a live wait).
+  `completed`, `error` and `cancelled`, and decisions `accepted`, `rejected` or `pending`.
+  A pending decision is firm **`AwaitingApproval`**; a pending ask-user tool is firm
+  **`AwaitingAnswer`**. Cursor writes it at `additionalData.status: pending` while the
+  shell/write review card is up in the 3.27 IDE, and as `userDecision: pending` in public
+  storage/export shapes; the reader accepts either (and `status: pending`). A completed or
+  aborted composer wins over a bubble left behind from that turn. Otherwise pending wins
+  over `generating`, because the composer can still say `generating` while the card waits.
+  The pending mapping is based on Cursor 3.27 IDE source and the public values; the live
+  snapshot that confirms the exact field path is still outstanding (below).
 
 The tracker checks the three files' stamps on every poll but copies them at most every 30 s,
 and only while a Cursor session is in the window. A database that hasn't changed is not
@@ -108,15 +114,30 @@ mock/PTY matrix; it ships through donated fixtures and, if a key is available la
 budget-capped nightly real run. A freshly created IDE `state.vscdb` during a live approval
 wait is still needed.
 
-### Unverified: the live approval wait
+### Live approval wait capture
 
-While Cursor shows a tool waiting for approval, copy the database **and its sidecars** (never
-read or open the live file), then record these before answering, after approving and after
-denying:
+On Linux, Cursor keeps the database at
+`~/.config/Cursor/User/globalStorage/state.vscdb` (macOS uses
+`~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`). The capture tool
+[`harness-ci/cursor/snapshot_state_vscdb.py`](../../harness-ci/cursor/snapshot_state_vscdb.py)
+copies that file with `-wal` and `-shm` into a private temp folder, opens **only the copy**
+`mode=ro`, runs the SQL below, redacts ids/titles/errors, and writes three JSON dumps:
 
 ```sh
+harness-ci/cursor/snapshot-state-vscdb.sh waiting       --out /tmp/cursor-approval
+# approve the tool in Cursor
+harness-ci/cursor/snapshot-state-vscdb.sh after-approve --out /tmp/cursor-approval
+# start a second tool wait and deny it
+harness-ci/cursor/snapshot-state-vscdb.sh after-deny    --out /tmp/cursor-approval
+```
+
+`capture` runs the same three snapshots with prompts. A raw read of a copied database (never
+the live one) is:
+
+```sh
+CURSOR_STATE="${CURSOR_STATE_DIR:-$HOME/.config/Cursor/User/globalStorage}"
 SNAP=$(mktemp -d)
-cp "$HOME/Library/Application Support/Cursor/User/globalStorage/state.vscdb"* "$SNAP/"
+cp "$CURSOR_STATE/state.vscdb"* "$SNAP/"
 sqlite3 "$SNAP/state.vscdb" "
   SELECT json_extract(value,'$.status'), json_extract(value,'$.generatingBubbleIds'),
          json_extract(value,'$.name'), json_extract(value,'$.lastUpdatedAt')
@@ -131,10 +152,12 @@ sqlite3 "$SNAP/state.vscdb" "
 rm -rf "$SNAP"
 ```
 
-The open question is whether `toolFormerData.userDecision` (or another field) is written
-**while** the prompt is up. If it is, that value is Cursor's firm approval signal and should
-replace the 20 s inference for Cursor. Until then the reader keeps the raw tool decisions but
-does not turn them into `AwaitingApproval`.
+**Blocked in the #43 lane:** the CLI tokens available there expired and the IDE needs an
+interactive Cursor sign-in, which is unavailable under Xvfb. Multibeast can finish only the
+auth step (sign in, open an Agent chat with auto-run off, run the commands above) and attach
+the dumps. The 3.27 IDE source shows the wait writing `additionalData.status: pending`; a
+live capture is still needed to confirm it and to record what `composerData.status` says
+during the wait. It is no longer the open question of *whether* a firm signal exists.
 
 ## Status signals
 - **Turn end:** `turn_ended`. Firm. `status: error` with one of the `error` strings above means
@@ -142,11 +165,12 @@ does not turn them into `AwaitingApproval`.
   `sqlite` feature, `composerData.status` gives the same firm ends (and `generating`) even
   when the transcript hasn't caught up.
 - **Tool pending:** no results are recorded. The adapter treats later assistant text as "results are in"
-  (inference, unchanged). `toolFormerData.status` is read from the database but is not yet
-  used to decide status.
-- **Approval pending:** not in transcripts or the idle survey copy. This is the manual
-  capture above; until it is captured, Cursor keeps the shared 20 s `AwaitingApproval`
-  inference.
+  (inference, unchanged). A tool with no result and no pending decision in the database is
+  firm `RunningTool`.
+- **Approval pending:** a bubble's `userDecision: pending`, `status: pending`, or
+  `additionalData.status: pending` is firm `AwaitingApproval`; a pending ask-user tool is
+  firm `AwaitingAnswer`. Cursor does not use the shared 20 s stall inference. The source
+  shape is from the 3.27 IDE; the live snapshot is still the confirmation step above.
 - **Times:** none in transcripts except the prompt's `<timestamp>` (to the minute). Use mtime.
   The database has millisecond `createdAt`/`lastUpdatedAt`; the reader uses those for its
   status freshness.
@@ -155,20 +179,22 @@ does not turn them into `AwaitingApproval`.
 
 - Maps `turn_ended` with a user-stop error string to firm `interrupted`; it does not collapse
   every `status: error` into `done`.
-- Reads `state.vscdb` in the `sqlite` feature for `composerData.status`, titles via `name`, and
-  timestamps. A completed composer is firm `done`, aborted is firm `interrupted`, and
+- Reads `state.vscdb` in the `sqlite` feature for `composerData.status`, bubble decisions,
+  titles via `name`, and timestamps. A completed composer is firm `done`, aborted is firm
+  `interrupted`, a pending decision is firm `awaiting_approval` (or `awaiting_answer`), and
   generating is firm `thinking`.
 - Follows Cursor subagent transcripts and their own `turn_ended`, so a finished helper and a
   stuck one are distinguishable.
-- Keeps tool calls pending until later assistant text indicates the result is in, and keeps the
-  shared 20 second approval inference until a real approval-wait capture proves a firm signal.
+- Keeps tool calls pending until later assistant text indicates the result is in. Cursor is
+  out of the shared 20 second approval inference: only the database's pending decision is
+  treated as an approval wait.
 - Treats the discovery spec's ask-user tool names as unverified data rather than assuming them.
 
 ## Open questions
-- The `toolFormerData` field paths and status values are read, with the public Cursor values
-  above; the live approval-waiting value still needs a real capture.
-- Whether `composerData.status` reads `generating` while live: accepted by the reader, not
-  yet seen in a local live capture (the survey copy was idle).
+- The pending decision is mapped from the Cursor 3.27 IDE source and public values above; the
+  live approval-wait capture (dumps for waiting/approved/denied) is still outstanding.
+- Whether `composerData.status` reads `generating` while an approval card waits: accepted by
+  the reader (pending wins either way), not yet seen in a local live capture.
 - `<cursor_commands>` and other wrappers; any ask-user tool name; how `cursor-agent` (CLI)
   sessions differ. The CLI is not in the rig; its `~/.cursor/chats/.../store.db` is not read.
 - Environment overrides Cursor honours are not researched; `state.vscdb` uses the platform
