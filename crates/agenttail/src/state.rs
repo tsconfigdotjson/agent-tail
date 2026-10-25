@@ -70,9 +70,9 @@ pub enum Activity {
     Interrupted,
     /// The turn ended with an error the harness recorded (see [`SessionState::error`]).
     Errored,
-    /// Nothing written for `idle_after`, or nothing read yet.
+    /// Nothing written for `idle_after`.
     Idle,
-    /// Nothing recognizable yet. Not produced yet (today that's `Idle`).
+    /// Nothing recognizable yet: no entry that moves the state has been read.
     Unknown,
 }
 
@@ -207,7 +207,7 @@ impl SandboxPolicy {
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum Reason {
-    /// Nothing that moves the state has been read: `Idle`.
+    /// Nothing that moves the state has been read: `Unknown`.
     NoEntries,
     /// Neither the transcript nor a helper's was written for `idle_after`, whatever the
     /// last entry said (a session closed or abandoned mid-turn): `Idle`.

@@ -1,4 +1,4 @@
-{"after_line":4,"now_offset_s":0.0,"activity":"idle","certainty":"firm","reason":"no_entries","title":"Add a plan file and run the tests"}
+{"after_line":4,"now_offset_s":0.0,"activity":"unknown","certainty":"firm","reason":"no_entries","title":"Add a plan file and run the tests"}
 {"after_line":6,"now_offset_s":0.0,"activity":"thinking","certainty":"firm","reason":"prompt_sent","title":"Add a plan file and run the tests"}
 {"after_line":24,"now_offset_s":30.0,"activity":"awaiting_approval","certainty":"inferred","reason":"tool_call_stalled"}
 {"after_line":64,"now_offset_s":0.0,"activity":"done","certainty":"firm","reason":"turn_ended"}

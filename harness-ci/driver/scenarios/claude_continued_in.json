@@ -10,7 +10,7 @@
   "run_for_ms": 28000,
   "expected_activity": [
     { "activity": "done", "certainty": "firm", "when": "ever" },
-    { "activity": "idle", "certainty": "firm", "when": "end" }
+    { "activity": "unknown", "certainty": "firm", "when": "end" }
   ],
   "expect_observations": {
     "continued_in": true

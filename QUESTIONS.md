@@ -19,9 +19,10 @@ repeated here when they're still open.
    mapping in tvdash, but the Phase 1a brief asked for the status class, and the tracker
    needs an order to sort by. It's in the library as `Activity::class()`, an enum with no
    wording. Keep it, or move it to tvdash?
-5. **`Idle` or `Unknown` for a session with nothing read yet?** Kept `Idle` (as tvdash
-   shows it), with reason `no_entries`; PLAN.md section 4 has `Unknown` for this. Switch
-   in Phase 2?
+5. **`Idle` or `Unknown` for a session with nothing read yet?** Resolved (issue #62):
+   `Unknown` with reason `no_entries`, matching PLAN.md section 4. tvdash/StatusWall can
+   map `Unknown` to its display idle; the library does not present an unread session as
+   idle work. StatusWall adoption (#16) is not integrated yet.
 6. **Entries with no time of their own are dated by the transcript's mtime**, not by when
    they were read (DECISIONS.md, "Where behaviour differs", 1). This only changes anything
    for a Claude Code or Codex line missing its `timestamp`. OK?

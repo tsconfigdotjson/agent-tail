@@ -1,4 +1,4 @@
-{"after_line":1,"now_offset_s":0.0,"activity":"idle","certainty":"firm","reason":"no_entries","title":"Run a short tool"}
+{"after_line":1,"now_offset_s":0.0,"activity":"unknown","certainty":"firm","reason":"no_entries","title":"Run a short tool"}
 {"after_line":3,"now_offset_s":0.0,"activity":"thinking","certainty":"firm","reason":"prompt_sent"}
 {"after_line":6,"now_offset_s":0.0,"activity":"thinking","certainty":"firm","reason":"tool_result_in"}
 {"after_line":11,"now_offset_s":0.0,"activity":"done","certainty":"firm","reason":"turn_ended","title":"Run a short tool"}
