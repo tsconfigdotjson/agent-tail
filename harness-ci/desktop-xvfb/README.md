@@ -61,12 +61,14 @@ Desktop or using external credentials.
 ## Nightly and manual lanes
 
 - **Nightly stand-in:** always runs on the `43 3 * * *` schedule. It builds the stand-in image
-  (`INSTALL_CLAUDE_DESKTOP=0`), runs the offline observe/act/score path, and uploads `runs/`.
+  (`INSTALL_CLAUDE_DESKTOP=0`), runs the offline observe/act/score path, and uploads `runs/`
+  only when the job fails (3-day retention).
 - **Nightly live Jev:** also runs on that schedule when `secrets.OPENROUTER_API_KEY` is
   present. It installs Claude Desktop, uses Jev (`typesafe/jev-1.14` through OpenRouter) to
   choose UI actions, and scores the Desktop audit log written on disk. There is no writer
   LLM in the path; the driver removes writer credentials and fails instead of falling back.
   A missing secret skips only this lane, with a run-summary note; the stand-in still runs.
+  Its `runs/` evidence also uses fail-only uploads with 3-day retention.
 - **Manual:** `run_desktop_probe` installs Claude Desktop and probes the sign-in or 3P gateway
   welcome screen. It does not need an account. `run_live_jev` opts into the live lane on a
   manual dispatch.
