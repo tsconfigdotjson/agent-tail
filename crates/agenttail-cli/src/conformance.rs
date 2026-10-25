@@ -157,7 +157,19 @@ fn read_checkpoints(path: &Path) -> Result<Vec<Value>, String> {
 
 /// The status fields a checkpoint can assert. Always emitted, `null` when absent, so a port
 /// can diff its own canonical output against the same file.
-const STATUS_FIELDS: [&str; 7] = ["activity", "certainty", "reason", "permission", "sandbox", "title", "error"];
+const STATUS_FIELDS: [&str; 11] = [
+    "activity",
+    "certainty",
+    "reason",
+    "permission",
+    "sandbox",
+    "title",
+    "error",
+    "cost_usd",
+    "out_tokens",
+    "usage",
+    "recent",
+];
 
 fn run_checkpoints(harness: Harness, input: &Input, checkpoints: &[Value]) -> Result<bool, String> {
     let bytes = std::fs::read(&input.main).map_err(|e| format!("{}: {e}", input.main.display()))?;
@@ -311,7 +323,18 @@ fn status_object(state: &Value, checkpoint: &Value) -> Value {
     let mut object = Map::new();
     object.insert("after_line".into(), checkpoint["after_line"].clone());
     object.insert("now_offset_s".into(), checkpoint["now_offset_s"].clone());
-    for field in ["activity", "certainty", "reason", "permission", "sandbox", "error"] {
+    for field in [
+        "activity",
+        "certainty",
+        "reason",
+        "permission",
+        "sandbox",
+        "error",
+        "cost_usd",
+        "out_tokens",
+        "usage",
+        "recent",
+    ] {
         object.insert(field.into(), state.get(field).cloned().unwrap_or(Value::Null));
     }
     let title = state

@@ -1,0 +1,6 @@
+harness = "pi"
+version = "1.4.0"
+os = "linux"
+capture = "handmade"
+date = "2026-10-25"
+description = "Hand-made Pi 1.4.0 tree: a main prompt, an abandoned tool-call/session-name/usage branch, then a new active branch from the original prompt. Status, usage, recent lines and title must come from the active leaf's parent chain only."

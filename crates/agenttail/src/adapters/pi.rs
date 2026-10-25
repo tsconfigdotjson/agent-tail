@@ -12,6 +12,70 @@ use super::{Adapter, EventSeed};
 use crate::session::{command, file_name, first_line, tool};
 use crate::state::{ActivityLine, TokenUsage};
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
+
+/// Pi's `id`/`parentId` tree, tracked as entries arrive. The latest entry is the leaf Pi
+/// appended last; only its parent chain is the active branch. Pi's in-memory `branch()`
+/// writes nothing until the next append, so a switch-back becomes visible as a new entry
+/// whose parent is the older leaf.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Branch {
+    parents: HashMap<String, Option<String>>,
+    leaf: Option<String>,
+    active: HashSet<String>,
+}
+
+/// The tree link an entry carries; the session header and records without an id are not
+/// part of the per-entry tree.
+pub(crate) fn branch_link(record: &Value) -> Option<(&str, Option<&str>)> {
+    if record["type"] == "session" {
+        return None;
+    }
+    let id = record["id"].as_str().filter(|id| !id.is_empty())?;
+    let parent = record["parentId"].as_str().filter(|id| !id.is_empty());
+    Some((id, parent))
+}
+
+impl Branch {
+    /// Record one entry and return its id plus whether it extends the current leaf, or None
+    /// for the header / an id-less record. A missing `parentId` is treated as appending to
+    /// the current leaf (id-only hand-made/older records stay linear); an explicit `null` is
+    /// a root. Pi 1.4 writes `parentId` on every tree entry.
+    pub(crate) fn observe(&mut self, record: &Value) -> Option<(String, bool)> {
+        let (id, parent) = branch_link(record)?;
+        let parent = if record.get("parentId").is_some() { parent.map(str::to_string) } else { self.leaf.clone() };
+        let extends = !self.parents.contains_key(id) && self.leaf.as_deref() == parent.as_deref();
+        self.parents.insert(id.to_string(), parent);
+        self.leaf = Some(id.to_string());
+        if extends {
+            self.active.insert(id.to_string());
+        } else {
+            self.recompute();
+        }
+        Some((id.to_string(), extends))
+    }
+
+    pub(crate) fn contains(&self, id: &str) -> bool {
+        self.active.contains(id)
+    }
+
+    /// Whether an entry belongs in the current reduction: the header and id-less records
+    /// always do; tree entries only when they are on the leaf's parent chain.
+    pub(crate) fn on_active_chain(&self, record: &Value) -> bool {
+        branch_link(record).is_none_or(|(id, _)| self.contains(id))
+    }
+
+    fn recompute(&mut self) {
+        self.active.clear();
+        let mut current = self.leaf.clone();
+        while let Some(id) = current {
+            if !self.active.insert(id.clone()) {
+                break; // a broken file could point a parent at its own child
+            }
+            current = self.parents.get(&id).cloned().flatten();
+        }
+    }
+}
 
 pub(crate) struct Pi;
 
@@ -469,6 +533,146 @@ mod tests {
         assert_eq!(d("grep", json!({"pattern": "TODO\nmore"})), "Grep TODO");
         assert_eq!(d("find", json!({"pattern": "*.rs"})), "Find *.rs");
         assert_eq!(d("ls", json!({"path": "/a/src"})), "ls src");
+    }
+
+    const BRANCHED: &str = include_str!("../../../../fixtures/pi/1.4/linux/branched/input/session.jsonl");
+
+    fn linked(mut entry: Value, id: &str, parent: Option<&str>) -> Value {
+        entry["id"] = json!(id);
+        entry["parentId"] = parent.map_or(Value::Null, |parent| json!(parent));
+        entry
+    }
+
+    fn ctx(offset: u64) -> crate::ChunkCtx<'static> {
+        crate::ChunkCtx {
+            offset,
+            mtime: crate::time::Timestamp::from_secs_f64(crate::testutil::NOW),
+            path: std::path::Path::new("/h/.pi/agent/sessions/-w-app/s.jsonl"),
+        }
+    }
+
+    fn feed(reducer: &mut crate::SessionReducer, offset: &mut u64, entries: &[Value]) {
+        for entry in entries {
+            let line = format!("{entry}\n");
+            reducer.feed(line.as_bytes(), ctx(*offset)).unwrap();
+            *offset += line.len() as u64;
+        }
+    }
+
+    #[test]
+    fn abandoned_branch_does_not_move_status_usage_recent_or_title() {
+        let s = session(&fixture(BRANCHED, 1.0));
+        assert_eq!(status(&s), (Status::Done, "done"));
+        assert_eq!((s.project.as_str(), s.session_id.as_str()), ("work", "branch-demo-session"));
+        assert_eq!(s.title, "main branch question", "the abandoned session_info is off-chain");
+        assert_eq!((s.usage.input_tokens, s.usage.output_tokens), (Some(10), Some(4)));
+        assert_eq!((s.usage.cache_read_input_tokens, s.usage.cache_creation_input_tokens), (Some(1), Some(0)));
+        assert_eq!(s.cost, Some(0.5), "the abandoned 1.50 USD is not counted");
+        assert_eq!(log(&s), ["› main branch question", "› active branch follow-up"]);
+        assert!(!log(&s).iter().any(|line| line.contains("rm -rf")), "the abandoned tool call is not recent activity");
+    }
+
+    #[test]
+    fn switch_back_to_an_older_leaf_restores_that_chain() {
+        let root = linked(entry("model_change", json!({"provider": "p", "modelId": "m"})), "root", None);
+        let first = linked(user("first"), "u1", Some("root"));
+        let a1 = linked(assistant(json!([{"type": "text", "text": "one"}]), "stop"), "a1", Some("u1"));
+        let second = linked(user("second"), "u2", Some("a1"));
+        let a2 = linked(assistant(json!([{"type": "text", "text": "two"}]), "stop"), "a2", Some("u2"));
+        let third = linked(user("third"), "u3", Some("a1"));
+        let a3 = linked(assistant(json!([{"type": "text", "text": "three"}]), "stop"), "a3", Some("u3"));
+
+        let mut reducer = crate::SessionReducer::new(Harness::Pi, crate::ReducerOptions::default());
+        let mut offset = 0;
+        feed(&mut reducer, &mut offset, &[root, first, a1, second, a2]);
+        let now = crate::time::Timestamp::from_secs_f64(crate::testutil::NOW);
+        let before = reducer.state(now);
+        assert_eq!(before.activity, crate::Activity::Done);
+        assert_eq!((before.usage.output_tokens, before.cost_usd), (Some(10), Some(0.6)));
+        assert_eq!(before.meta.title, "first");
+
+        // Pi's branch() only moves the in-memory leaf; the next append (u3, parent a1) is
+        // what makes the switch-back visible in the file.
+        feed(&mut reducer, &mut offset, &[third]);
+        let switched = reducer.state(now);
+        assert_eq!(switched.activity, crate::Activity::Thinking);
+        assert_eq!(switched.meta.title, "first");
+        assert_eq!((switched.usage.output_tokens, switched.cost_usd), (Some(5), Some(0.3)), "a2 is off-chain");
+        assert_eq!(
+            switched.recent.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            ["› first", "› third"],
+            "u2 and a2 are gone from recent activity"
+        );
+
+        feed(&mut reducer, &mut offset, &[a3]);
+        let done = reducer.state(now);
+        assert_eq!(done.activity, crate::Activity::Done);
+        assert_eq!((done.usage.output_tokens, done.cost_usd), (Some(10), Some(0.6)));
+    }
+
+    #[test]
+    fn compaction_does_not_prune_active_ancestors() {
+        let root = linked(entry("model_change", json!({"provider": "p", "modelId": "m"})), "root", None);
+        let first = linked(user("first"), "u1", Some("root"));
+        let a1 = linked(assistant(json!([{"type": "text", "text": "one"}]), "stop"), "a1", Some("u1"));
+        let mut compaction = entry(
+            "compaction",
+            json!({"summary": "compacted", "firstKeptEntryId": "u1", "tokensBefore": 100,
+                "usage": {"input": 1, "output": 2, "cost": {"total": 0.2}}}),
+        );
+        compaction = linked(compaction, "c1", Some("a1"));
+        let second = linked(user("second"), "u2", Some("c1"));
+        let a2 = linked(assistant(json!([{"type": "text", "text": "two"}]), "stop"), "a2", Some("u2"));
+
+        let s = session(&[root, first, a1, compaction, second, a2]);
+        assert_eq!(status(&s), (Status::Done, "done"));
+        assert_eq!(s.usage.output_tokens, Some(12), "a1 + compaction + a2");
+        assert_eq!(s.cost, Some(0.8));
+        assert_eq!(log(&s), ["› first", "› second"], "firstKeptEntryId shapes model context, not the session chain");
+    }
+
+    #[test]
+    fn off_chain_events_are_flagged_and_linear_sessions_have_none() {
+        let events = crate::event::parse_events(Harness::Pi, 0, BRANCHED.as_bytes(), crate::ParseMode::Full);
+        for event in &events {
+            let abandoned = (6..=8).contains(&event.provenance.line);
+            assert_eq!(event.off_chain, abandoned, "line {}: {:?}", event.provenance.line, event.kind);
+        }
+        assert!(events.iter().any(|event| event.off_chain && event.kind_name() == "title"));
+        let active_cost = events
+            .iter()
+            .find_map(|event| match event.kind {
+                crate::EventKind::Cost { usd } if !event.off_chain => Some(usd),
+                _ => None,
+            })
+            .expect("the active assistant has a cost event");
+        assert_eq!(active_cost, 0.5, "the active cost is not cumulative over the abandoned branch");
+
+        let linear = crate::event::parse_events(Harness::Pi, 0, RECORDED.as_bytes(), crate::ParseMode::Full);
+        assert!(linear.iter().all(|event| !event.off_chain));
+    }
+
+    #[test]
+    fn incremental_branch_feeds_match_a_full_prefix_rebuild() {
+        let now = crate::time::Timestamp::from_secs_f64(crate::testutil::NOW);
+        let mut incremental = crate::SessionReducer::new(Harness::Pi, crate::ReducerOptions::default());
+        let mut offset = 0;
+        let lines: Vec<&str> = BRANCHED.lines().collect();
+        for (index, line) in lines.iter().enumerate() {
+            let raw = format!("{line}\n");
+            incremental.feed(raw.as_bytes(), ctx(offset)).unwrap();
+            offset += raw.len() as u64;
+
+            let prefix = lines[..=index].iter().map(|line| format!("{line}\n")).collect::<String>();
+            let mut rebuilt = crate::SessionReducer::new(Harness::Pi, crate::ReducerOptions::default());
+            rebuilt.feed(prefix.as_bytes(), ctx(0)).unwrap();
+            assert_eq!(
+                serde_json::to_value(incremental.state(now)).unwrap(),
+                serde_json::to_value(rebuilt.state(now)).unwrap(),
+                "after line {}",
+                index + 1
+            );
+        }
     }
 
     const RECORDED: &str = include_str!("../../../../fixtures/pi/1.4/linux/plain-qa/input/session.jsonl");

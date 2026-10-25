@@ -55,6 +55,12 @@ pub struct Event {
     /// [`SessionReducer`](crate::SessionReducer) ignores these events.
     #[serde(skip_serializing_if = "is_false")]
     pub sidechain: bool,
+    /// Whether this record is on an abandoned Pi branch: it is in the file, but not on the
+    /// current leaf's parent chain. Such events are emitted for a lossless dump, marked so
+    /// callers can tell; [`SessionReducer`](crate::SessionReducer) ignores them for status,
+    /// usage, recent activity and title.
+    #[serde(skip_serializing_if = "is_false")]
+    pub off_chain: bool,
     #[serde(flatten)]
     pub kind: EventKind,
 }
@@ -295,6 +301,10 @@ pub(crate) fn parse_events(harness: Harness, source: u32, bytes: &[u8], mode: Pa
     // A stand-alone parse sees every record in the file, including helper sidechains. Each
     // sidechain event says so, so a parent reducer can ignore it.
     let mut state = ParseState::default();
+    // Pi's file is a tree. Keep every entry's parent link while parsing so events from
+    // abandoned branches can be marked (and filtered by the reducer) once the leaf is known.
+    let mut pi_branch = (harness == Harness::Pi).then(adapters::pi::Branch::default);
+    let mut pi_record_at = HashMap::new();
     let mut at = 0usize;
     let mut line_no = 1u64;
     while at < bytes.len() {
@@ -329,6 +339,9 @@ pub(crate) fn parse_events(harness: Harness, source: u32, bytes: &[u8], mode: Pa
                             false,
                         );
                         continue;
+                    }
+                    if let Some(branch) = &mut pi_branch {
+                        pi_record_at.insert(provenance.offset, branch.observe(&value).map(|(id, _)| id));
                     }
                     let seeds = harness.adapter().parse(&mut state, &value);
                     if seeds.is_empty() {
@@ -377,6 +390,29 @@ pub(crate) fn parse_events(harness: Harness, source: u32, bytes: &[u8], mode: Pa
         at = end + usize::from(has_newline);
         line_no += 1;
     }
+    if let Some(branch) = &pi_branch {
+        for event in &mut out {
+            if let Some(Some(id)) = pi_record_at.get(&event.provenance.offset)
+                && !branch.contains(id)
+            {
+                event.off_chain = true;
+            }
+        }
+        // Pi cost events are cumulative along file order. Re-base them onto the active
+        // chain so an off-chain record's spend does not leak into a later active event.
+        let mut previous = 0.0;
+        let mut active_total = 0.0;
+        for event in &mut out {
+            if let EventKind::Cost { usd } = &mut event.kind {
+                let delta = *usd - previous;
+                previous = *usd;
+                if !event.off_chain {
+                    active_total += delta;
+                    *usd = active_total;
+                }
+            }
+        }
+    }
     out
 }
 
@@ -397,7 +433,15 @@ fn push_event(
         provenance.length,
         out.len()
     );
-    out.push(Event { id, harness, provenance, at: at.map(Timestamp::from_secs_f64), sidechain, kind });
+    out.push(Event {
+        id,
+        harness,
+        provenance,
+        at: at.map(Timestamp::from_secs_f64),
+        sidechain,
+        off_chain: false,
+        kind,
+    });
 }
 
 /// Parse the JSON values on one line, returning each with its byte start and length in the
@@ -547,6 +591,9 @@ pub(crate) fn prompt_wrappers(text: &str) -> Vec<PromptWrapper> {
 impl Session {
     pub(crate) fn apply_event(&mut self, event: &Event) {
         if event.sidechain && !self.is_helper {
+            return;
+        }
+        if event.off_chain {
             return;
         }
         let at = event.at.map(Timestamp::as_secs_f64);
@@ -708,6 +755,7 @@ pub(crate) fn apply_record(session: &mut Session, record: &Value) {
             provenance: Provenance::default(),
             at: seed.at.map(Timestamp::from_secs_f64),
             sidechain: seed.sidechain,
+            off_chain: false,
             kind: seed.kind,
         };
         session.apply_event(&event);
@@ -1173,7 +1221,7 @@ mod tests {
 
     #[test]
     fn the_reducer_consumes_the_events_parse_lines_returns() {
-        const FIXTURES: [(Harness, &str); 4] = [
+        const FIXTURES: [(Harness, &str); 5] = [
             (
                 Harness::ClaudeCode,
                 include_str!("../../../fixtures/claude-code/2.1/linux/seed-session/input/session.jsonl"),
@@ -1181,6 +1229,7 @@ mod tests {
             (Harness::Codex, include_str!("../../../fixtures/codex/0.160/linux/seed-exec/input/session.jsonl")),
             (Harness::Codex, include_str!("../../../fixtures/codex/0.160/linux/seed-resume/input/session.jsonl")),
             (Harness::Cursor, include_str!("../../../fixtures/cursor/unknown/any/seed-session/input/session.jsonl")),
+            (Harness::Pi, include_str!("../../../fixtures/pi/1.4/linux/branched/input/session.jsonl")),
         ];
         let path = Path::new("/h/.cursor/projects/Users-sam-Work-demo-app/agent-transcripts/a1/a1.jsonl");
         let now = Timestamp::from_secs_f64(1_792_756_800.0);

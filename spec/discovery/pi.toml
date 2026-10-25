@@ -77,8 +77,8 @@ evidence = "docs/formats/pi.md#status-signals; https://github.com/tsconfigdotjso
 
 [[quirks]]
 id = "session-tree"
-summary = "Entries form an id/parentId tree. Pi appends the active branch, so the latest entry is the leaf; abandoned branches remain in the file and are not removed."
-evidence = "docs/formats/pi.md#record-catalogue; https://github.com/tsconfigdotjson/agenttail/issues/52"
+summary = "Entries form an id/parentId tree. Pi appends the active branch, so the latest entry is the leaf; abandoned branches remain in the file but do not move status, usage, recent activity or title. parse_lines emits them with Event::off_chain."
+evidence = "docs/formats/pi.md#branches; fixtures/pi/1.4/linux/branched; https://github.com/tsconfigdotjson/agenttail/issues/66"
 
 [[quirks]]
 id = "session-name-title"

@@ -49,8 +49,10 @@ Under status is the event layer: `parse_lines(harness, bytes, mode)` yields norm
 provenance, the harness's own record ids, and deterministic ids. The reducer folds the same
 events, so a status and the event dump cannot disagree. Claude Code's sidechain rows are
 still emitted, with `Event::sidechain` set; a parent reducer ignores them while
-`feed_helper` applies them to the helper's own state. Unknown records and malformed lines
-are kept as `Unknown` rather than dropped.
+`feed_helper` applies them to the helper's own state. Pi's abandoned branches are likewise
+emitted with `Event::off_chain`, which the reducer ignores; only the active leaf's parent
+chain moves a Pi session. Unknown records and malformed lines are kept as `Unknown` rather
+than dropped.
 
 ## Using it
 
@@ -129,8 +131,9 @@ the language-neutral `events`/`status` contract, canonical JSON and `survey --dr
   network**. Symlinks are not followed. The only writes are private, read-only database
   snapshots (Cursor's `state.vscdb` and OpenCode's `opencode.db`) in the system temp folder,
   removed before the read returns.
-- **Keeps** a small state per session in memory (never the transcript), plus the start of
-  a line still being written.
+- **Keeps** a small state per session in memory (never the raw transcript), plus the start
+  of a line still being written. Pi additionally keeps the lean-parsed entries it needs to
+  replay the active branch when a leaf changes; normal appends do not re-read the file.
 
 ## Harnesses
 
@@ -139,7 +142,7 @@ the language-neutral `events`/`status` contract, canonical JSON and `survey --dr
 | Claude Code | `~/.claude/projects/<project>/<id>.jsonl` | a scrubbed 2.1 recording |
 | Codex CLI | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | scrubbed 0.160.1 recordings |
 | Cursor agent | `~/.cursor/projects/<project>/agent-transcripts/<id>/<id>.jsonl`, plus the IDE's `state.vscdb` | a handmade transcript and synthetic SQLite rows in the shape seen on a real Mac; live approval waits still need a donated capture |
-| Pi | `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<id>.jsonl` | Pi 1.4.0 (pinned and npm latest at the time); `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR` overrides; no approval prompt, so a pending tool is firm `RunningTool` |
+| Pi | `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<id>.jsonl` | Pi 1.4.0 (pinned and npm latest at the time); `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR` overrides; no approval prompt, so a pending tool is firm `RunningTool`; only the active leaf's parent chain moves status/usage/title, with abandoned branches flagged `off_chain` in the event dump |
 | OpenCode | `~/.local/share/opencode/opencode.db` (`XDG_DATA_HOME`, `OPENCODE_DB`) | a live 1.19.4 `opencode run` against the harness mock, with exported/redacted row fixtures; approvals remain inferred because they are not persisted |
 | Gemini CLI | `~/.gemini/tmp/<project>/chats/session-*.jsonl` (`GEMINI_CLI_HOME`) | live 0.65.0 runs against the harness mock; tool calls are written only after completion, so no pending approval is on disk |
 | Copilot CLI | `~/.copilot/session-state/<id>/events.jsonl` (`COPILOT_HOME`) | live 1.0.103 runs through its BYOK mock provider; `permission.requested`/`permission.completed` make approval waits firm, the prompt-mode unattended denial is captured, and hand-made fixtures cover the interactive user-approve/user-deny completion shapes |
