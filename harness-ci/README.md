@@ -160,13 +160,16 @@ the nightly capture helper locally.
 
 ## CI artifacts and drift branches
 
-Artifacts are evidence for a failed run, not a build archive. Every harness lane uploads its
-run directory only when the job fails, and Desktop uploads its `runs/` evidence only on
-failure. Those artifacts keep a 3-day retention. The one exception is the nightly Linux
-Claude Code lane: it uploads a slim `harness-drift-*` artifact containing only the shape,
-transcripts, subagents, and scores that the drift job reads. It does not upload screens,
-timelines, or mock request logs, and artifact names stay version/OS-scoped rather than adding
-a per-run identifier.
+Artifacts are evidence for a failed run, not a build archive, with two deliberate exceptions.
+`build-driver` compiles the native `harness-driver` once per OS and uploads a short-lived
+`harness-driver-*` input (1-day retention) for the matrix lanes, which no longer install Rust
+or compile it themselves. The artifact is OS-specific because the driver is a native
+executable. The nightly Linux Claude Code lane uploads a slim `harness-drift-*` artifact
+containing only the shape, transcripts, subagents, and scores that the drift job reads. It does
+not upload screens, timelines, or mock request logs, and artifact names stay version/OS-scoped
+rather than adding a per-run identifier. Every other harness lane uploads its run directory
+only when the job fails, and Desktop uploads its `runs/` evidence only on failure; those
+evidence artifacts keep a 3-day retention.
 
 The drift PR uses one stable scratch branch, `harness-drift/claude-code`. Each nightly run
 force-pushes that branch and updates the existing open PR when there is one, so repeated
