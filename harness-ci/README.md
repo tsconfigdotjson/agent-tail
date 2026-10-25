@@ -388,6 +388,31 @@ snapshot of the IDE's `state.vscdb`; the missing piece is the live approval-wait
 (A5 #3), which needs Lee's Mac and is written up in
 [`docs/formats/cursor.md`](../docs/formats/cursor.md#needs-lee-the-live-approval-wait-a5-3).
 
+## A9: Claude Desktop + Jev computer-use spike (docs only, 2026-10-25)
+
+**Decision: Claude Desktop stays a documentation spike, not a harness lane.** There is no
+Desktop scenario, mock handshake or GHA job in this change. The write-up is
+[`docs/formats/claude-desktop.md`](../docs/formats/claude-desktop.md); the gap checklist for a
+future scenario is [`claude-desktop/README.md`](claude-desktop/README.md).
+
+- Linux Desktop (beta) exists as `claude-desktop` on Ubuntu 22.04+/Debian 12+, but Anthropic
+  Computer Use is not available on Linux, and Cowork needs KVM/QEMU. The reference
+  `typesafe-computer-use` clicker is macOS-first, so Linux needs a separate AT-SPI observe/act
+  adapter rather than a drop-in driver.
+- A mock-backed Desktop is plausible only through Claude Desktop's third-party gateway mode:
+  `inferenceProvider: gateway`, an Anthropic Messages `POST /v1/messages` gateway with
+  streaming and tool use, and the Linux managed-settings file at
+  `/etc/claude-desktop/managed-settings.json`. No Desktop↔mock handshake has been run.
+- Desktop Code-tab transcripts are Claude Code transcripts under `~/.claude/projects/`;
+  Cowork/local-agent-mode sessions are separate `local_<id>/audit.jsonl` files below app-data
+  `local-agent-mode-sessions/`. They must not be treated as the same source.
+- No live TypeSafe/Jev request was made: `TYPESAFE_API_KEY` is not available yet. The planned
+  loop uses Jev only to choose a typed action; our code observes and acts, and `agenttail`
+  scores the disk artifacts. No VLM is used as the scorer.
+
+Do not add a Desktop GHA job until a real install has produced a redacted artifact and the
+Linux Xvfb/KVM/accessibility path is proven. Billing for this month is already expended.
+
 ## OpenCode: real-harness spike and scenarios (2026-10-25)
 
 OpenCode **1.19.4** (`opencode-ai` on npm) runs fully offline through the same PTY driver.

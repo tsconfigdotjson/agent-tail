@@ -80,7 +80,8 @@ fn generate(root: &Path) -> Result<String, String> {
         "Evidence levels, strongest first: **CI-verified** (a scenario runs in the harness CI".to_string(),
         "matrix), **donated-verified** (a real session captured offline and redacted),".to_string(),
         "**ported-unverified** (only a hand-made/synthetic artifact, or an adapter with no".to_string(),
-        "artifact yet), and **unsupported** (no discovery spec or adapter).".to_string(),
+        "artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI run), and".to_string(),
+        "**unsupported** (no discovery spec or adapter).".to_string(),
         String::new(),
         "| Harness | Status | CI scenarios | Fixtures | Versions | Evidence |".to_string(),
         "|---|---|---:|---:|---|---|".to_string(),
@@ -124,6 +125,20 @@ fn generate(root: &Path) -> Result<String, String> {
         ));
     }
     lines.push(String::new());
+    lines.push("## Spike-only (not supported)".to_string());
+    lines.push(String::new());
+    lines.push("| Target | Status | CI scenarios | Fixtures | Versions | Evidence |".to_string());
+    lines.push("|---|---|---:|---:|---|---|".to_string());
+    lines.push(
+        "| Claude Desktop (agent mode) | **spike** | 0 | 0 | unknown | docs-only Jev computer-use loop; no adapter, fixture or CI run |"
+            .to_string(),
+    );
+    lines.push(String::new());
+    lines.push(
+        "Claude Desktop is a spike-only target, not a supported harness: it has no discovery spec or adapter and is not in the table above. See [docs/formats/claude-desktop.md](formats/claude-desktop.md)."
+            .to_string(),
+    );
+    lines.push(String::new());
     lines.push("## What each harness can read".to_string());
     lines.push(String::new());
     lines.push("| Harness | Root (below home) | Ask-user tools | Modes observed | Helpers | Quirks |".to_string());
@@ -161,7 +176,8 @@ fn generate(root: &Path) -> Result<String, String> {
     }
     lines.push(String::new());
     lines.push("Harnesses with no discovery spec are unsupported by definition; this generated".to_string());
-    lines.push("table lists every harness that does have one. `agenttail survey --drift` checks".to_string());
+    lines.push("table lists every harness that does have one. Spike-only targets are listed".to_string());
+    lines.push("separately above and are not adapters. `agenttail survey --drift` checks".to_string());
     lines.push("the transcript shape against `spec/baseline/`.".to_string());
     lines.push(String::new());
     Ok(lines.join("\n"))
@@ -311,5 +327,6 @@ mod tests {
         assert!(text.contains("| Codex | **ported-unverified** |"), "{text}");
         assert!(text.contains("| Pi | **CI-verified** |"), "{text}");
         assert!(text.contains("| Cursor | **unsupported** |"), "{text}");
+        assert!(text.contains("| Claude Desktop (agent mode) | **spike** |"), "{text}");
     }
 }

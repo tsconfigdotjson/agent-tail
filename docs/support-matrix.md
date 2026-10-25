@@ -5,7 +5,8 @@
 Evidence levels, strongest first: **CI-verified** (a scenario runs in the harness CI
 matrix), **donated-verified** (a real session captured offline and redacted),
 **ported-unverified** (only a hand-made/synthetic artifact, or an adapter with no
-artifact yet), and **unsupported** (no discovery spec or adapter).
+artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI run), and
+**unsupported** (no discovery spec or adapter).
 
 | Harness | Status | CI scenarios | Fixtures | Versions | Evidence |
 |---|---|---:|---:|---|---|
@@ -16,6 +17,14 @@ artifact yet), and **unsupported** (no discovery spec or adapter).
 | OpenCode | **CI-verified** | 2 | 3 | `1.19.4` | 2 CI scenario(s); 3 ci-scripted, 0 donated, 0 hand-made fixture(s) |
 | Gemini CLI | **CI-verified** | 2 | 2 | `0.65.0` | 2 CI scenario(s); 2 ci-scripted, 0 donated, 0 hand-made fixture(s) |
 | GitHub Copilot CLI | **CI-verified** | 3 | 5 | `1.0.103` | 3 CI scenario(s); 3 ci-scripted, 0 donated, 2 hand-made fixture(s) |
+
+## Spike-only (not supported)
+
+| Target | Status | CI scenarios | Fixtures | Versions | Evidence |
+|---|---|---:|---:|---|---|
+| Claude Desktop (agent mode) | **spike** | 0 | 0 | unknown | docs-only Jev computer-use loop; no adapter, fixture or CI run |
+
+Claude Desktop is a spike-only target, not a supported harness: it has no discovery spec or adapter and is not in the table above. See [docs/formats/claude-desktop.md](formats/claude-desktop.md).
 
 ## What each harness can read
 
@@ -61,5 +70,6 @@ artifact yet), and **unsupported** (no discovery spec or adapter).
 | pi | `1.4.0` | `linux` | `ci-scripted` | `pi/1.4/linux/tool-call` |
 
 Harnesses with no discovery spec are unsupported by definition; this generated
-table lists every harness that does have one. `agenttail survey --drift` checks
+table lists every harness that does have one. Spike-only targets are listed
+separately above and are not adapters. `agenttail survey --drift` checks
 the transcript shape against `spec/baseline/`.

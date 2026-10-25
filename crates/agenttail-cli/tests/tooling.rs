@@ -22,10 +22,10 @@ fn the_committed_support_matrix_is_generated_from_current_specs_and_fixtures() {
         String::from_utf8_lossy(&output.stderr)
     );
     let text = std::fs::read_to_string(root.join("docs/support-matrix.md")).unwrap();
-    for harness in ["Claude Code", "Codex", "Cursor", "Pi", "OpenCode"] {
+    for harness in ["Claude Code", "Codex", "Cursor", "Pi", "OpenCode", "Claude Desktop"] {
         assert!(text.contains(harness), "{harness} missing from the support matrix");
     }
-    for status in ["CI-verified", "donated-verified", "ported-unverified", "unsupported"] {
+    for status in ["CI-verified", "donated-verified", "ported-unverified", "spike", "unsupported"] {
         assert!(text.contains(status), "{status} is documented");
     }
 }
