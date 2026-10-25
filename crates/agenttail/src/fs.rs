@@ -1562,7 +1562,16 @@ mod tests {
         );
 
         // The tracker throttles a large database but notices a changed one when it is due.
+        // A coarse filesystem (whole seconds, say) can leave the database's mtime at the stamp
+        // the last poll cached even though the row was just replaced: the rename would go
+        // unseen when the throttled read came due (issue #46). Put the stamp back there
+        // deliberately, so the test reproduces that case on every filesystem, then move it
+        // past the cached stamp instead of sleeping for a finer clock: the database's stamp
+        // is what tells the tracker it changed.
+        let cached = std::fs::metadata(&db).unwrap().modified().unwrap();
         cursor_state_db(&db, "a1", "aborted", "Renamed", updated + 1);
+        File::open(&db).unwrap().set_modified(cached).unwrap();
+        File::open(&db).unwrap().set_modified(cached + Duration::from_secs(2)).unwrap();
         if let Some(database) = t.cursor_db.as_mut() {
             database.read_at = Timestamp::from_secs_f64(now.as_secs_f64() - CURSOR_STATE_DB_EVERY.as_secs_f64());
         }
