@@ -49,12 +49,15 @@ evidence = "https://claude.com/docs/third-party/claude-desktop/data-storage (3P 
 
 [layout]
 # <user>/<org>/local_<id>/audit.jsonl and <user>/<org>/agent/local_ditto_<id>/audit.jsonl.
-# The exact file name matters; the sidecar is .json and is read separately.
+# Desktop 3.6556.2 also uses <user>/<org>/<first-8-hex>/audit.jsonl, with the sidecar still
+# named local_<id>.json beside that folder. The exact file name matters; the sidecar is .json
+# and is read separately.
 max_depth = 5
 session_pattern = "audit.jsonl"
 session_dir_prefix = "local_"
+session_dir_hex8 = true
 day_folders = false
-evidence = "docs/formats/claude-desktop.md#where-desktop-writes-sessions; prior art: ADR S/parsers/claude_desktop_parser.py:119-171; docs/prior-art.md#claude-desktop-agent-mode-adr-only"
+evidence = "docs/formats/claude-desktop.md#where-desktop-writes-sessions; Claude Desktop 3.6556.2 app.asar getSessionStorageDir/UJ and session-folder regex /^(local_|[0-9a-f]{8})$/; prior art: ADR S/parsers/claude_desktop_parser.py:119-171; docs/prior-art.md#claude-desktop-agent-mode-adr-only"
 
 [project]
 # The sibling local_<id>.json carries cwd. The folder names are opaque ids, not a project.

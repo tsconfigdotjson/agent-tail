@@ -1,5 +1,6 @@
 //! Claude Desktop local agent mode (Cowork / Chat): app-data
-//! `local-agent-mode-sessions/<user>/<org>/local_<id>/audit.jsonl`.
+//! `local-agent-mode-sessions/<user>/<org>/local_<id>/audit.jsonl` (or the newer
+//! `<user>/<org>/<first-8-hex>/audit.jsonl`).
 //!
 //! The audit stream is the Claude Agent SDK's stream-json, so the shared Claude record
 //! reader handles `system/init`, `user`, `assistant` and `system`. This adapter adds the

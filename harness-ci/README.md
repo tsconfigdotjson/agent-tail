@@ -156,8 +156,11 @@ A scenario is a list of steps:
 }
 ```
 
-- `expect`: `contains`, `user_contains`, `tool_result_id`, `tool_result_contains`,
-  `has_tool_result`, `request_index`.
+- `expect`: `contains`, `user_contains`, `user_equals`, `tool_result_id`,
+  `tool_result_contains`, `has_tool_result`, `request_index`. `user_equals` compares the
+  whole trimmed user text, ignoring `<system-reminder>…</system-reminder>` and
+  `<desktop-app-activity>…` blocks that Desktop adds as context; use it when an auxiliary
+  request embeds the prompt in a larger template.
 - `reply.content`: `text`, `thinking` (with a signature), `tool_use` (with `input`). A
   `tool_use` defaults its id to `toolu_mock_<request>_<block>`.
 - `reply.fault`: `http` (`status`, `message`), `broken_stream`, `slow_first_token`
@@ -173,13 +176,16 @@ A scenario is a list of steps:
 - `dispatch` is `sequential` (default) or `first_match`. `first_match` answers the first unused
   step whose `expect` matches, so a subagent's model request can arrive before the parent's
   next turn. A request that matches nothing is still a 500.
-- Claude Code's separate session-title request is answered with a fixed title and does not
-  consume a step. Without that, the title request steals the scripted first reply.
+- Claude Code's and Claude Desktop's separate session-title requests are answered with a
+  fixed title and do not consume a step. Without that, the title request steals the scripted
+  first reply or, on Desktop, embeds the chat prompt in the title template and consumes the
+  say-hello step. Desktop title output uses the `<title>…</title>` shape its parser expects.
 - `probes` (optional) answers health checks without consuming a step. `user_texts` is an
   exact allowlist of the user text, and `max_tokens_at_most` requires `max_tokens` to be
   present and no larger than that. Empty `probes` (the default, including `plain_qa.json`)
-  leaves every request on the script. `desktop_plain_qa.json` is `plain_qa`'s step plus
-  `{"user_texts": ["."], "max_tokens_at_most": 1}` for Claude Desktop's gateway probe.
+  leaves every request on the script. `desktop_plain_qa.json` holds an exact
+  `user_equals: "say hello"` Chat step plus `{"user_texts": ["."], "max_tokens_at_most": 1}`
+  for Claude Desktop's gateway probe and a title-template allowlist for title generation.
   A `"."` request with a larger or missing `max_tokens`, or any other user text, still
   has to match the step. The probe reply is a short `ok` message (`msg_mock_9001`) and
   is logged with `"probe": true`.

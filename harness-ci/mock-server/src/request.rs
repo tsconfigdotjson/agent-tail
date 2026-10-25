@@ -252,6 +252,11 @@ impl Expect {
         {
             return Err(format!("user text did not contain {want:?}; user text was {:?}", truncate(&view.user_text)));
         }
+        if let Some(want) = &self.user_equals
+            && !user_text_equals(&view.user_text, want)
+        {
+            return Err(format!("user text was not exactly {want:?}; user text was {:?}", truncate(&view.user_text)));
+        }
         if let Some(want) = &self.user_also_contains
             && !view.user_text.contains(want)
         {
@@ -289,6 +294,23 @@ impl Expect {
         }
         Ok(())
     }
+}
+
+/// An exact match after trimming, ignoring the app's own context blocks. Claude Desktop can
+/// append or prepend `<system-reminder>…</system-reminder>` and `<desktop-app-activity>…`
+/// around the typed prompt; that context is not user text.
+fn user_text_equals(text: &str, want: &str) -> bool {
+    let mut stripped = text.to_string();
+    for tag in ["system-reminder", "desktop-app-activity"] {
+        let open = format!("<{tag}>");
+        let close = format!("</{tag}>");
+        while let Some(start) = stripped.find(&open) {
+            let Some(offset) = stripped[start..].find(&close) else { break };
+            let end = start + offset + close.len();
+            stripped.replace_range(start..end, "");
+        }
+    }
+    stripped.trim() == want.trim()
 }
 
 fn truncate(text: &str) -> String {
@@ -345,6 +367,30 @@ mod tests {
             "messages": [{"role": "user", "content": "hi"}],
         }));
         assert!(string_system.all_text.contains("OUTER_AGENT"));
+    }
+
+    #[test]
+    fn user_equals_does_not_match_a_prompt_embedded_in_a_larger_request() {
+        let chat = RequestView::from_anthropic(&json!({"messages": [{"role": "user", "content": " say hello "}]}));
+        let expected = Expect { user_equals: Some("say hello".into()), ..Expect::default() };
+        assert!(expected.check(&chat, 0).is_ok(), "the real chat turn matches after trimming");
+
+        let title = RequestView::from_anthropic(&json!({"messages": [{
+            "role": "user",
+            "content": "Here is the session description:\n<description>say hello</description>\nPlease generate a title."
+        }]}));
+        let err = expected.check(&title, 1).unwrap_err();
+        assert!(err.contains("not exactly \"say hello\""), "{err}");
+
+        for content in [
+            "say hello\n\n<system-reminder>desktop activity</system-reminder>",
+            "<system-reminder>desktop activity</system-reminder>\n\nsay hello",
+            "<desktop-app-activity>opened a tab</desktop-app-activity>\nsay hello",
+        ] {
+            let with_reminder =
+                RequestView::from_anthropic(&json!({"messages": [{"role": "user", "content": content}]}));
+            assert!(expected.check(&with_reminder, 2).is_ok(), "context blocks are not user text: {content}");
+        }
     }
 
     #[test]

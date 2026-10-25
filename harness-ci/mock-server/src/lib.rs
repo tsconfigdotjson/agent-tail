@@ -251,10 +251,16 @@ async fn anthropic_messages(State(state): State<Arc<MockState>>, body: Bytes) ->
     }
 }
 
-/// Claude Code asks the model for a session title on its own request. That request is not a
-/// scenario step: answer it with a fixed title and leave the script alone. Detected from the
-/// title system prompt, which is present regardless of `--bare`.
+/// Claude Code and Claude Desktop ask the model for a session title on their own request.
+/// That request is not a scenario step: answer it with a fixed title and leave the script
+/// alone. Claude Code is detected from its title system prompt, which is present regardless
+/// of `--bare`. Desktop's title request embeds the first chat message in a longer prompt, so
+/// it is detected by the title template itself rather than by the message text.
 fn is_title_request(body: &Value) -> bool {
+    is_claude_code_title_request(body) || is_desktop_title_request(body)
+}
+
+fn is_claude_code_title_request(body: &Value) -> bool {
     body.get("system").and_then(Value::as_array).is_some_and(|system| {
         system.iter().any(|part| {
             part.get("text").and_then(Value::as_str).is_some_and(|text| text.contains("naming a coding session"))
@@ -262,9 +268,25 @@ fn is_title_request(body: &Value) -> bool {
     })
 }
 
-fn title_text(_body: &Value, override_title: Option<&str>) -> String {
+/// Claude Desktop 3.6556.2's `generateTitle`/`generateTitleAndBranch` prompts. The first chat
+/// message appears inside `<description>…</description>`, so matching the scenario step on a
+/// user substring would make the title request steal the chat reply.
+fn is_desktop_title_request(body: &Value) -> bool {
+    let view = RequestView::from_anthropic(body);
+    [
+        "coming up with a succinct title for an agent chat session",
+        "coming up with a succinct title and git branch name for a coding session",
+        "You write short session titles.",
+        "Please generate a title for this session",
+        "Please generate a title and branch name for this session",
+    ]
+    .iter()
+    .any(|marker| view.all_text.contains(marker))
+}
+
+fn title_text(body: &Value, override_title: Option<&str>) -> String {
     let title = override_title.unwrap_or("Mock session title");
-    json!({"title": title}).to_string()
+    if is_desktop_title_request(body) { format!("<title>{title}</title>") } else { json!({"title": title}).to_string() }
 }
 
 /// Codex asks for a one-line task title on its own Responses request. Like Claude's title
@@ -1003,6 +1025,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn desktop_title_generation_does_not_consume_the_say_hello_step() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scenarios/desktop_plain_qa.json");
+        let scenario = Scenario::from_path(&path).expect("desktop_plain_qa");
+        let state = MockState::new(scenario);
+        let app = router(state.clone());
+        let title = json!({
+            "stream": false,
+            "max_tokens": 256,
+            "messages": [{
+                "role": "user",
+                "content": "You are coming up with a succinct title for an agent chat session based on the provided description.\n\nHere is the session description:\n<description>say hello</description>\nPlease generate a title for this session."
+            }]
+        });
+        let (status, body) = post(app.clone(), "/v1/messages", title).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("<title>Mock session title</title>"), "{body}");
+        assert_eq!(state.requests(), 0, "title generation is auxiliary, not a scripted turn");
+        assert_eq!(state.remaining(), 1);
+
+        let (status, body) =
+            post(app, "/v1/messages", json!({"stream": false, "messages": [{"role": "user", "content": "say hello"}]}))
+                .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("Hello from the mock."), "{body}");
+        assert!(body.contains("msg_mock_0"), "{body}");
+        assert_eq!(state.remaining(), 0);
+    }
+
+    #[tokio::test]
+    async fn an_embedded_prompt_without_a_title_marker_does_not_consume_the_step() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scenarios/desktop_plain_qa.json");
+        let scenario = Scenario::from_path(&path).expect("desktop_plain_qa");
+        let state = MockState::new(scenario);
+        let app = router(state.clone());
+        let (status, body) = post(
+            app.clone(),
+            "/v1/messages",
+            json!({"stream": false, "messages": [{"role": "user", "content": "some other request that embeds say hello"}]}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+        assert!(body.contains(r#"not exactly \"say hello\""#), "{body}");
+        assert_eq!(state.remaining(), 1, "the real chat turn can still use step 0");
+
+        let (status, body) =
+            post(app, "/v1/messages", json!({"stream": false, "messages": [{"role": "user", "content": "say hello"}]}))
+                .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("Hello from the mock."), "{body}");
+    }
+
+    #[tokio::test]
     async fn desktop_gateway_probe_does_not_consume_the_say_hello_step() {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scenarios/desktop_plain_qa.json");
         let scenario = Scenario::from_path(&path).expect("desktop_plain_qa");
@@ -1047,7 +1121,7 @@ mod tests {
         let (status, body) = post(
             app.clone(),
             "/v1/messages",
-            json!({"stream": false, "messages": [{"role": "user", "content": "please say hello"}]}),
+            json!({"stream": false, "messages": [{"role": "user", "content": "say hello"}]}),
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");

@@ -118,7 +118,8 @@ paths.
    empty value leaves the switch off.
 4. **Score** — poll `agenttail ls --hours 2 --agents …` with `HOME` pointed at
    the container user's home. The Desktop scenario reads both
-   `claude_desktop` (`local-agent-mode-sessions/.../audit.jsonl`) and
+   `claude_desktop` (`local-agent-mode-sessions/.../audit.jsonl`, including the
+   `<first-8-hex>/audit.jsonl` session-folder shape in 3.6556.2) and
    `claude_code` (`~/.claude/projects`, the Code tab). The stand-in writes only
    a Desktop-shaped audit log.
 5. **Stop** — expected end activity, low confidence, step limit, timeout, app
@@ -141,8 +142,9 @@ verification and its result must not be used as a Desktop support-matrix claim.
   `/etc/claude-desktop/managed-settings.json` as root with mode 0644. The app
   rejects a file that is not root-owned or is group/world-writable.
 - The existing Rust `mock-server` runs on the fixed loopback address
-  `127.0.0.1:8765` with `mock-server/scenarios/desktop_plain_qa.json` (the
-  `plain_qa` step, plus a health-probe allowlist). The path in the Desktop
+  `127.0.0.1:8765` with `mock-server/scenarios/desktop_plain_qa.json` (an exact
+  `say hello` Chat step, a non-consuming title-generation answer, and a health-probe
+  allowlist). The path in the Desktop
   scenario is `../mock-server/scenarios/desktop_plain_qa.json` relative to
   `desktop-xvfb/` (`../../` misses `harness-ci/` and the file is not found).
   Inside the container the same relative path is also tried from

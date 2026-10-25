@@ -675,15 +675,39 @@ impl Followed {
     }
 }
 
-/// Claude Desktop's sidecar is the sibling of the `local_<id>/` folder:
-/// `<org>/local_<id>.json` for `<org>/local_<id>/audit.jsonl`.
+/// Claude Desktop's sidecar is the sibling of the session folder:
+/// `<org>/local_<id>.json` for `<org>/local_<id>/audit.jsonl`. Newer Desktop builds name the
+/// folder with the first eight hex characters of that id (`<org>/ab12cd34/audit.jsonl`), so
+/// there the sidecar has to be found by that prefix.
 fn claude_desktop_metadata(path: &Path) -> Option<PathBuf> {
     if path.file_name()? != "audit.jsonl" {
         return None;
     }
     let session_dir = path.parent()?;
-    let org = session_dir.parent()?;
-    Some(org.join(format!("{}.json", session_dir.file_name()?.to_string_lossy())))
+    let parent = session_dir.parent()?;
+    let name = session_dir.file_name()?.to_string_lossy();
+    if name.starts_with("local_") {
+        return Some(parent.join(format!("{name}.json")));
+    }
+    if name.len() != 8 || !name.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    let prefix = name.to_ascii_lowercase();
+    let entries = std::fs::read_dir(parent).ok()?;
+    for entry in entries.flatten() {
+        let candidate = entry.path();
+        if !candidate.is_file() {
+            continue;
+        }
+        let Some(stem) = candidate.file_name()?.to_str().and_then(|file| file.strip_suffix(".json")) else {
+            continue;
+        };
+        let Some(id) = stem.strip_prefix("local_") else { continue };
+        if id.get(..8).is_some_and(|start| start.eq_ignore_ascii_case(&prefix)) {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 /// Cursor's composer id is the transcript's file stem (`.../<id>/<id>.jsonl`).
@@ -1485,6 +1509,40 @@ mod tests {
         assert_eq!(second[0].1.meta.title, "Config review");
         assert_eq!(second[0].1.activity, crate::Activity::Thinking);
         assert_eq!(second[0].1.permission, Some(crate::PermissionMode::Default), "the init record still wins for mode");
+    }
+
+    #[test]
+    fn tracker_reads_a_claude_desktop_sidecar_beside_a_short_session_folder() {
+        let home = tempfile::tempdir().unwrap();
+        let org = home.path().join(".config/Claude/local-agent-mode-sessions/user/org");
+        let session = org.join("ab12cd34");
+        std::fs::create_dir_all(&session).unwrap();
+        let audit = session.join("audit.jsonl");
+        std::fs::write(
+            &audit,
+            jsonl(&[
+                json!({"type": "system", "subtype": "init", "uuid": "init-1",
+                       "session_id": "local_ab12cd34-2222-3333-4444-555555555555",
+                       "cwd": "/work/audit-cwd", "model": "claude-sonnet-4",
+                       "permissionMode": "default"}),
+                json!({"type": "user", "uuid": "u1", "message": {"content": "read it"}}),
+            ]),
+        )
+        .unwrap();
+        let mut t = Tracker::new(home.path(), filter(1.0, Some(&[Harness::ClaudeDesktop])));
+        let first = t.poll(wall());
+        assert_eq!(first.len(), 1, "the eight-hex folder is a Desktop session");
+        assert_eq!(first[0].0.path, audit);
+        assert_eq!(first[0].1.meta.project, "audit-cwd", "the audit works before its sidecar");
+
+        std::fs::write(
+            org.join("local_ab12cd34-2222-3333-4444-555555555555.json"),
+            r#"{"sessionId":"local_ab12cd34-2222-3333-4444-555555555555","cwd":"/work/sidecar","title":"Short folder review"}"#,
+        )
+        .unwrap();
+        let second = t.poll(wall());
+        assert_eq!(second[0].1.meta.project, "sidecar");
+        assert_eq!(second[0].1.meta.title, "Short folder review");
     }
 
     #[test]

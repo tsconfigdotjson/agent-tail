@@ -279,6 +279,7 @@ mod tests {
         assert!(Harness::Cursor.discovery().roots.env.is_empty());
         let desktop = Harness::ClaudeDesktop.discovery();
         assert_eq!(desktop.layout.session_dir_prefix, Some("local_"));
+        assert!(desktop.layout.session_dir_hex8, "Desktop also names session folders by the id's first 8 hex chars");
         assert_eq!(
             desktop.roots.for_os("linux"),
             [".config/Claude/local-agent-mode-sessions", ".config/Claude-3p/local-agent-mode-sessions"]
