@@ -36,6 +36,8 @@ JEV_MODEL = "typesafe/jev-1.14"
 DEFAULT_CONFIDENCE = 0.55
 POLL_SECONDS = 0.20
 ACTION_GAP_SECONDS = 0.55
+POINTER_TIMEOUT_SECONDS = 2.0
+POINTER_SETTLE_SECONDS = 0.05
 CHROME_BUTTONS = {"Close", "Minimize", "Maximize", "Restore"}
 ACTIONABLE_ROLES = {
     "push button",
@@ -1400,23 +1402,23 @@ def choose_jev(
     )
 
 
+def run_xdotool(args: list[str], timeout: float) -> None:
+    subprocess.run(["xdotool", *args], check=True, capture_output=True, timeout=timeout)
+
+
 def click_center(bounds: list[int]) -> None:
     x, y, width, height = bounds
-    subprocess.run(
-        ["xdotool", "mousemove", "--sync", str(x + width // 2), str(y + height // 2), "click", "1"],
-        check=True,
-        capture_output=True,
-        timeout=10,
-    )
+    run_xdotool(["mousemove", str(x + width // 2), str(y + height // 2)], POINTER_TIMEOUT_SECONDS)
+    sleep(POINTER_SETTLE_SECONDS)
+    run_xdotool(["click", "1"], POINTER_TIMEOUT_SECONDS)
 
 
 def press_key(key: str) -> None:
-    subprocess.run(
-        ["xdotool", "key", "--clearmodifiers", key],
-        check=True,
-        capture_output=True,
-        timeout=10,
-    )
+    run_xdotool(["key", "--clearmodifiers", key], POINTER_TIMEOUT_SECONDS)
+
+
+def pointer_failure(error: BaseException) -> str:
+    return f"{error}"[:500]
 
 
 def act(choice: Choice, out: Path) -> dict[str, Any]:
@@ -1433,18 +1435,44 @@ def act(choice: Choice, out: Path) -> dict[str, Any]:
         if candidate.dom_socket and (choice.action == "type" or candidate.node is None):
             perform_cdp(choice, record)
         elif choice.action == "click" and candidate.input_key:
+            click_error: str | None = None
             focused = False
             if candidate.node is not None:
                 try:
                     candidate.node.queryAction().doAction(0)
                     focused = True
-                except Exception:
-                    focused = False
+                except Exception as error:
+                    click_error = pointer_failure(error)
             if not focused and candidate.bounds:
-                click_center(candidate.bounds)
-            press_key(candidate.input_key)
+                try:
+                    click_center(candidate.bounds)
+                    click_error = None
+                except (subprocess.TimeoutExpired, subprocess.CalledProcessError, OSError) as error:
+                    click_error = pointer_failure(error)
+            keys = [candidate.input_key]
+            if click_error and "KP_Enter" not in keys:
+                keys.append("KP_Enter")
+            pressed: list[str] = []
+            key_error: str | None = None
+            for key in keys:
+                try:
+                    press_key(key)
+                    pressed.append(key)
+                except (subprocess.TimeoutExpired, subprocess.CalledProcessError, OSError) as error:
+                    key_error = pointer_failure(error)
+            if not pressed:
+                record["error"] = key_error or click_error or "send failed"
+                if click_error:
+                    record["click_error"] = click_error
+                append_jsonl(out / "timeline.jsonl", record)
+                raise DriverError(f"action failed: {record['error']}")
             record["method"] = "xdotool-key"
-            record["key"] = candidate.input_key
+            record["key"] = pressed[0]
+            record["keys"] = pressed
+            if click_error:
+                record["click_error"] = click_error
+            if key_error:
+                record["key_error"] = key_error
         elif choice.action == "click":
             try:
                 candidate.node.queryAction().doAction(0)
@@ -1458,11 +1486,18 @@ def act(choice: Choice, out: Path) -> dict[str, Any]:
         elif choice.action == "type":
             if choice.text is None:
                 raise DriverError("type action has no text")
+            focused = False
             try:
-                candidate.node.queryAction().doAction(0)
+                if candidate.node is not None:
+                    candidate.node.queryAction().doAction(0)
+                    focused = True
             except Exception:
-                if candidate.bounds:
+                focused = False
+            if not focused and candidate.bounds:
+                try:
                     click_center(candidate.bounds)
+                except (subprocess.TimeoutExpired, subprocess.CalledProcessError, OSError) as error:
+                    record["click_error"] = pointer_failure(error)
             subprocess.run(
                 ["xdotool", "type", "--clearmodifiers", "--delay", "20", "--", choice.text],
                 check=True,
@@ -1475,6 +1510,10 @@ def act(choice: Choice, out: Path) -> dict[str, Any]:
             raise DriverError(f"unsupported action {choice.action!r}")
     except subprocess.CalledProcessError as error:
         record["error"] = error.stderr.decode(errors="replace")[:1000]
+        append_jsonl(out / "timeline.jsonl", record)
+        raise DriverError(f"action failed: {record['error']}") from error
+    except subprocess.TimeoutExpired as error:
+        record["error"] = pointer_failure(error)
         append_jsonl(out / "timeline.jsonl", record)
         raise DriverError(f"action failed: {record['error']}") from error
     append_jsonl(out / "timeline.jsonl", record)
