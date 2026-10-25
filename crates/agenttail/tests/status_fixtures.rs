@@ -29,6 +29,7 @@ fn harness_for(scenario: &Path, root: &Path) -> Harness {
     let name = scenario.strip_prefix(root).unwrap().components().next().unwrap().as_os_str().to_string_lossy();
     match name.as_ref() {
         "claude-code" => Harness::ClaudeCode,
+        "claude-desktop" => Harness::ClaudeDesktop,
         "codex" => Harness::Codex,
         "cursor" => Harness::Cursor,
         "pi" => Harness::Pi,

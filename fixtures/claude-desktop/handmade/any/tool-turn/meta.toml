@@ -1,0 +1,6 @@
+harness = "claude_desktop"
+version = "unknown"
+os = "any"
+capture = "handmade"
+date = "2026-10-25"
+description = "A tool call and result synthesized from the Claude Agent SDK stream-json shape documented by ADR: the pending Bash call is firm running_tool, the result returns the session to thinking, and the result frame closes it done. No real Desktop install was available."

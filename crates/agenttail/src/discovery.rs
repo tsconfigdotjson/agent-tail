@@ -20,10 +20,25 @@ pub enum AskMatch {
 /// A root and the environment overrides observed for it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Roots {
-    /// The transcript root below the user's home folder.
+    /// The transcript root below the user's home folder, used when no platform root applies.
     pub default: &'static str,
     /// Environment variables that move it.
     pub env: &'static [EnvRoot],
+    /// Roots that replace the default on one OS (Claude Desktop's app-data folders).
+    pub platform: &'static [PlatformRoot],
+    /// Where this was observed.
+    pub evidence: &'static str,
+}
+
+/// One platform-specific app-data root, below the user's home folder.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlatformRoot {
+    /// `std::env::consts::OS`: `linux`, `macos` or `windows`.
+    pub os: &'static str,
+    /// The app-data folder below the user's home folder.
+    pub path: &'static str,
+    /// `consumer` or `third_party`.
+    pub build: &'static str,
     /// Where this was observed.
     pub evidence: &'static str,
 }
@@ -138,6 +153,14 @@ pub struct Discovery {
 }
 
 include!(concat!(env!("OUT_DIR"), "/discovery_generated.rs"));
+
+impl Roots {
+    /// The roots to scan on `os`: its platform entries when it has any, otherwise the default.
+    pub fn for_os(&self, os: &str) -> Vec<&'static str> {
+        let roots: Vec<_> = self.platform.iter().filter(|root| root.os == os).map(|root| root.path).collect();
+        if roots.is_empty() { vec![self.default] } else { roots }
+    }
+}
 
 impl Discovery {
     /// Whether `name` is one of this harness's ask-the-user tools.
@@ -254,6 +277,21 @@ mod tests {
         assert_eq!(Harness::Gemini.discovery().env_root("GEMINI_CLI_HOME").unwrap().append, ".gemini/tmp");
         assert_eq!(Harness::Copilot.discovery().env_root("COPILOT_HOME").unwrap().append, "session-state");
         assert!(Harness::Cursor.discovery().roots.env.is_empty());
+        let desktop = Harness::ClaudeDesktop.discovery();
+        assert_eq!(desktop.layout.session_dir_prefix, Some("local_"));
+        assert_eq!(
+            desktop.roots.for_os("linux"),
+            [".config/Claude/local-agent-mode-sessions", ".config/Claude-3p/local-agent-mode-sessions"]
+        );
+        assert!(
+            desktop.roots.for_os("macos").contains(&"Library/Application Support/Claude/local-agent-mode-sessions")
+        );
+        assert!(desktop.roots.for_os("windows").contains(&"AppData/Roaming/Claude/local-agent-mode-sessions"));
+        assert_eq!(
+            Harness::Codex.discovery().roots.for_os("linux"),
+            [".codex/sessions"],
+            "no platform roots: the default"
+        );
         let registry = claude.registry.as_ref().expect("Claude has a registry decision");
         assert!(!registry.used, "the tracker does not read the registry");
         assert!(registry.removed_on_graceful_exit);

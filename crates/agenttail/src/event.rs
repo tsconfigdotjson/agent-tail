@@ -748,6 +748,17 @@ impl Session {
 /// what [`Session::apply`] and the reducer's chunk reader use.
 pub(crate) fn apply_record(session: &mut Session, record: &Value) {
     let seeds = session.harness.adapter().parse(&mut session.parse_state, record);
+    apply_seeds(session, seeds);
+}
+
+/// Apply a sidecar record (Claude Desktop's `local_<id>.json`) through the harness's
+/// metadata reader. Sidecars are not transcript lines and have no provenance.
+pub(crate) fn apply_metadata(session: &mut Session, record: &Value) {
+    let seeds = session.harness.adapter().metadata(&mut session.parse_state, record);
+    apply_seeds(session, seeds);
+}
+
+fn apply_seeds(session: &mut Session, seeds: Vec<crate::adapters::EventSeed>) {
     for seed in seeds {
         let event = Event {
             id: String::new(),

@@ -11,6 +11,7 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | Harness | Status | CI scenarios | Fixtures | Versions | Evidence |
 |---|---|---:|---:|---|---|
 | Claude Code | **CI-verified** | 7 | 5 | `2.1.292`, `2.1.310` | 7 CI scenario(s); 0 ci-scripted, 1 donated, 4 hand-made fixture(s) |
+| Claude Desktop | **ported-unverified** | 0 | 3 | unknown | 3 hand-made/synthetic fixture(s); no real capture |
 | Codex | **CI-verified** | 9 | 5 | `0.160.1` | 9 CI scenario(s); 0 ci-scripted, 2 donated, 3 hand-made fixture(s) |
 | Cursor | **ported-unverified** | 0 | 2 | unknown | 2 hand-made/synthetic fixture(s); no real capture |
 | Pi | **CI-verified** | 3 | 4 | `1.4.0` | 3 CI scenario(s); 3 ci-scripted, 0 donated, 1 hand-made fixture(s) |
@@ -18,19 +19,12 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | Gemini CLI | **CI-verified** | 2 | 2 | `0.65.0` | 2 CI scenario(s); 2 ci-scripted, 0 donated, 0 hand-made fixture(s) |
 | GitHub Copilot CLI | **CI-verified** | 3 | 5 | `1.0.103` | 3 CI scenario(s); 3 ci-scripted, 0 donated, 2 hand-made fixture(s) |
 
-## Spike-only (not supported)
-
-| Target | Status | CI scenarios | Fixtures | Versions | Evidence |
-|---|---|---:|---:|---|---|
-| Claude Desktop (agent mode) | **spike** | 0 | 0 | unknown | docs-only Jev computer-use loop over OpenRouter; no adapter, fixture or CI run |
-
-Claude Desktop is a spike-only target, not a supported harness: it has no discovery spec or adapter and is not in the table above. See [docs/formats/claude-desktop.md](formats/claude-desktop.md).
-
 ## What each harness can read
 
 | Harness | Root (below home) | Ask-user tools | Modes observed | Helpers | Quirks |
 |---|---|---|---|---|---|
 | Claude Code | `.claude/projects` | `AskUserQuestion`, `ExitPlanMode` | `default`, `acceptEdits`, `plan`, `bypassPermissions` | yes | 7 |
+| Claude Desktop | `.config/Claude/local-agent-mode-sessions` | none observed | none observed | no | 7 |
 | Codex | `.codex/sessions` | `request_user_input` | `on-request`, `never` | no | 6 |
 | Cursor | `.cursor/projects` | `AskQuestion`, `AskUserQuestion`, `AskFollowupQuestion`, `RequestUserInput` | none observed | yes | 5 |
 | Pi | `.pi/agent/sessions` | none observed | none observed | no | 7 |
@@ -47,6 +41,9 @@ Claude Desktop is a spike-only target, not a supported harness: it has no discov
 | claude_code | `2.1.310` | `linux` | `handmade` | `claude-code/2.1/linux/firm-turn-ends` |
 | claude_code | `2.1.310` | `linux` | `handmade` | `claude-code/2.1/linux/late-prompt` |
 | claude_code | `2.1.310` | `linux` | `handmade` | `claude-code/2.1/linux/tool-rejected` |
+| claude_desktop | `unknown` | `any` | `handmade` | `claude-desktop/handmade/any/plain-qa` |
+| claude_desktop | `unknown` | `any` | `handmade` | `claude-desktop/handmade/any/tool-stall` |
+| claude_desktop | `unknown` | `any` | `handmade` | `claude-desktop/handmade/any/tool-turn` |
 | codex | `0.160.1` | `linux` | `handmade` | `codex/0.160/linux/approval-auto-review` |
 | codex | `0.160.1` | `linux` | `handmade` | `codex/0.160/linux/approval-never` |
 | codex | `0.160.1` | `linux` | `handmade` | `codex/0.160/linux/approval-on-request` |
@@ -70,6 +67,6 @@ Claude Desktop is a spike-only target, not a supported harness: it has no discov
 | pi | `1.4.0` | `linux` | `ci-scripted` | `pi/1.4/linux/tool-call` |
 
 Harnesses with no discovery spec are unsupported by definition; this generated
-table lists every harness that does have one. Spike-only targets are listed
-separately above and are not adapters. `agenttail survey --drift` checks
-the transcript shape against `spec/baseline/`.
+table lists every harness that does have one. A **spike** entry has no adapter or
+artifact and is not in this table. `agenttail survey --drift` checks the transcript
+shape against `spec/baseline/`.

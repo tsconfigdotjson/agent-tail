@@ -107,7 +107,7 @@ report the reason.
 | 1 | Cursor agent (IDE and CLI) | `~/.cursor/projects/<enc-path>/agent-transcripts/<id>/<id>.jsonl` | no timestamps (mtime, plus prompts' `<timestamp>` block, #192); `<user_query>` wrappers |
 | 1 | Cursor `state.vscdb` (SQLite) | `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`, `cursorDiskKV` `composerData:%`/`bubbleId:%` | data exists on Lee's Mac; read from a temp snapshot with `-wal`/`-shm`, never the live DB (`rusqlite`, bundled) |
 | 1b (v0.1, after Claude Code's harness CI works) | Gemini CLI, OpenCode | per their docs, confirmed in CI | open source and pointable at a mock server, so CI captures real artifacts; no local data needed. **OpenCode 1.19.4 now ships**: SQLite reader, discovery spec, offline row fixtures, pinned + latest harness-ci lane. **Gemini CLI 0.65.0 now ships**: journal adapter, real offline fixtures and a pinned + latest lane; tool calls are written only after completion. |
-| 2 (spike first) | Copilot CLI, Claude Desktop agent mode | | GitHub sign-in and desktop automation may block CI; ships when verified, via CI or donated fixtures. **Copilot CLI 1.0.103 now ships through BYOK**: real event-log fixtures, firm persisted permission requests, and a pinned + latest lane; GitHub routing/sign-in is not exercised. Claude Desktop remains deferred. |
+| 2 (spike first) | Copilot CLI, Claude Desktop agent mode | | GitHub sign-in and desktop automation may block CI; ships when verified, via CI or donated fixtures. **Copilot CLI 1.0.103 now ships through BYOK**: real event-log fixtures, firm persisted permission requests, and a pinned + latest lane; GitHub routing/sign-in is not exercised. **Claude Desktop local agent mode now has a discovery spec, adapter and handmade fixtures** for app-data `local_<id>/audit.jsonl`; support is `ported-unverified` until a real artifact exists, and no CI lane or live Jev driver is claimed. |
 | 3 | Cline, Antigravity, Warp, Amp, Droid, Kiro, Codex desktop | | community, or donated fixtures |
 
 Tiers set the order, not a release cutoff: a harness ships in whatever release it is
@@ -441,7 +441,8 @@ agenttail/
 - **Phase 4, Codex harness CI; Cursor `state.vscdb` (snapshot reader); the Cursor decision**
   (CI or donated fixtures).
 - **Phase 5, Gemini CLI and OpenCode** through the same harness CI (adapter, fixtures, status
-  checkpoints), plus Copilot CLI and Claude Desktop feasibility spikes.
+  checkpoints), plus Copilot CLI and Claude Desktop feasibility spikes (Claude Desktop's
+local-agent-mode adapter, sidecar, fixtures and tests now ship as `ported-unverified`).
 - **Phase 6, v0.1.0:** docs, support matrix, README, StatusWall switched over on `main`.
   Ask before publishing or making the repo public.
 - **Later:** whatever the spikes unblock, zstd history, OTel/ADR/chat projections (once a

@@ -1,6 +1,6 @@
 //! `agenttail`: the library on the command line, for debugging what a dashboard shows.
 //!
-//!   agenttail ls [--hours N] [--agents claude_code,codex,cursor,pi,opencode,gemini,copilot]
+//!   agenttail ls [--hours N] [--agents claude_code,claude_desktop,codex,cursor,pi,opencode,gemini,copilot]
 //!       One poll of this machine's sessions, printed as JSON lines, most urgent first.
 //!   agenttail watch [--hours N] [--agents …]
 //!       Polls every second and prints each change of a session's activity, with its reason.
@@ -39,7 +39,7 @@ const USAGE: &str = "usage: agenttail ls [--hours N] [--agents ID,…]
        agenttail fixture scan [PATH…]
 
   --hours N       sessions written in the last N hours (default 24)
-  --agents IDS    only these harnesses: claude_code, codex, cursor, pi, opencode, gemini, copilot (default: all)
+  --agents IDS    only these harnesses: claude_code, claude_desktop, codex, cursor, pi, opencode, gemini, copilot (default: all)
   --agent ID      the harness for events/status when it can't be told from the path
   events          prints normalized events as canonical JSON lines
   status          runs status checkpoints; --checkpoints is the timing and expected file
@@ -343,7 +343,13 @@ pub(crate) fn harness_for(path: &std::path::Path) -> Option<Harness> {
     // Fixture dumps name the harness in a whole folder or file, not anywhere in a parent
     // worktree name (a worktree called `claude-desktop-jev` is not a Claude Code transcript).
     let segment = |name: &str| text.split('/').any(|part| part == name);
-    if text.contains("/.cursor/") || text.contains("/agent-transcripts/") {
+    if text.contains("/local-agent-mode-sessions/")
+        || text.contains("/claude-3p/")
+        || segment("claude-desktop")
+        || segment("claude_desktop")
+    {
+        Some(Harness::ClaudeDesktop)
+    } else if text.contains("/.cursor/") || text.contains("/agent-transcripts/") {
         Some(Harness::Cursor)
     } else if text.contains("/.pi/") || text.contains("/pi/agent/sessions/") {
         Some(Harness::Pi)
@@ -473,6 +479,12 @@ mod tests {
     fn real_paths_win_over_harness_names_in_project_folders() {
         for (path, want) in [
             ("/h/.claude/projects/-home-lee-codex/s.jsonl", Harness::ClaudeCode),
+            ("/h/.config/Claude/local-agent-mode-sessions/u/o/local_x/audit.jsonl", Harness::ClaudeDesktop),
+            (
+                "/h/Library/Application Support/Claude-3p/local-agent-mode-sessions/u/o/agent/local_ditto_x/audit.jsonl",
+                Harness::ClaudeDesktop,
+            ),
+            ("fixtures/claude-desktop/handmade/any/plain-qa/input/session.jsonl", Harness::ClaudeDesktop),
             ("/h/.claude/projects/-home-lee-cursor/s.jsonl", Harness::ClaudeCode),
             ("/h/.codex/sessions/2026/10/24/rollout-x.jsonl", Harness::Codex),
             ("/h/.codex/sessions/2026/10/24/claude-copy.jsonl", Harness::Codex),

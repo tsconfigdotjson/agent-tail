@@ -90,7 +90,7 @@ and quirks with their evidence.
 The CLI, for looking at what a dashboard would show:
 
 ```
-agenttail ls [--hours N] [--agents claude_code,codex,cursor,pi,opencode,gemini,copilot]  # one poll, JSON lines
+agenttail ls [--hours N] [--agents claude_code,claude_desktop,codex,cursor,pi,opencode,gemini,copilot]  # one poll, JSON lines
 agenttail watch [--hours N] [--agents …]                                  # each change, with its reason
 agenttail events [--agent ID] <input-dir|path>                            # canonical JSON events
 agenttail status <input-dir> --checkpoints <file>                         # status conformance
@@ -143,6 +143,7 @@ against them by the test suite.
 | harness | where | verified against |
 |---|---|---|
 | Claude Code | `~/.claude/projects/<project>/<id>.jsonl` | a scrubbed 2.1 recording |
+| Claude Desktop (local agent mode) | app-data `local-agent-mode-sessions/<user>/<org>/local_<id>/audit.jsonl` plus `local_<id>.json` (consumer and 3P roots per OS) | handmade audit fixtures from the ADR/Claude Agent SDK shape; sidecar and adapter unit tests; **ported-unverified** — no real Desktop artifact yet. Code-tab transcripts stay on the Claude Code row |
 | Codex CLI | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | scrubbed 0.160.1 recordings |
 | Cursor agent | `~/.cursor/projects/<project>/agent-transcripts/<id>/<id>.jsonl`, plus the IDE's `state.vscdb` | a handmade transcript and synthetic SQLite rows in the shape seen on a real Mac; live approval waits still need a donated capture |
 | Pi | `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<id>.jsonl` | Pi 1.4.0 (pinned and npm latest at the time); `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR` overrides; no approval prompt, so a pending tool is firm `RunningTool`; only the active leaf's parent chain moves status/usage/title, with abandoned branches flagged `off_chain` in the event dump |
