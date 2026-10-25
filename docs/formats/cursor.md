@@ -80,8 +80,9 @@ It reads:
   storage/export shapes; the reader accepts either (and `status: pending`). A completed or
   aborted composer wins over a bubble left behind from that turn. Otherwise pending wins
   over `generating`, because the composer can still say `generating` while the card waits.
-  The pending mapping is based on Cursor 3.27 IDE source and the public values; the live
-  snapshot that confirms the exact field path is still outstanding (below).
+  The pending mapping is based on Cursor 3.27 IDE source, the public values and the committed
+  Cursor 3.27.12 Mac dumps; those live dumps show `additionalData.status: pending` while the
+  composer is `aborted` (below).
 
 The tracker checks the three files' stamps on every poll but copies them at most every 30 s,
 and only while a Cursor session is in the window. A database that hasn't changed is not
@@ -89,8 +90,9 @@ copied again. A first poll with no Cursor session never opens it.
 
 `generating` was not in the 2026-10-23 survey copy, which was idle. It appears in Cursor's
 stored default composer state and in third-party readers; the reader accepts it but the
-`Thinking` mapping has not been checked against a live Cursor capture yet. Stale
-`generatingBubbleIds` are ignored when the status says `completed`.
+`Thinking` mapping has not been checked against a live Cursor capture yet. The live Mac
+approval wait showed `aborted`, not `generating`. Stale `generatingBubbleIds` are ignored when
+the status says `completed`.
 
 ### Cursor CLI and the mock/PTY rig
 
@@ -112,7 +114,7 @@ So Cursor needs its backend, or a new mock that implements Cursor's auth exchang
 protobuf model catalogue and streaming chat protocol. **Decision:** Cursor does not join the
 mock/PTY matrix; it ships through donated fixtures and, if a key is available later, a
 budget-capped nightly real run. A freshly created IDE `state.vscdb` during a live approval
-wait is still needed.
+wait is now committed from the Mac smoke.
 
 ### Live approval wait capture
 
@@ -161,9 +163,10 @@ rm -rf "$SNAP"
 available there expired, and the IDE needs an interactive Cursor sign-in under Xvfb. Do not
 add a Cursor login step to CI. The periodic confirmation path is
 [`mac-smoke.md`](../../harness-ci/cursor/mac-smoke.md) on Lee's already-signed-in Mac. The
-3.27 IDE source shows the wait writing `additionalData.status: pending`; that Mac smoke is
-what confirms it and records what `composerData.status` says during the wait. It is no longer
-the open question of *whether* a firm signal exists.
+committed Cursor 3.27.12 dumps under `harness-ci/cursor/mac-smoke-dumps/` confirm the wait
+writes `additionalData.status: pending` while `composerData.status` reads `aborted`, then
+`success`/`completed` after approve and `rejected` after deny. Run Mode was Allowlist (empty);
+Cursor 3.27 no longer has `Ask every time`.
 
 ## Status signals
 - **Turn end:** `turn_ended`. Firm. `status: error` with one of the `error` strings above means
@@ -176,7 +179,7 @@ the open question of *whether* a firm signal exists.
 - **Approval pending:** a bubble's `userDecision: pending`, `status: pending`, or
   `additionalData.status: pending` is firm `AwaitingApproval`; a pending ask-user tool is
   firm `AwaitingAnswer`. Cursor does not use the shared 20 s stall inference. The source
-  shape is from the 3.27 IDE; the live snapshot is still the confirmation step above.
+  shape is from the 3.27 IDE and is confirmed by the committed Mac dumps above.
   The committed transcript fixtures cover a pending `AskUserQuestion` (`awaiting-answer`)
   and a `turn_ended` user stop (`interrupted`), alongside the original seed session.
 - **Times:** none in transcripts except the prompt's `<timestamp>` (to the minute). Use mtime.
@@ -199,10 +202,11 @@ the open question of *whether* a firm signal exists.
 - Treats the discovery spec's ask-user tool names as unverified data rather than assuming them.
 
 ## Open questions
-- The pending decision is mapped from the Cursor 3.27 IDE source and public values above; the
-  live approval-wait capture (dumps for waiting/approved/denied) is still outstanding.
+- The pending decision is mapped from the Cursor 3.27 IDE source, public values and the
+  committed live Mac dumps (waiting/approved/denied).
 - Whether `composerData.status` reads `generating` while an approval card waits: accepted by
-  the reader (pending wins either way), not yet seen in a local live capture.
+  the reader (pending wins either way), not yet seen in a live capture; the Mac waiting dump
+  showed `aborted`.
 - `<cursor_commands>` and other wrappers; any ask-user tool name; how `cursor-agent` (CLI)
   sessions differ. The CLI is not in the rig; its `~/.cursor/chats/.../store.db` is not read.
 - Environment overrides Cursor honours are not researched; `state.vscdb` uses the platform

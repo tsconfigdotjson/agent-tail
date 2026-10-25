@@ -23,8 +23,9 @@ Do not add a Cursor login step to CI. The periodic Mac smoke is the confirmation
 automated Linux capture is ever wanted, that auth step is still the blocker.
 
 The reader already treats a persisted pending decision as firm `AwaitingApproval` (see
-`crates/agent-tail/src/sqlite.rs`); the live capture is what confirms Cursor's exact field
-paths and the composer status during the wait.
+`crates/agent-tail/src/sqlite.rs`); the committed Cursor 3.27.12 Mac dumps under
+[`mac-smoke-dumps/`](mac-smoke-dumps/) confirm Cursor's exact field paths and the composer
+status during the wait.
 
 ## Commands
 

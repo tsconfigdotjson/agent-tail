@@ -18,7 +18,7 @@ Fixtures under `fixtures/` run in `status_fixtures`, whether or not a driver exi
 | **Gemini CLI** | CI: plain, completed-tool and multi-tool turns. Fixtures: `error` exercises the adapter's terminal `type:error` mapping; `multi-tool` is a real 0.65.0 journal with two completed calls in one `toolCalls` array and two function responses. | No real `type:error` driver path: 0.65.0 rewinds the prompt on an API failure. No interrupted fixture: no real journal shape was found, and the driver is deliberately not invented. | Medium |
 | **OpenCode** | CI: plain and tool turns. Fixtures: live `tool-running`/inferred approval, pending `question`/firm `awaiting_answer`, `step-finish aborted`/interrupted, `step-finish error`/errored, parallel tool parts with one pending call, and a child-session/background parent. | A live interactive TUI approval is still uncaptured; only the pending/running tool part is on disk, so it stays inferred after the stall. | Medium |
 | **Claude Desktop** | Offline Xvfb stand-in; fixtures cover plain, tool-turn, tool-stall, terminal error and `terminal_reason: aborted_streaming` interruption. | No committed redacted live Desktop capture: none was already on disk or in artifacts in this lane, and the live Jev path needs its Actions secret. The adapter stays `ported-unverified`. | Medium |
-| **Cursor** | Handmade transcript covers thinking, running, done, errored, pending `AskUserQuestion`/awaiting-answer and user-stop interruption. Synthetic `state.vscdb` covers waiting/approved/denied decisions. | The Mac-smoke recipe is documented, but a live `AwaitingApproval`/`AwaitingAnswer` snapshot still needs an already-signed-in Mac and Lee interaction; no snapshot was produced in this lane. Cursor CLI stays out of the mock matrix by design. | Low/Medium |
+| **Cursor** | Handmade transcript covers thinking, running, done, errored, pending `AskUserQuestion`/awaiting-answer and user-stop interruption. Synthetic `state.vscdb` covers waiting/approved/denied decisions. Live Cursor 3.27.12 Mac dumps under `harness-ci/cursor/mac-smoke-dumps/` confirm `run_terminal_command_v2` waiting with `status: loading`/`additionalStatus: pending` while `composer.status` is `aborted`, then `success`/`completed` after approve and `rejected` after deny. Run Mode was Allowlist (empty). | Cursor CLI stays out of the mock matrix by design; CI keeps the synthetic `state.vscdb` and transcript fixtures and does not add a Cursor Desktop stand-in or live login. | Low/Medium |
 
 ## Deferred after #108
 
@@ -37,9 +37,10 @@ These are deliberate, evidence-backed gaps rather than silent skips:
 - **Claude Desktop live capture:** the offline stand-in and handmade fixtures are committed,
   but no redacted live Jev capture was already available; starting an auth-dependent Desktop
   chase is out of scope for this lane.
-- **Cursor live approval snapshot:** the recipe is in `harness-ci/cursor/mac-smoke.md`, but
-  the capture still requires Lee's already-signed-in Mac. CI keeps the synthetic `state.vscdb`
-  and transcript fixtures and does not add a Cursor Desktop stand-in or live login.
+- **Cursor live login in CI:** the approval snapshots are filled by the committed Cursor
+  3.27.12 Mac dumps, but CI still keeps the synthetic `state.vscdb` and transcript fixtures
+  and does not add a Cursor Desktop stand-in or live login. Cursor CLI stays out of the mock
+  matrix by design.
 
 ## Known behavior fixed by this audit
 
