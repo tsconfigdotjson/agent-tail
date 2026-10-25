@@ -86,9 +86,12 @@ and quirks with their evidence.
 The CLI, for looking at what a dashboard would show:
 
 ```
-agenttail ls [--hours N] [--agents claude_code,codex,cursor,pi,opencode]   # one poll, JSON lines
-agenttail watch [--hours N] [--agents …]                                   # each change, with its reason
-agenttail events [--agent ID] <path>                           # normalized events, JSON lines
+agenttail ls [--hours N] [--agents claude_code,codex,cursor,pi,opencode]  # one poll, JSON lines
+agenttail watch [--hours N] [--agents …]                                  # each change, with its reason
+agenttail events [--agent ID] <input-dir|path>                            # canonical JSON events
+agenttail status <input-dir> --checkpoints <file>                         # status conformance
+agenttail survey [--drift]                                                # shape vs spec/baseline
+agenttail support-matrix [--check]                                        # regenerate support-matrix.md
 agenttail fixture redact|capture|scan …                        # offline fixture tooling
 ```
 
@@ -96,7 +99,8 @@ agenttail fixture redact|capture|scan …                        # offline fixtu
 paths/usernames/hosts/emails and secrets, shows a value-free diff/report, and writes the
 versioned fixture directory. `fixture redact` is deterministic and structure-preserving;
 `fixture scan` is what the pre-commit hook and CI use. Everything is offline. See
-[fixtures/README.md](fixtures/README.md).
+[fixtures/README.md](fixtures/README.md) and [docs/conformance.md](docs/conformance.md) for
+the language-neutral `events`/`status` contract, canonical JSON and `survey --drift`.
 
 ## What it reads, and what it touches
 
