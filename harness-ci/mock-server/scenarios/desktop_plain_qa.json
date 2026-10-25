@@ -1,0 +1,18 @@
+{
+  "name": "desktop_plain_qa",
+  "description": "plain_qa for Claude Desktop. A gateway health probe whose user text is \".\" and whose max_tokens is <= 1 is answered and does not consume the say-hello step.",
+  "probes": {
+    "user_texts": ["."],
+    "max_tokens_at_most": 1
+  },
+  "steps": [
+    {
+      "expect": { "user_contains": "say hello" },
+      "reply": {
+        "content": [{ "type": "text", "text": "Hello from the mock." }],
+        "usage": { "input_tokens": 10, "output_tokens": 5 },
+        "fault": { "type": "slow_first_token", "delay_ms": 1000 }
+      }
+    }
+  ]
+}

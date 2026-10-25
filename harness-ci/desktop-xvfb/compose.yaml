@@ -10,10 +10,12 @@ services:
     environment:
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
       AGENTTAIL_JEV_MODEL: "${AGENTTAIL_JEV_MODEL:-typesafe/jev-1.14}"
-      AGENTTAIL_JEV_CONFIDENCE: "${AGENTTAIL_JEV_CONFIDENCE:-0.55}"
+      AGENTTAIL_JEV_CONFIDENCE: "${AGENTTAIL_JEV_CONFIDENCE:-}"
+      AGENTTAIL_CDP_PORT: "${AGENTTAIL_CDP_PORT:-}"
       AGENTTAIL_SCREEN: "${AGENTTAIL_SCREEN:-1440x900x24}"
       AGENTTAIL_BIN: /repo/target/release/agenttail
       AGENTTAIL_MOCK_SERVER: /repo/harness-ci/target/release/mock-server
+    network_mode: "${AGENTTAIL_DOCKER_NETWORK:-bridge}"
     volumes:
       - ../..:/repo:ro
       - ./runs:/out

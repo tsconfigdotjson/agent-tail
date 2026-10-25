@@ -175,6 +175,14 @@ A scenario is a list of steps:
   next turn. A request that matches nothing is still a 500.
 - Claude Code's separate session-title request is answered with a fixed title and does not
   consume a step. Without that, the title request steals the scripted first reply.
+- `probes` (optional) answers health checks without consuming a step. `user_texts` is an
+  exact allowlist of the user text, and `max_tokens_at_most` requires `max_tokens` to be
+  present and no larger than that. Empty `probes` (the default, including `plain_qa.json`)
+  leaves every request on the script. `desktop_plain_qa.json` is `plain_qa`'s step plus
+  `{"user_texts": ["."], "max_tokens_at_most": 1}` for Claude Desktop's gateway probe.
+  A `"."` request with a larger or missing `max_tokens`, or any other user text, still
+  has to match the step. The probe reply is a short `ok` message (`msg_mock_9001`) and
+  is logged with `"probe": true`.
 
 Codex's OpenAI Responses subset is implemented (`/v1/responses`); A4 exercises it from the live CLI.
 OpenCode's Chat Completions subset is implemented at `/v1/chat/completions` and
@@ -405,7 +413,8 @@ container, driver and current gap checklist are in
 - A mock-backed Desktop is plausible only through Claude Desktop's third-party gateway mode:
   `inferenceProvider: gateway`, an Anthropic Messages `POST /v1/messages` gateway with
   streaming and tool use, and the Linux managed-settings file at
-  `/etc/claude-desktop/managed-settings.json`. No Desktop↔mock handshake has been run.
+  `/etc/claude-desktop/managed-settings.json`. A later live run did reach the mock with
+  Desktop's `"."` health probe; the say-hello turn still has not.
 - Desktop Code-tab transcripts are Claude Code transcripts under `~/.claude/projects/` and
   stay on that adapter. Cowork/local-agent-mode sessions are separate
   `local_<id>/audit.jsonl` files below app-data `local-agent-mode-sessions/`; the
@@ -421,9 +430,10 @@ container, driver and current gap checklist are in
   `typesafe-computer-use` only documents `TYPESAFE_API_KEY`, but its bare `TypeSafeClient()`
   inherits the base URL from `typesafe-sdk` 0.6.0; that handoff is source-inspected, not
   live-verified.
-- No live OpenRouter/Jev or TypeSafe request was made, and no key was used. The planned loop
-  uses Jev only to choose a typed action; our code observes and acts, and `agenttail` scores
-  the disk artifacts. No VLM is used as the scorer.
+- The Xvfb loop uses Jev only to choose a typed action; our code observes and acts, and
+  `agenttail` scores the disk artifacts. No VLM is used as the scorer. One live OpenRouter
+  call was made from the Multibeast box (see A10); CI still must not spend those credits,
+  and no scored Desktop turn exists.
 
 Do not schedule a Desktop GHA job until a real install has produced a redacted artifact and
 a live Jev-driven turn has completed. Billing for this month is already expended.
@@ -448,9 +458,15 @@ replacement for a future GHA Desktop regression lane.
   button. It proves the container/AT-SPI/action/scoring plumbing offline. It is explicitly
   **not** Desktop verification; the stand-in writes its own artifact.
 - Local evidence on Multibeast: the stand-in run saw `idle -> working/thinking -> done`;
-  the standard and 3P Desktop probes found the real windows and their candidate controls. No
-  OpenRouter key was available, so no live Jev call, Desktop turn, Desktop artifact or
-  Desktop↔mock request was made.
+  the standard and 3P Desktop probes found the real windows and their candidate controls.
+  A later live Jev run (`typesafe/jev-1.14`, confidence `0.25`, host networking) reached
+  the Chat UI and one Desktop→mock `POST /v1/messages`, then failed: the body was the
+  `"."` / `max_tokens: 1` gateway probe, which `plain_qa` rejected, and AT-SPI listed
+  only push buttons so the prompt was never typed. `agenttail` stayed at
+  `idle_no_session`. See [`desktop-xvfb/README.md`](desktop-xvfb/README.md) for the
+  probe allowlist, the `../` mock path, the DevTools composer, and the
+  `--iptables=false` bridge-DNS note (`AGENTTAIL_DOCKER_NETWORK=host`). That run is
+  not a scored turn and did not change the support matrix.
 - Cowork is out of scope: the compose file does not pass `/dev/kvm`, and the box lacks the
   required ~8 GB RAM / ~25 GB disk headroom for the Linux Cowork VM. Chromium GPU-process
   warnings and a missing FUSE document portal are known Xvfb noise; they did not stop the

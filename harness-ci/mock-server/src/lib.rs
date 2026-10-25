@@ -223,6 +223,9 @@ async fn anthropic_messages(State(state): State<Arc<MockState>>, body: Bytes) ->
         state.log_simple("POST", "/v1/messages?source=title");
         return title_response(&body, state.scenario.title.as_deref());
     }
+    if let Some(response) = probe_response(&state, &body) {
+        return response;
+    }
     let (index, step) = match state.take_step(Api::Anthropic, "/v1/messages", &body) {
         Ok(found) => found,
         Err(error) => return failure_response(error, Api::Anthropic),
@@ -301,6 +304,36 @@ fn openai_title_response(body: &Value, override_title: Option<&str>) -> Response
     } else {
         Json(openai::response(9000, model, &reply, "end_turn")).into_response()
     }
+}
+
+fn probe_response(state: &MockState, body: &Value) -> Option<Response> {
+    let view = RequestView::from_anthropic(body);
+    if !state.scenario.is_probe(body, &view.user_text) {
+        return None;
+    }
+    state.write_log(json!({
+        "probe": true,
+        "api": "anthropic",
+        "path": "/v1/messages",
+        "body": body,
+        "note": "health check accepted; scenario step not consumed",
+    }));
+    eprintln!("mock-server: accepted health probe; scenario step not consumed");
+    let reply = scenario::Reply {
+        model: None,
+        content: vec![scenario::Block::Text { text: "ok".into() }],
+        stop_reason: None,
+        usage: Default::default(),
+        fault: None,
+    };
+    let model = body.get("model").and_then(Value::as_str).unwrap_or("claude-sonnet-4-5");
+    let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
+    let response = if stream {
+        sse_response(anthropic::stream_events(9001, model, &reply, "end_turn"))
+    } else {
+        Json(anthropic::message(9001, model, &reply, "end_turn")).into_response()
+    };
+    Some(response)
 }
 
 fn title_response(body: &Value, override_title: Option<&str>) -> Response {
@@ -550,6 +583,7 @@ mod tests {
             dispatch: Dispatch::Sequential,
             title: None,
             count_tokens: None,
+            probes: Default::default(),
             steps,
         })
     }
@@ -744,6 +778,7 @@ mod tests {
             dispatch: Dispatch::FirstMatch,
             title: None,
             count_tokens: None,
+            probes: Default::default(),
             steps: vec![continuation, child, initial],
         };
         let app = router(MockState::new(scenario));
@@ -869,6 +904,7 @@ mod tests {
             dispatch: Dispatch::Sequential,
             title: Some("絵文字タイトル 🎉".into()),
             count_tokens: None,
+            probes: Default::default(),
             steps: vec![text_step("hello")],
         };
         let app = router(MockState::new(scenario));
@@ -894,6 +930,7 @@ mod tests {
             dispatch: Dispatch::Sequential,
             title: None,
             count_tokens: Some(20_000),
+            probes: Default::default(),
             steps: vec![text_step("hello")],
         };
         let app = router(MockState::new(scenario));
@@ -947,5 +984,99 @@ mod tests {
         assert_eq!(status, StatusCode::OK, "{body}");
         assert!(body.contains("The token is COMPACT-TOKEN-ALPHA"), "{body}");
         assert_eq!(state.remaining(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_dot_probe_is_rejected_when_the_scenario_allows_none() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scenarios/plain_qa.json");
+        let scenario = Scenario::from_path(&path).expect("plain_qa");
+        let app = router(MockState::new(scenario));
+        let (status, body) = post(
+            app,
+            "/v1/messages",
+            json!({"max_tokens": 1, "model": "claude-sonnet-4-5", "messages": [{"role": "user", "content": "."}]}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(body.contains("did not match step 0"), "{body}");
+        assert!(body.contains(r#"was \".\""#), "{body}");
+    }
+
+    #[tokio::test]
+    async fn desktop_gateway_probe_does_not_consume_the_say_hello_step() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scenarios/desktop_plain_qa.json");
+        let scenario = Scenario::from_path(&path).expect("desktop_plain_qa");
+        let state = MockState::new(scenario);
+        let app = router(state.clone());
+        let probe = json!({
+            "max_tokens": 1,
+            "model": "claude-sonnet-4-5",
+            "messages": [{"role": "user", "content": "."}]
+        });
+        let (status, body) = post(app.clone(), "/v1/messages", probe).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("msg_mock_9001"), "{body}");
+        assert!(body.contains("claude-sonnet-4-5"), "{body}");
+        assert!(body.contains("ok"), "{body}");
+        assert_eq!(state.requests(), 0);
+        assert_eq!(state.remaining(), 1);
+
+        let blocks = json!({
+            "max_tokens": 1,
+            "stream": false,
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "."}]}]
+        });
+        let (status, body) = post(app.clone(), "/v1/messages", blocks).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("msg_mock_9001"), "{body}");
+        assert_eq!(state.requests(), 0);
+        assert_eq!(state.remaining(), 1);
+
+        let streamed = json!({
+            "max_tokens": 1,
+            "stream": true,
+            "messages": [{"role": "user", "content": "."}]
+        });
+        let (status, body) = post(app.clone(), "/v1/messages", streamed).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("event: message_start"), "{body}");
+        assert!(body.contains("ok"), "{body}");
+        assert_eq!(state.requests(), 0);
+        assert_eq!(state.remaining(), 1);
+
+        let (status, body) = post(
+            app.clone(),
+            "/v1/messages",
+            json!({"stream": false, "messages": [{"role": "user", "content": "please say hello"}]}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("Hello from the mock."), "{body}");
+        assert!(body.contains("msg_mock_0"), "{body}");
+        assert_eq!(state.remaining(), 0);
+
+        let oversized = router(MockState::new(Scenario::from_path(&path).unwrap()));
+        let (status, body) =
+            post(oversized, "/v1/messages", json!({"max_tokens": 64, "messages": [{"role": "user", "content": "."}]}))
+                .await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+        assert!(body.contains("did not match step 0"), "{body}");
+
+        let uncapped = router(MockState::new(Scenario::from_path(&path).unwrap()));
+        let (status, body) =
+            post(uncapped, "/v1/messages", json!({"messages": [{"role": "user", "content": "."}]})).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+
+        let real = router(MockState::new(Scenario::from_path(&path).unwrap()));
+        let (status, body) = post(
+            real,
+            "/v1/messages",
+            json!({"max_tokens": 1, "stream": false, "messages": [{"role": "user", "content": "say hello"}]}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("Hello from the mock."), "{body}");
+        assert!(body.contains("msg_mock_0"), "{body}");
+        assert!(!body.contains("msg_mock_9001"), "{body}");
     }
 }
