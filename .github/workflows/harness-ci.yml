@@ -19,7 +19,7 @@ on:
       - "fixtures/**"
       - "harness-ci/**"
   schedule:
-    # Nightly: install npm `latest`, run the same matrix, compare transcript shapes.
+    # Nightly: install each lane's latest release, run the same matrix, compare transcript shapes.
     - cron: "43 3 * * *"
   workflow_dispatch:
     inputs:
@@ -82,12 +82,14 @@ jobs:
         run: cargo run --locked -p agenttail-cli -- fixture scan fixtures
 
   prepare:
-    name: Resolve npm latest
+    name: Resolve npm latest Claude Code and OpenCode
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.value }}
       opencode_matrix: ${{ steps.opencode.outputs.value }}
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -96,43 +98,71 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Build the pinned + latest matrix once
+      - name: Build the pinned + latest Claude Code matrix once
         id: matrix
         shell: bash
         run: |
           set -euo pipefail
           latest="$(npm view @anthropic-ai/claude-code version)"
-          echo "npm latest: $latest"
-          python3 - "$latest" <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-          import sys
+          echo "Claude Code npm latest: $latest"
+          python3 harness-ci/ci/matrix.py claude-code --latest "$latest" --github-output >> "$GITHUB_OUTPUT"
 
-          latest = sys.argv[1]
-          entries = []
-          for label, version in (("2.1.281", "2.1.281"), ("2.1.310", "2.1.310"), ("latest", latest)):
-              for os_name in ("ubuntu-latest", "macos-latest"):
-                  entries.append({"label": label, "version": version, "os": os_name})
-          print("value=" + json.dumps({"include": entries}, separators=(",", ":")))
-          PY
-
-      - name: Build the pinned + latest OpenCode matrix
+      - name: Build the pinned + latest OpenCode matrix once
         id: opencode
         shell: bash
         run: |
           set -euo pipefail
           latest="$(npm view opencode-ai version)"
-          echo "npm latest OpenCode: $latest"
-          python3 - "$latest" <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-          import sys
+          echo "OpenCode npm latest: $latest"
+          python3 harness-ci/ci/matrix.py opencode --latest "$latest" --github-output >> "$GITHUB_OUTPUT"
 
-          latest = sys.argv[1]
-          entries = []
-          for label, version in (("1.19.4", "1.19.4"), ("latest", latest)):
-              for os_name in ("ubuntu-latest", "macos-latest"):
-                  entries.append({"label": label, "version": version, "os": os_name})
-          print("value=" + json.dumps({"include": entries}, separators=(",", ":")))
-          PY
+  prepare-codex:
+    name: Resolve npm latest Codex
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the pinned + latest Codex matrix once
+        id: matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest="$(npm view @openai/codex version)"
+          echo "Codex npm latest: $latest"
+          python3 harness-ci/ci/matrix.py codex --latest "$latest" --github-output >> "$GITHUB_OUTPUT"
+
+  prepare-cursor:
+    name: Resolve Cursor Agent latest
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the pinned + latest Cursor Agent matrix once
+        id: matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          installer="$RUNNER_TEMP/cursor-install.sh"
+          curl -fsSL --retry 5 --retry-delay 2 https://cursor.com/install -o "$installer"
+          latest="$(python3 harness-ci/ci/cursor_version.py --installer "$installer")"
+          echo "Cursor Agent latest: $latest"
+          python3 harness-ci/ci/matrix.py cursor --latest "$latest" --github-output >> "$GITHUB_OUTPUT"
 
   prepare-pi:
     name: Resolve npm latest Pi
@@ -140,6 +170,8 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.value }}
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -154,18 +186,8 @@ jobs:
         run: |
           set -euo pipefail
           latest="$(npm view @earendil-works/pi-coding-agent version)"
-          echo "npm latest Pi: $latest"
-          python3 - "$latest" <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-          import sys
-
-          latest = sys.argv[1]
-          entries = []
-          for label, version in (("1.4.0", "1.4.0"), ("latest", latest)):
-              for os_name in ("ubuntu-latest", "macos-latest"):
-                  entries.append({"label": label, "version": version, "os": os_name})
-          print("value=" + json.dumps({"include": entries}, separators=(",", ":")))
-          PY
+          echo "Pi npm latest: $latest"
+          python3 harness-ci/ci/matrix.py pi --latest "$latest" --github-output >> "$GITHUB_OUTPUT"
 
   harness:
     name: Claude Code ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
@@ -344,23 +366,17 @@ jobs:
           retention-days: 7
 
   codex:
-    name: Codex ${{ matrix.version }} on ${{ matrix.os }}
-    needs: [unit]
+    name: Codex ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
+    needs: [unit, prepare-codex]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - label: "0.160.1"
-            version: "0.160.1"
-            os: ubuntu-latest
-          - label: "0.160.1"
-            version: "0.160.1"
-            os: macos-latest
+      matrix: ${{ fromJSON(needs.prepare-codex.outputs.matrix) }}
     env:
-      # Codex is pinned to the version that wrote the committed rollout fixtures. It runs
-      # against the same local mock and never receives a real OpenAI credential.
+      # Pinned 0.160.1 is the reproduction lane for the committed rollout fixtures. The
+      # latest lane is the autoupdate alarm; both run against the same local mock and never
+      # receive a real OpenAI credential.
       HARNESS_CI_REQUIRE_OFFLINE: "1"
     steps:
       - uses: actions/checkout@v4
@@ -438,7 +454,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: codex-${{ matrix.version }}-${{ runner.os }}
+          name: codex-${{ matrix.label }}-${{ runner.os }}
           path: ${{ runner.temp }}/codex-runs
           if-no-files-found: warn
           retention-days: 7
@@ -521,6 +537,90 @@ jobs:
         with:
           name: opencode-${{ matrix.label }}-${{ runner.os }}
           path: ${{ runner.temp }}/opencode-runs
+          if-no-files-found: warn
+          retention-days: 7
+
+  cursor:
+    name: Cursor Agent ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
+    needs: [unit, prepare-cursor]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare-cursor.outputs.matrix) }}
+    env:
+      # Cursor's CLI needs Cursor's backend for a chat, so the live PTY/mock path is not
+      # available yet (A5). This lane still installs the pinned and latest CLI, proves the
+      # binary launches with no network, and runs the offline fixture suite (including Cursor).
+      HARNESS_CI_REQUIRE_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.88
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustc --version
+
+      - name: Install Cursor Agent ${{ matrix.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          requested='${{ matrix.version }}'
+          case "$(uname -s)" in
+            Linux) os_name=linux ;;
+            Darwin) os_name=darwin ;;
+            *) echo "unsupported OS: $(uname -s)" >&2; exit 1 ;;
+          esac
+          case "$(uname -m)" in
+            x86_64|amd64) arch=x64 ;;
+            arm64|aarch64) arch=arm64 ;;
+            *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+          esac
+          prefix="$RUNNER_TEMP/cursor-$requested"
+          archive="$RUNNER_TEMP/cursor-$requested.tar.gz"
+          url="https://downloads.cursor.com/lab/$requested/$os_name/$arch/agent-cli-package.tar.gz"
+          curl -fSL --retry 5 --retry-delay 2 --retry-all-errors "$url" -o "$archive"
+          mkdir -p "$prefix"
+          tar --strip-components=1 -xzf "$archive" -C "$prefix"
+          rm -f "$archive"
+          bin="$prefix/cursor-agent"
+          actual="$("$bin" --version | head -n1 | awk '{print $1}')"
+          test -n "$actual"
+          if [[ "$actual" != "$requested" ]]; then
+            echo "installed $actual, wanted $requested" >&2
+            exit 1
+          fi
+          echo "$prefix" >> "$GITHUB_PATH"
+          echo "CURSOR_VERSION=$actual" >> "$GITHUB_ENV"
+          echo "CURSOR_BIN=$bin" >> "$GITHUB_ENV"
+          echo "Testing Cursor Agent $actual"
+
+      - name: Verify Cursor Agent launches offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          home="$RUNNER_TEMP/cursor-home"
+          mkdir -p "$home"
+          found="$(HOME="$home" harness-ci/ci/offline-run.sh "$CURSOR_BIN" --version | head -n1 | awk '{print $1}')"
+          if [[ "$found" != "$CURSOR_VERSION" ]]; then
+            echo "offline copy reported $found, wanted $CURSOR_VERSION" >&2
+            exit 1
+          fi
+          HOME="$home" harness-ci/ci/offline-run.sh "$CURSOR_BIN" --help > "$RUNNER_TEMP/cursor-help.txt"
+          grep -q "Usage:" "$RUNNER_TEMP/cursor-help.txt"
+
+      - name: Run offline transcript/status fixtures (including Cursor)
+        # The CLI chat path is backend-gated, so these are the transcript/status scenarios
+        # the live matrix cannot drive. They still exercise the Cursor adapter end to end.
+        run: cargo test --locked -p agenttail --test status_fixtures
+
+      - name: Upload Cursor smoke output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cursor-${{ matrix.label }}-${{ runner.os }}
+          path: ${{ runner.temp }}/cursor-help.txt
           if-no-files-found: warn
           retention-days: 7
 

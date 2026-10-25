@@ -24,6 +24,9 @@ const COLS: u16 = 120;
 const ROWS: u16 = 40;
 const SAMPLE_EVERY: Duration = Duration::from_millis(100);
 const DUMMY_KEY: &str = "dummy-key";
+/// CLI startup is not part of the scenario's observation window. A prompt-driven phase gets
+/// this long to reach the composer; once the prompt is typed, `run_for_ms` starts.
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Deserialize)]
 struct DriverScenario {
@@ -484,6 +487,12 @@ impl KeyClock {
     }
 }
 
+/// The first deadline for a phase: startup allowance for prompt-driven scenarios, the
+/// scenario window otherwise. A prompt that appears resets the deadline to `run_for` later.
+fn initial_deadline(start: Instant, run_for: Duration, has_prompt: bool) -> Instant {
+    start + if has_prompt { STARTUP_TIMEOUT } else { run_for }
+}
+
 fn due_keys(keys: &[KeyAction], sent: &[bool], screen: ScreenState, occurrence: u32, elapsed: Duration) -> Vec<usize> {
     keys.iter()
         .enumerate()
@@ -683,8 +692,11 @@ fn drive_phase(drive: DrivePhase<'_>) -> Result<(), String> {
     let phase_start = Instant::now();
     keys_clock.reset(ScreenState::Starting, origin.elapsed().as_millis() as u64);
     let run_for = Duration::from_millis(phase.run_for_ms);
+    // A newer CLI can spend longer on startup than an old one did. Keep that out of the
+    // scenario window so a slow launch is not scored as a transcript regression.
+    let mut deadline = initial_deadline(phase_start, run_for, phase.prompt.is_some());
 
-    while phase_start.elapsed() < run_for {
+    while Instant::now() < deadline {
         while let Ok(bytes) = rx.try_recv() {
             parser.process(&bytes);
         }
@@ -717,6 +729,7 @@ fn drive_phase(drive: DrivePhase<'_>) -> Result<(), String> {
             write_keys(&mut writer, b"\r")?;
             prompt_sent = true;
             keys_clock.reset(ScreenState::Idle, now_ms);
+            deadline = Instant::now() + run_for;
             eprintln!("driver: prompt sent");
         }
         if last_sample.elapsed() >= SAMPLE_EVERY {
@@ -1680,6 +1693,14 @@ mod tests {
         let jsonl = "\nnot json\n{\"type\":\"user\"}\n{\"sessionId\":\"abc\",\"type\":\"user\"}\n";
         assert_eq!(session_id_in(jsonl).as_deref(), Some("abc"));
         assert_eq!(session_id_in(r#"{"sessionId":""}"#), None);
+    }
+
+    #[test]
+    fn run_for_starts_after_the_prompt_with_a_startup_allowance() {
+        let start = Instant::now();
+        let run_for = Duration::from_millis(12_000);
+        assert_eq!(initial_deadline(start, run_for, true), start + STARTUP_TIMEOUT);
+        assert_eq!(initial_deadline(start, run_for, false), start + run_for);
     }
 
     #[test]
