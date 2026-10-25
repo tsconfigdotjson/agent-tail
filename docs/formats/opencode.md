@@ -103,8 +103,10 @@ cargo run -p harness-driver -- --scenario driver/scenarios/opencode_tool.json
 ```
 
 The offline fixtures under `fixtures/opencode/1.19.4/linux/` are exported, redacted rows:
-`plain-qa` (a complete text turn), `tool` (a completed bash call and the following answer) and
-`tool-running` (a live snapshot during `sleep 8`, including the 20 s stall checkpoint). The
+`plain-qa` (a complete text turn), `tool` (a completed bash call and the following answer),
+`tool-running` (a live snapshot during `sleep 8`, including the 20 s stall checkpoint),
+`question` (a pending `question` part is firm `AwaitingAnswer`) and `interrupted` (a
+`step-finish` reason `aborted` is firm `Interrupted`, not a completed partial answer). The
 fixture row stream is the same `{"table": ..., "row": ...}` shape the reader emits.
 
 ## Open questions

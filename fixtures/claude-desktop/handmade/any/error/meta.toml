@@ -1,0 +1,6 @@
+harness = "claude_desktop"
+version = "unknown"
+os = "any"
+capture = "handmade"
+date = "2026-10-25"
+description = "A terminal SDK result frame with is_error and an errors[] entry, synthesized from the public Claude Agent SDK stream-json shape. The session must be firm Errored with the error text kept, not Done or Interrupted."

@@ -1,0 +1,7 @@
+{"type":"session.start","id":"i0","parentId":null,"timestamp":"2026-10-25T05:10:00.000Z","data":{"sessionId":"55555555-5555-4555-8555-555555555555","selectedModel":"test-model","context":{"cwd":"/home/<user>/work/copilot-interrupt"}}}
+{"type":"user.message","id":"i1","parentId":"i0","timestamp":"2026-10-25T05:10:00.100Z","data":{"content":"write a long answer"}}
+{"type":"system.message","id":"i2","parentId":"i1","timestamp":"2026-10-25T05:10:00.150Z","data":{"role":"system","content":"Fixture system prompt."}}
+{"type":"assistant.turn_start","id":"i3","parentId":"i2","timestamp":"2026-10-25T05:10:00.200Z","data":{"turnId":"0"}}
+{"type":"assistant.turn_end","id":"i4","parentId":"i3","timestamp":"2026-10-25T05:10:02.000Z","data":{"turnId":"0"}}
+{"type":"abort","id":"i5","parentId":"i4","timestamp":"2026-10-25T05:10:02.100Z","data":{"reason":"user_abort"}}
+{"type":"session.shutdown","id":"i6","parentId":"i5","timestamp":"2026-10-25T05:10:02.200Z","data":{"shutdownType":"routine"}}

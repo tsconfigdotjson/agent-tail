@@ -1,0 +1,35 @@
+{
+  "name": "pi_parallel_tools",
+  "description": "Two bash calls in one Pi assistant message. Pi matches results by toolCall id, so the session stays RunningTool until both results arrive.",
+  "steps": [
+    {
+      "expect": { "user_contains": "run both tools" },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "call_parallel_first",
+            "name": "bash",
+            "input": { "command": "sleep 1; printf first-ok" }
+          },
+          {
+            "type": "tool_use",
+            "id": "call_parallel_second",
+            "name": "bash",
+            "input": { "command": "sleep 2; printf second-ok" }
+          }
+        ],
+        "usage": { "input_tokens": 10, "output_tokens": 20 },
+        "fault": { "type": "slow_first_token", "delay_ms": 500 }
+      }
+    },
+    {
+      "expect": { "has_tool_result": true, "tool_result_id": "call_parallel_second" },
+      "reply": {
+        "content": [{ "type": "text", "text": "Both tools finished." }],
+        "usage": { "input_tokens": 20, "output_tokens": 8 },
+        "fault": { "type": "slow_first_token", "delay_ms": 500 }
+      }
+    }
+  ]
+}

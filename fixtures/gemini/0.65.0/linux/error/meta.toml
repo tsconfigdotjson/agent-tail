@@ -1,0 +1,6 @@
+harness = "gemini"
+version = "0.65.0"
+os = "linux"
+capture = "handmade"
+date = "2026-10-25"
+description = "A hand-made Gemini 0.65.0 journal in the captured layout: session metadata, the session-context record, a prompt, then Gemini's terminal type=error record. No model answer is recorded, so the session must be firm Errored with the error text kept."

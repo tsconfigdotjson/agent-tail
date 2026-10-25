@@ -1,0 +1,29 @@
+{
+  "name": "pi_tool_error",
+  "description": "A bash tool exits non-zero, Pi records an isError tool result, then the model recovers and answers.",
+  "steps": [
+    {
+      "expect": { "user_contains": "run a failing tool" },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "call_failing_tool",
+            "name": "bash",
+            "input": { "command": "sleep 1; printf tool-failed >&2; exit 7" }
+          }
+        ],
+        "usage": { "input_tokens": 10, "output_tokens": 20 },
+        "fault": { "type": "slow_first_token", "delay_ms": 500 }
+      }
+    },
+    {
+      "expect": { "has_tool_result": true, "tool_result_contains": "tool-failed" },
+      "reply": {
+        "content": [{ "type": "text", "text": "The tool failed; I can still answer." }],
+        "usage": { "input_tokens": 20, "output_tokens": 8 },
+        "fault": { "type": "slow_first_token", "delay_ms": 500 }
+      }
+    }
+  ]
+}

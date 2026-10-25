@@ -1,0 +1,13 @@
+{
+  "name": "pi_parallel_tools",
+  "description": "Pi receives two bash tool calls in one assistant response. A pending Pi tool is firm RunningTool; both results must arrive before the turn can finish Done.",
+  "harness": "pi",
+  "mock": "../../mock-server/scenarios/pi_parallel_tools.json",
+  "prompt": "run both tools",
+  "run_for_ms": 25000,
+  "no_approval": true,
+  "expected_activity": [
+    { "activity": "running_tool", "when": "ever", "certainty": "firm" },
+    { "activity": "done", "when": "end", "certainty": "firm" }
+  ]
+}

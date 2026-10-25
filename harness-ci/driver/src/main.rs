@@ -1449,6 +1449,8 @@ mod tests {
             ("copilot_plain_qa.json", "copilot"),
             ("copilot_tool.json", "copilot"),
             ("copilot_permission_denied.json", "copilot"),
+            ("copilot_parallel_tools.json", "copilot"),
+            ("copilot_api_error.json", "copilot"),
         ] {
             let scenario = scenario(name);
             assert_eq!(scenario.harness, harness, "{name}");
@@ -1460,6 +1462,11 @@ mod tests {
             mock_server::scenario::Scenario::parse(&text)
                 .unwrap_or_else(|e| panic!("parse {}: {e}", mock_path.display()));
         }
+        let parallel = scenario("copilot_parallel_tools.json");
+        assert!(parallel.expected_activity.iter().any(|expect| expect.expectation().activity == "running_tool"));
+        let error = scenario("copilot_api_error.json");
+        assert_eq!(error.expected_activity[0].expectation().activity, "errored");
+        assert_eq!(error.expected_activity[0].expectation().certainty.as_deref(), Some("firm"));
     }
 
     #[test]
@@ -1965,7 +1972,13 @@ mod tests {
 
     #[test]
     fn the_pi_scenarios_parse_and_point_at_valid_mocks() {
-        for name in ["pi_plain_qa.json", "pi_tool_call.json", "pi_api_error.json"] {
+        for name in [
+            "pi_plain_qa.json",
+            "pi_tool_call.json",
+            "pi_api_error.json",
+            "pi_parallel_tools.json",
+            "pi_tool_error.json",
+        ] {
             let driver = scenario(name);
             assert_eq!(driver.harness, "pi", "{name}");
             assert!(driver.no_approval, "{name}");
@@ -1985,6 +1998,10 @@ mod tests {
         assert_eq!(activities[1].activity, "done");
         let error = scenario("pi_api_error.json");
         assert_eq!(error.settings["retry"]["enabled"], serde_json::json!(false));
+        let parallel = scenario("pi_parallel_tools.json");
+        assert!(parallel.expected_activity.iter().any(|expect| expect.expectation().activity == "running_tool"));
+        let tool_error = scenario("pi_tool_error.json");
+        assert!(tool_error.expected_activity.iter().any(|expect| expect.expectation().activity == "done"));
     }
 
     #[test]

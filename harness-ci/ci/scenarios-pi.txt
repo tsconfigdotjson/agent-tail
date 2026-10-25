@@ -2,3 +2,5 @@
 pi_plain_qa
 pi_tool_call
 pi_api_error
+pi_parallel_tools
+pi_tool_error

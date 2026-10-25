@@ -1,0 +1,15 @@
+{
+  "name": "copilot_api_error",
+  "description": "A terminal HTTP 500 from the Chat Completions endpoint so Copilot records a failed session instead of an answer.",
+  "steps": [
+    {
+      "repeat": 8,
+      "expect": { "user_contains": "trigger an error" },
+      "reply": {
+        "content": [{ "type": "text", "text": "unused" }],
+        "usage": { "input_tokens": 10, "output_tokens": 1 },
+        "fault": { "type": "http", "status": 500, "message": "scripted model failure" }
+      }
+    }
+  ]
+}

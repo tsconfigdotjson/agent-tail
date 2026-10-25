@@ -1,0 +1,6 @@
+harness = "opencode"
+version = "1.19.4"
+os = "linux"
+capture = "handmade"
+date = "2026-10-25"
+description = "A hand-made OpenCode 1.19.4 row export with a pending `question` tool part. Question/plan_exit are the only firm needs-you signals OpenCode writes, so the session must be AwaitingAnswer, not inferred approval."

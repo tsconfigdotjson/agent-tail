@@ -1,0 +1,6 @@
+harness = "cursor"
+version = "unknown"
+os = "any"
+capture = "handmade"
+date = "2026-10-25"
+description = "A synthetic Cursor transcript with a pending AskUserQuestion tool call. The discovery spec lists that exact ask-user name, so the session must be firm AwaitingAnswer, not running_tool or an inferred approval after the stall."

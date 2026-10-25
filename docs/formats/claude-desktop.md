@@ -127,6 +127,8 @@ Under `fixtures/claude-desktop/handmade/any/`:
 | `plain-qa` | init, prompt, assistant `end_turn`, result frame; working → done → idle after 15 minutes |
 | `tool-turn` | pending `Bash` call is firm `running_tool`; result returns to thinking; result frame closes it done |
 | `tool-stall` | default mode: pending call is firm running at 0 seconds and inferred `awaiting_approval` at 25 seconds; bypass mode is covered by a unit test |
+| `error` | a terminal `result` with `is_error` and `errors[]` is firm errored with the message kept |
+| `interrupted` | a `result` with `terminal_reason: aborted_streaming` is firm interrupted even though the subtype is `success` |
 
 They are **handmade**, synthesized from the public Claude Agent SDK record shape, not captured
 from a real Desktop install. The adapter also has unit tests for the sidecar, error/abort

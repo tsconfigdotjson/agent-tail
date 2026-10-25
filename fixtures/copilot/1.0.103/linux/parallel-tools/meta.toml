@@ -1,0 +1,6 @@
+harness = "copilot"
+version = "1.0.103"
+os = "linux"
+capture = "handmade"
+date = "2026-10-25"
+description = "A synthetic 1.0.103 event log for two bash tool requests in one assistant message. The first result leaves the second call pending (firm running_tool); the second result returns to thinking, and the final text ends the turn. Includes two per-call usage records so the session total is asserted."

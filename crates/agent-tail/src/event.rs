@@ -564,6 +564,11 @@ pub(crate) struct ParseState {
     pub(crate) copilot_tools_pending: bool,
     /// Copilot tool call ids already emitted from `assistant.message` or a tool event.
     pub(crate) copilot_tools: HashSet<String>,
+    /// Copilot wrote a terminal `abort` or `session.error` record for this interaction.
+    /// The CLI writes a routine `session.shutdown` after either one (and may have written a
+    /// model-step `assistant.turn_end` just before), neither of which may turn the
+    /// interrupted/errored turn back into Done.
+    pub(crate) copilot_terminal: bool,
 }
 
 /// A prompt's tag wrappers (`<user_query>…</user_query>`, `<timestamp>…</timestamp>`, …).

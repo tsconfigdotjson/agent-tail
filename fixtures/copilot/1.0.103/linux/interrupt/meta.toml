@@ -1,0 +1,6 @@
+harness = "copilot"
+version = "1.0.103"
+os = "linux"
+capture = "handmade"
+date = "2026-10-25"
+description = "A synthetic 1.0.103 abort sequence in the order the real CLI writes it: assistant.turn_end, then abort reason user_abort, then a routine session.shutdown. The turn must stay Interrupted rather than being turned back into Done by the shutdown; the fixture also pins the shared 15-minute idle fallback."

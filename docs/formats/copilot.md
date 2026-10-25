@@ -34,7 +34,8 @@ Every line has `type`, `id`, `timestamp`, `parentId` and `data`.
 | `permission.requested` | `toolCallId` directly and under `permissionRequest`/`promptRequest`, `permissionMode`, request kind |
 | `permission.completed` | `toolCallId`, `result.kind`, `decisionSource` |
 | `session.usage_record` | per-call `usage` (`inputTokens`, `outputTokens`, cache counts, `apiCallId`) |
-| `session.shutdown` | normal end of a prompt-mode process |
+| `session.error` | `errorType`, `message`, `statusCode`; a terminal model/query failure |
+| `session.shutdown` | routine end of a prompt-mode process; may follow `abort` or `session.error` |
 | `abort` | `reason` such as `user_abort` |
 
 **Firm.** A tool call is persisted in `assistant.message` before execution. In prompt mode
@@ -73,8 +74,11 @@ continues.
 - **Tool result:** `tool.execution_complete` is firm `Thinking` / `tool_result_in` when no
   other calls are pending.
 - **Turn end:** an assistant message with text and no tool requests, followed by
-  `assistant.turn_end`, is firm `Done`. `session.shutdown` also ends the interaction.
-  `abort` is firm `Interrupted`.
+  `assistant.turn_end`, is firm `Done`. A routine `session.shutdown` also ends an ordinary
+  interaction. `abort` is firm `Interrupted`; `session.error` is firm `Errored` with its
+  `message`. 1.0.103 writes `assistant.turn_end` before `abort`/`session.error`, then a
+  routine `session.shutdown`; the adapter keeps the terminal interrupted/errored state
+  instead of letting that shutdown turn it back into `Done`.
 - **Usage:** each `session.usage_record` is a per-call count keyed by `apiCallId`; the
   session total is their sum.
 - **Subagents:** `subagent.started`/`subagent.completed` are kept as metadata; helper
@@ -99,9 +103,13 @@ The mock's OpenAI **Chat Completions** route is enough. Scenarios:
 
 - `copilot_plain_qa`: one text answer, firm `Done`.
 - `copilot_tool`: a two-second `bash` call sampled as firm `RunningTool`, then `Done`.
+- `copilot_parallel_tools`: two `bash` requests in one assistant message; the session stays
+  `RunningTool` until both results arrive, then ends `Done`.
 - `copilot_permission_denied`: no `--allow-all-tools`; prompt mode records
   `permission.requested` and the unattended denial, then the model answers after the tool
   error.
+- `copilot_api_error`: a terminal HTTP 500 records `session.error`; the session is firm
+  `Errored`, not `Done`, even after the routine shutdown.
 
 The CI matrix installs pinned **1.0.103** and npm **latest** on Linux and macOS. A latest
 failure is a failing job, not a silent skip. The committed fixtures are under
@@ -109,7 +117,9 @@ failure is a failing job, not a silent skip. The committed fixtures are under
 the real CLI through the mock and redacted by `agent-tail fixture capture`. The
 `permission-approved` and `permission-user-denied` fixtures are **hand-made** from the
 1.0.103 event/result shapes, not captured from a TUI; they are not additional CI
-scenarios.
+scenarios. `parallel-tools`, `interrupt` and `api-error` are hand-made coverage for
+multi-call, abort and `session.error` sequences whose event order was observed in real
+1.0.103 logs against the mock.
 
 Local green runs (1.0.103, Linux):
 
@@ -118,7 +128,9 @@ cd harness-ci
 export PATH="$HOME/.cargo/bin:$PATH"
 cargo run -p harness-driver -- --scenario driver/scenarios/copilot_plain_qa.json
 cargo run -p harness-driver -- --scenario driver/scenarios/copilot_tool.json
+cargo run -p harness-driver -- --scenario driver/scenarios/copilot_parallel_tools.json
 cargo run -p harness-driver -- --scenario driver/scenarios/copilot_permission_denied.json
+cargo run -p harness-driver -- --scenario driver/scenarios/copilot_api_error.json
 ```
 
 ## Open questions and limits
