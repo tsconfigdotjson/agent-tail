@@ -72,13 +72,23 @@ pub(crate) fn parse_rfc3339(s: &str) -> Option<f64> {
     if d.next().is_some() {
         return None;
     }
+    let (m, day) = (u32::try_from(m).ok()?, u32::try_from(day).ok()?);
+    // RFC 3339 years are four digits. Anything outside that, and impossible dates or times,
+    // is malformed: don't turn it into a surprising instant (or overflow the date arithmetic).
+    if !(0..=9999).contains(&y) || !valid_date(y, m, day) {
+        return None;
+    }
     let mut t = time.split(':');
     let (hh, mm): (i64, i64) = (t.next()?.parse().ok()?, t.next()?.parse().ok()?);
     let ss: f64 = t.next()?.parse().ok()?;
-    if t.next().is_some() {
+    if t.next().is_some() || !(0..=23).contains(&hh) || !(0..=59).contains(&mm) || !ss.is_finite() {
         return None;
     }
-    Some((days_from_civil(y, m, day) * 86400 + hh * 3600 + mm * 60 - offset) as f64 + ss)
+    // 60 is RFC 3339's leap second; fractional seconds stay below it.
+    if !(0.0..=60.0).contains(&ss) {
+        return None;
+    }
+    Some((days_from_civil(y, i64::from(m), i64::from(day)) * 86400 + hh * 3600 + mm * 60 - offset) as f64 + ss)
 }
 
 /// Split a time from its RFC 3339 offset. Returns the local time and the offset in seconds
@@ -170,6 +180,25 @@ mod tests {
         assert_eq!(parse_rfc3339("2026-10-09"), None);
         assert_eq!(parse_rfc3339("2026-10-09T20:02:33+2:00"), None);
         assert_eq!(parse_rfc3339("2026-10-09T20:02:33+99:00"), None);
+        // Invalid dates, times and non-finite seconds are not turned into instants.
+        for s in [
+            "2026-00-01T00:00:00Z",
+            "2026-13-01T00:00:00Z",
+            "2026-02-29T00:00:00Z",
+            "2026-04-31T00:00:00Z",
+            "2026-10-00T00:00:00Z",
+            "2026-10-32T00:00:00Z",
+            "2026-10-09T24:00:00Z",
+            "2026-10-09T20:60:00Z",
+            "2026-10-09T20:02:61Z",
+            "2026-10-09T20:02:-1Z",
+            "2026-10-09T20:02:NaN",
+            "2026-10-09T20:02:inf",
+            "999999999999999999-01-01T00:00:00Z",
+        ] {
+            assert_eq!(parse_rfc3339(s), None, "{s}");
+        }
+        assert!(parse_rfc3339("2024-02-29T23:59:60Z").is_some(), "a leap second is still a time");
     }
 
     #[test]
