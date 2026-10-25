@@ -146,7 +146,7 @@
   ".jsonl.zst": 0
  },
  "harness": "codex",
- "host": "mac (vibe-os unreachable)",
+ "host": "mac",
  "record_types": {
   "event_msg": [
    "agent_message",

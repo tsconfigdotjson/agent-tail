@@ -3,7 +3,7 @@
 version = 4
 
 [[package]]
-name = "agenttail"
+name = "agent-tail"
 version = "0.0.0"
 dependencies = [
  "jsonschema",
@@ -17,10 +17,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "agenttail-cli"
+name = "agent-tail-cli"
 version = "0.0.0"
 dependencies = [
- "agenttail",
+ "agent-tail",
  "serde",
  "serde_json",
  "tempfile",

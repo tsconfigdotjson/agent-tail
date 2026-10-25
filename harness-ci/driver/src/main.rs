@@ -1,5 +1,5 @@
 //! Run a real coding-agent CLI under a PTY against the mock model server, sample its screen
-//! and `agenttail`'s state every 100 ms, and score one against the other.
+//! and `agent-tail`'s state every 100 ms, and score one against the other.
 //!
 //! The CLI is isolated in a temp `HOME` and temp workspace. Claude Code's onboarding and
 //! Codex's provider config are seeded so the PTY starts at the prompt or composer.
@@ -8,7 +8,7 @@
 mod score;
 mod screen;
 
-use agenttail::{ChunkCtx, Harness, ReducerOptions, SessionReducer, SessionState, Timestamp, read_opencode_db};
+use agent_tail::{ChunkCtx, Harness, ReducerOptions, SessionReducer, SessionState, Timestamp, read_opencode_db};
 use mock_server::{MockState, router, scenario::Scenario as MockScenario};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use score::{Sample, Score};
@@ -932,7 +932,7 @@ fn opencode_db(home: &Path) -> PathBuf {
     home.join(".local/share/opencode/opencode.db")
 }
 
-fn read_opencode_state(home: &Path) -> Option<agenttail::OpenCodeState> {
+fn read_opencode_state(home: &Path) -> Option<agent_tail::OpenCodeState> {
     read_opencode_db(&opencode_db(home)).ok()
 }
 

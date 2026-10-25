@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/tsconfigdotjson/agenttail/spec/schema/session-state.schema.json",
-  "title": "agenttail SessionState (v0.1)",
+  "$id": "https://github.com/tsconfigdotjson/agent-tail/spec/schema/session-state.schema.json",
+  "title": "agent-tail SessionState (v0.1)",
   "description": "The object `SessionReducer::state(now)` serializes, including status provenance fields.",
   "$defs": {
     "activity": {

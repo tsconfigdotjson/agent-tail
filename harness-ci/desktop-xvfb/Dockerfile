@@ -35,13 +35,13 @@ RUN if [ "$INSTALL_CLAUDE_DESKTOP" = "1" ]; then \
     fi
 
 RUN useradd -m -s /bin/bash claude \
-    && mkdir -p /home/claude/work /opt/agenttail-desktop /out /etc/claude-desktop \
-    && chown -R claude:claude /home/claude /opt/agenttail-desktop
+    && mkdir -p /home/claude/work /opt/agent-tail-desktop /out /etc/claude-desktop \
+    && chown -R claude:claude /home/claude /opt/agent-tail-desktop
 
-COPY desktop_driver.py standin.py entrypoint.sh session.sh /opt/agenttail-desktop/
-COPY scenarios/ /opt/agenttail-desktop/scenarios/
-RUN chmod +x /opt/agenttail-desktop/*.sh /opt/agenttail-desktop/*.py
+COPY desktop_driver.py standin.py entrypoint.sh session.sh /opt/agent-tail-desktop/
+COPY scenarios/ /opt/agent-tail-desktop/scenarios/
+RUN chmod +x /opt/agent-tail-desktop/*.sh /opt/agent-tail-desktop/*.py
 
-WORKDIR /opt/agenttail-desktop
-ENTRYPOINT ["/opt/agenttail-desktop/entrypoint.sh"]
+WORKDIR /opt/agent-tail-desktop
+ENTRYPOINT ["/opt/agent-tail-desktop/entrypoint.sh"]
 CMD ["standin"]

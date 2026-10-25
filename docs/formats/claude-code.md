@@ -1,10 +1,9 @@
 # Claude Code transcript format
 
-Survey: read-only, structure only, this Mac, 2026-10-23. It covered 150 main transcripts and
-67 subagent transcripts (69 `.meta.json`), Claude Code **2.1.281 to 2.1.309** (24 versions;
-subagents span 2.1.283 to 2.1.309). Every session ran under `--dangerously-skip-permissions`.
-Scripts: `claude1.py` to `claude5.py` in the session scratchpad (not committed). Everything
-labelled *inference* still needs a harness-CI fixture.
+This note is based on read-only surveys of 150 main transcripts and 67 subagent transcripts
+(69 `.meta.json`) from Claude Code **2.1.281 to 2.1.309** (24 versions; subagents span
+2.1.283 to 2.1.309). Most of the survey corpus ran under `--dangerously-skip-permissions`.
+Everything labelled *inference* still needs a harness-CI fixture.
 
 ## Paths and layout
 
@@ -24,11 +23,11 @@ run with a temp config folder.
 
 The `<project>` folder is a **lossy** encoding and is never decoded for the card's project
 name: conversational records carry `cwd`, and that is authoritative (the last one read wins
-when a session moves). Checked against this machine on 2026-10-24: 233 of 243 project folders
-had a `cwd` record and all matched "ASCII alphanumerics kept, every other character -> `-`";
-the other 10 had no `cwd`. No non-ASCII or >200-character `cwd` was present, so the prior-art
-200-character hash fallback is unverified. Example: `.vibe-worktrees` becomes
-`-vibe-worktrees` (not `.vibe-worktrees`), and `my-app`, `my/app`, `my.app` can collide.
+when a session moves). In a survey of 243 project folders, 233 had a `cwd` record and all
+matched "ASCII alphanumerics kept, every other character -> `-`"; the other 10 had no `cwd`.
+No non-ASCII or >200-character `cwd` was present, so a 200-character hash fallback is
+unverified. Example: `feature/foo` becomes `feature-foo`, and `my-app`, `my/app`, `my.app`
+can collide.
 
 ## Record catalogue (main transcripts; counts)
 
@@ -110,8 +109,8 @@ Interrupted turns get **no** `turn_duration` (1 exception). The interrupt user r
 records; absent when 0) is a **firm** "turn ended, N agents still running".
 
 **Interruption:** a user record with text block `[Request interrupted by user]` (50) or
-`[Request interrupted by user for tool use]` (26), always as **blocks** in 2.1.28x+ (tvdash also
-handles a string), with `interruptedMessageId` (71) pointing at the cut assistant `message.id`.
+`[Request interrupted by user for tool use]` (26), always as **blocks** in 2.1.28x+, with
+`interruptedMessageId` (71) pointing at the cut assistant `message.id`.
 Mid-tool: the pending tool's result is `is_error: true`, text starting `The user doesn't want to
 proceed with this tool use`, `toolDenialKind: "user-rejected"`, no `permissionDecision`
 (28/28 were followed by the "for tool use" interrupt).
@@ -168,26 +167,24 @@ local-only, and liveness has to be checked by pid (*inference from source; one l
 ## Versions seen
 2.1.281, .283 to .287, .289 to .296, .299 to .306, .308, .309.
 
-## What tvdash gets wrong or misses (`src/sessions/claude.rs`)
-- Ignores `permission-mode` and `user.permissionMode`. Under bypass, every tool over 20 s shows
-  "may need approval" (`sessions.rs` `status()`, `STALL_AFTER`), though the corpus proves only
-  `AskUserQuestion` ever waits.
-- Ends turns only on `stop_reason == "end_turn"` (claude.rs:95) and the interrupt prefix. It
-  never reads `turn_duration`, `pendingBackgroundAgentCount`, `agents_killed` or the API-error rows.
-  A synthetic `stop_sequence` error leaves the session "thinking" until idle.
-- The interrupt is mapped to `Last::EndTurn` ("done"), so it can't tell Interrupted apart.
-- `max_depth 2` skips `subagents/` entirely: nothing follows helpers, and with `async_launched`
-  results the parent reads "thinking", then "done", while agents run. Task-notification prompts
-  (`origin.kind`) are logged as user prompts (`› <task-notification>` is skipped only because
-  it starts with `<`). This library follows `subagents/`, links `async_launched`, and reads
-  `finished`/`stoppedByUser` from the sibling `.meta.json`.
-- `ASKS_USER` has `ExitPlanMode`, which never appeared here (no plan-mode sessions), but it misses
-  nothing else seen.
-- Usage is only `output_tokens` per `message.id` (correct dedupe). Cost takes the last `cost-state`,
-  which is written rarely, so it lags.
+## How agent-tail handles these records
+
+- Reads `permission-mode` and `user.permissionMode`. Under bypass, a pending tool remains
+  firmly `running_tool`; the 20 second approval inference only applies when the recorded mode
+  can still ask a human.
+- Reads the firm turn-end records (`turn_duration`, `stop_hook_summary`, `agents_killed`) and
+  keeps interruption, error, and normal completion distinct. A synthetic API-error row is
+  `errored` even when its `stop_reason` is `stop_sequence`.
+- Walks `subagents/`, links `async_launched` results to their helper transcripts, and reads
+  `finished`/`stoppedByUser` from the sibling `.meta.json` as a firm helper end.
+- Excludes `task-notification` records from prompts, so background completion does not look
+  like a new user request.
+- Recognizes the ask-user tools (`AskUserQuestion`, `ExitPlanMode`) from the discovery spec.
+- Keeps the highest reported usage per `message.id` and the latest `cost-state`, rather than
+  undercounting repeated rows or lagging on rarely written cost records.
 
 ## Open questions
 - Does a `permission_prompt` in default mode change `sessions/<pid>.json`? Does anything get
-  written while it's up? (Phase 3 harness CI.)
+  written while it is up? Harness CI can answer this.
 - `mode` values other than `normal`, and plan-mode and `ExitPlanMode` records: none in this corpus.
 - Manual `/compact` (`trigger: manual`) not seen.

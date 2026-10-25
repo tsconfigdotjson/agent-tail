@@ -11,4 +11,4 @@ if ! command -v cargo >/dev/null 2>&1; then
     echo "pre-commit: cargo not found; skipping fixture scan" >&2
     exit 0
 fi
-exec cargo run --quiet -p agenttail-cli -- fixture scan fixtures
+exec cargo run --quiet -p agent-tail-cli -- fixture scan fixtures

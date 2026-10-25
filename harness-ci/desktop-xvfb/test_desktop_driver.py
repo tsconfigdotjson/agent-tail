@@ -196,7 +196,7 @@ class CandidateTests(unittest.TestCase):
                 candidate("entry", "Prompt", ["click", "type"], "c-entry"),
                 candidate("push button", "Send", ["click"], "c-send"),
             ],
-            "window": "agenttail desktop stand-in",
+            "window": "agent-tail desktop stand-in",
         }
         typed = driver.choose_scripted(
             observation,
@@ -303,15 +303,15 @@ class ScoringAndEnvironmentTests(unittest.TestCase):
 class ConfidenceAndChooseTests(unittest.TestCase):
     def test_scenario_confidence_applies_when_env_and_cli_are_unset(self):
         args = driver.parse_args(["--target", "claude-desktop", "--chooser", "jev"])
-        with mock.patch.dict(os.environ, {"AGENTTAIL_JEV_CONFIDENCE": ""}):
+        with mock.patch.dict(os.environ, {"AGENT_TAIL_JEV_CONFIDENCE": ""}):
             self.assertEqual(driver.resolve_confidence(args, {"confidence": 0.25}), 0.25)
 
     def test_env_and_cli_override_the_scenario_floor(self):
         args = driver.parse_args([])
-        with mock.patch.dict(os.environ, {"AGENTTAIL_JEV_CONFIDENCE": "0.4"}):
+        with mock.patch.dict(os.environ, {"AGENT_TAIL_JEV_CONFIDENCE": "0.4"}):
             self.assertEqual(driver.resolve_confidence(args, {"confidence": 0.25}), 0.4)
         explicit = driver.parse_args(["--confidence", "0.9"])
-        with mock.patch.dict(os.environ, {"AGENTTAIL_JEV_CONFIDENCE": "0.4"}):
+        with mock.patch.dict(os.environ, {"AGENT_TAIL_JEV_CONFIDENCE": "0.4"}):
             self.assertEqual(driver.resolve_confidence(explicit, {"confidence": 0.25}), 0.9)
 
     def test_desktop_launch_leaves_remote_debugging_off_unless_opted_in(self):
@@ -335,11 +335,11 @@ class ConfidenceAndChooseTests(unittest.TestCase):
         desktop = driver.parse_args(["--target", "claude-desktop"])
         with mock.patch.dict(os.environ, {}, clear=True):
             self.assertIsNone(driver.desktop_cdp_port(desktop))
-        with mock.patch.dict(os.environ, {"AGENTTAIL_CDP_PORT": ""}):
+        with mock.patch.dict(os.environ, {"AGENT_TAIL_CDP_PORT": ""}):
             self.assertIsNone(driver.desktop_cdp_port(desktop))
-        with mock.patch.dict(os.environ, {"AGENTTAIL_CDP_PORT": "0"}):
+        with mock.patch.dict(os.environ, {"AGENT_TAIL_CDP_PORT": "0"}):
             self.assertIsNone(driver.desktop_cdp_port(desktop))
-        with mock.patch.dict(os.environ, {"AGENTTAIL_CDP_PORT": "9223"}):
+        with mock.patch.dict(os.environ, {"AGENT_TAIL_CDP_PORT": "9223"}):
             self.assertEqual(driver.desktop_cdp_port(desktop), 9223)
             self.assertIn("--remote-debugging-port=9223", driver.desktop_launch_command(driver.desktop_cdp_port(desktop)))
 
@@ -687,7 +687,7 @@ class DevToolsClientTests(unittest.TestCase):
         try:
             found = driver.discover_dom_candidates(http_port)
             self.assertEqual([item.name for item in found], ["How can I help you today?", "Send message"])
-            self.assertTrue(any("__agenttailCdp" in item["params"]["expression"] for item in received))
+            self.assertTrue(any("__agent_tail_cdp" in item["params"]["expression"] for item in received))
             received.clear()
             driver.cdp_type_text(found[0].dom_socket, found[0].dom_index, 'say "hello"')
             self.assertEqual([item["method"] for item in received], ["Runtime.evaluate", "Input.insertText"])

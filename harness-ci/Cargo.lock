@@ -3,7 +3,7 @@
 version = 4
 
 [[package]]
-name = "agenttail"
+name = "agent-tail"
 version = "0.0.0"
 dependencies = [
  "memchr",
@@ -240,7 +240,7 @@ dependencies = [
 name = "harness-driver"
 version = "0.0.0"
 dependencies = [
- "agenttail",
+ "agent-tail",
  "axum",
  "mock-server",
  "portable-pty",

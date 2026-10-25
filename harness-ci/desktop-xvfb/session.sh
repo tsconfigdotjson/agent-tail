@@ -3,13 +3,13 @@
 # Starts the window manager and AT-SPI bus, then runs the observe/act driver.
 set -euo pipefail
 
-OUT="${AGENTTAIL_OUT:-/out}"
+OUT="${AGENT_TAIL_OUT:-/out}"
 DISPLAY="${DISPLAY:-:99}"
 export DISPLAY
 export GTK_MODULES=gail:atk-bridge
 export NO_AT_BRIDGE=0
 export ACCESSIBILITY_ENABLED=1
-export XDG_RUNTIME_DIR=/tmp/agenttail-xvfb/runtime
+export XDG_RUNTIME_DIR=/tmp/agent-tail-xvfb/runtime
 
 openbox > "$OUT/openbox.log" 2>&1 &
 OPENBOX_PID=$!
@@ -30,4 +30,4 @@ for _ in $(seq 1 30); do
   sleep 0.1
 done
 
-python3 /opt/agenttail-desktop/desktop_driver.py "$@"
+python3 /opt/agent-tail-desktop/desktop_driver.py "$@"

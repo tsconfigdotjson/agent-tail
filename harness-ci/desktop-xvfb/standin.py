@@ -3,7 +3,7 @@
 
 This is deliberately not Claude Desktop.  It gives the observe/act loop a real
 X11 window with an AT-SPI entry and button, and writes a Claude Desktop
-local-agent-mode `audit.jsonl` under the home folder so `agenttail` scores the
+local-agent-mode `audit.jsonl` under the home folder so `agent-tail` scores the
 same disk shape the real adapter reads.  Docs and evidence label it a stand-in,
 not Desktop verification.
 """
@@ -22,12 +22,12 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
-SESSION_ID = os.environ.get("AGENTTAIL_STANDIN_SESSION", "local_11111111-2222-3333-4444-555555555555")
-TITLE = "agenttail desktop stand-in"
+SESSION_ID = os.environ.get("AGENT_TAIL_STANDIN_SESSION", "local_11111111-2222-3333-4444-555555555555")
+TITLE = "agent-tail desktop stand-in"
 
 
 def desktop_root(home: Path) -> Path:
-    return home / ".config/Claude/local-agent-mode-sessions/agenttail/org" / SESSION_ID
+    return home / ".config/Claude/local-agent-mode-sessions/agent-tail/org" / SESSION_ID
 
 
 def append_records(path: Path, records: list[dict]) -> None:
@@ -126,7 +126,7 @@ class Standin(Gtk.Window):
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.add(box)
-        heading = Gtk.Label(label="agenttail desktop stand-in")
+        heading = Gtk.Label(label="agent-tail desktop stand-in")
         heading.set_xalign(0)
         box.pack_start(heading, False, False, 0)
         hint = Gtk.Label(label="Type a prompt and press Send. This writes a Desktop-shaped audit.jsonl.")
