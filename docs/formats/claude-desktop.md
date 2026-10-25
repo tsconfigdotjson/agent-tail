@@ -373,7 +373,8 @@ whether Jev can drive the UI; keep the scorer separate.
 ## Docker + Xvfb stopgap (issue #80, 2026-10-25)
 
 The current local verify path is [`harness-ci/desktop-xvfb/`](../../harness-ci/desktop-xvfb/README.md),
-not a Mac runner and not a paid GitHub Actions lane. It installs the Linux beta package from
+not a Mac runner. The nightly GitHub Actions lane is only the offline stand-in; it does not
+install Desktop or call Jev. Locally the harness installs the Linux beta package from
 Anthropic's apt repository and runs it in a headed Xvfb session:
 
 ```sh
@@ -427,9 +428,13 @@ path covers the standard UI, 3P gateway, Chat and Code surfaces only. Chromium l
 GPU-process failures under Xvfb, and xdg-desktop-portal cannot mount its document FUSE path;
 neither stopped the launch probes.
 
-`.github/workflows/desktop-xvfb.yml` is a `workflow_dispatch`-only stub for next month. It has
-not run, and the support matrix must not claim CI-verified Desktop UI until a green container
-run plus a real redacted artifact exists.
+`.github/workflows/desktop-xvfb.yml` now runs the offline stand-in on the `43 3 * * *`
+nightly, beside harness-ci, with no push or PR trigger. The nightly installs no Desktop
+package, reads no secret and cannot call OpenRouter. The Desktop probe and live Jev lane are
+`workflow_dispatch` inputs; the live lane requires `OPENROUTER_API_KEY` and spends credits
+only when explicitly requested. No scheduled run has gone green yet, and the support matrix
+must not claim CI-verified Desktop UI until a green container run plus a real redacted
+artifact exists.
 
 ## What remains unverified
 
@@ -440,7 +445,8 @@ run plus a real redacted artifact exists.
   saw the gateway's `"."` probe and rejected it; a say-hello turn has not been accepted.
 - One live OpenRouter/Jev Desktop run was made on the Multibeast box (model
   `typesafe/jev-1.14`, well under a cent). It chose clicks and reached Chat, and the
-  mock saw the gateway probe. It did not score a turn. No CI job calls OpenRouter.
+  mock saw the gateway probe. It did not score a turn. The scheduled and PR jobs do not
+  call OpenRouter; the live lane is manual opt-in.
 - The `typesafe-computer-use` → OpenRouter handoff is source-inspected only; no `clicker`
   dry-run decision was made.
 - The clicker writer/`type_text` path was not evaluated through OpenRouter. The Xvfb
@@ -450,7 +456,8 @@ run plus a real redacted artifact exists.
   Desktop `3.6556.2` refuses `--remote-debugging-port`. One live run typed `say hello`
   into the document-web composer with `xdotool`, then `mousemove --sync` timed out before
   Send. Pointer motion no longer uses `--sync`. A submitted prompt, a scored Desktop turn,
-  Linux Cowork under KVM, and any GHA desktop job are still unproven.
+  Linux Cowork under KVM, and a green GHA Desktop job are still unproven. The nightly job
+  that is now scheduled runs only the offline stand-in, not a real Desktop turn.
 
 The support matrix therefore says **ported-unverified** for the adapter, not CI-verified and
 not donated-verified.

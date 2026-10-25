@@ -1,9 +1,11 @@
 # Desktop Xvfb stopgap (issue #80)
 
-A local Docker + Xvfb path for the Desktop UI loop. It runs a headed Linux
-desktop without a Mac runner and without spending GitHub Actions minutes. The
-production chooser is **Jev through OpenRouter only**; the stand-in smoke test
-uses a scenario script because there is no decision to make, not a second model.
+A Docker + Xvfb path for the Desktop UI loop. Locally it runs a headed Linux
+desktop without a Mac runner. The nightly GHA lane runs only the offline
+stand-in, so it spends no OpenRouter credits; the Desktop install/probe and the
+live Jev lane stay manual. The production chooser is **Jev through OpenRouter
+only**; the stand-in smoke test uses a scenario script because there is no
+decision to make, not a second model.
 
 **Evidence status:** the container installs Anthropic's Linux beta Desktop.
 Sign-in and the 3P gateway welcome render under Xvfb, and the stand-in scenario
@@ -20,9 +22,9 @@ buttons plus `document web` — no editable — so the turn stayed
 the prompt was not submitted. Pointer moves no longer use `--sync`. Each move
 and click has a 2s timeout, and a failed Send click still presses Return and
 `KP_Enter`. The default launch does not pass the rejected debugging switch.
-**A scored Chat turn has not been re-run.** The adapter matrix remains
-**ported-unverified**, not CI-verified. Do not spend OpenRouter credits in CI;
-the live Jev path stays manual.
+**A scored Chat turn has not been re-run in this tree.** The adapter matrix
+remains **ported-unverified**, not CI-verified. The nightly stand-in spends no
+OpenRouter credits; the live Jev lane is manual opt-in only.
 
 ## What runs, and what does not
 
@@ -34,10 +36,24 @@ the live Jev path stays manual.
 | Desktop 3P gateway welcome UI | yes | root-owned `/etc/claude-desktop/managed-settings.json`, mock URL |
 | Desktop Chat/Code end-to-end | **not proven** | live Jev reached Chat; scoring a turn is still a manual box run |
 | Cowork | **no** | Linux Cowork needs KVM/QEMU, about 8 GB RAM and 25 GB disk; this container does not pass `/dev/kvm` |
-| GHA | **not run** | `.github/workflows/desktop-xvfb.yml` is `workflow_dispatch` only |
+| GHA | **scheduled; not yet green** | `.github/workflows/desktop-xvfb.yml` runs the offline stand-in nightly at `43 3 * * *`; Desktop probe and live Jev are manual |
 
 The host box may have `/dev/kvm`, but the compose file deliberately does not ask
 for it. This stopgap is an Xvfb path, not a Cowork VM path.
+
+## Nightly and manual lanes
+
+- **Nightly** (`43 3 * * *`, same cadence as `harness-ci.yml`): only `standin`.
+  It builds the stand-in image (`INSTALL_CLAUDE_DESKTOP=0`), runs the offline
+  observe/act/score path, and uploads `runs/`. No secret is read and there is no
+  OpenRouter call. This is plumbing evidence, not Desktop verification.
+- **Manual** (`workflow_dispatch`): `run_desktop_probe` installs Claude Desktop
+  and probes the 3P gateway welcome screen without a key. `run_live_jev` runs
+  `./run.sh desktop` and spends OpenRouter credits; it only starts when the
+  repository secret `OPENROUTER_API_KEY` exists. If the secret is missing, the
+  workflow records that and skips the live job.
+- Desktop is deliberately absent from `push`/`pull_request`, so it is not in the
+  hot PR matrix.
 
 ## Quick start
 
@@ -228,6 +244,8 @@ portal cannot mount its FUSE path because the container has no fuse device.
   or Code-tab transcript, re-run on the box with the fixes above. Do not mark
   the support matrix CI-verified from the failed live run.
 - Cowork under KVM, which is explicitly outside this stopgap.
-- A green GHA run. The workflow is committed only as a manual stub for next
-  month; do not schedule it or claim CI verification for Desktop. Live Jev
-  stays on the box so CI does not spend OpenRouter credits.
+- A green GHA run. The workflow is now scheduled for the next nightly in the
+  next billing cycle, but no scheduled run has gone green yet. Its default path
+  is only the offline stand-in; do not claim CI verification for Desktop until a
+  real artifact exists. Live Jev remains manual opt-in so the schedule and PRs
+  never spend OpenRouter credits.

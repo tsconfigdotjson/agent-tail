@@ -1,21 +1,34 @@
-# Desktop UI verify stopgap (issue #80).
+# Desktop Xvfb nightly and manual lanes (issue #87).
 #
-# This workflow is intentionally workflow_dispatch-only. Do not add push,
-# pull_request or schedule triggers until the next billing month and until a
-# real Desktop run has been proven locally. The stand-in job is an offline
+# The nightly schedule runs only the offline stand-in observe/act/score job.
+# It installs no Claude Desktop package, reads no repository secret and cannot
+# reach OpenRouter. The Desktop launch probe and the live Jev lane stay
+# workflow_dispatch-only; the live lane also requires OPENROUTER_API_KEY and is
+# never part of the nightly or the PR matrix. The stand-in is an offline
 # plumbing test, not a claim that Claude Desktop is CI-verified.
-name: Desktop Xvfb (manual)
+name: Desktop Xvfb (nightly)
 
 on:
+  schedule:
+    # Same cadence as the harness-ci nightly. Desktop stays out of push/PR.
+    - cron: "43 3 * * *"
   workflow_dispatch:
     inputs:
       run_desktop_probe:
         description: "Install Claude Desktop and probe its Xvfb launch (heavier)"
         type: boolean
         default: false
+      run_live_jev:
+        description: "Run the live Jev Desktop lane (spends OpenRouter credits; needs the OPENROUTER_API_KEY secret)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+
+concurrency:
+  group: desktop-xvfb-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
 
 jobs:
   standin:
@@ -50,7 +63,7 @@ jobs:
 
   desktop-probe:
     name: Claude Desktop Xvfb launch probe
-    if: ${{ github.event.inputs.run_desktop_probe == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_desktop_probe }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -75,6 +88,60 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: desktop-xvfb-probe
+          path: harness-ci/desktop-xvfb/runs
+          if-no-files-found: warn
+          retention-days: 7
+
+  live-key:
+    name: Check OpenRouter secret for live Jev
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_live_jev }}
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - name: Check OPENROUTER_API_KEY
+        id: check
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "OPENROUTER_API_KEY is set; the live Jev lane will run and spend credits." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "OPENROUTER_API_KEY is not set; skipping the live Jev lane." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  desktop-live:
+    name: Live Jev Desktop (opt-in, spends credits)
+    needs: live-key
+    if: ${{ needs.live-key.outputs.enabled == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.88
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustc --version
+
+      - name: Build agenttail
+        run: cargo build --release --locked -p agenttail-cli
+
+      - name: Run live Jev Desktop scenario
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          AGENTTAIL_JEV_MODEL: typesafe/jev-1.14
+          INSTALL_CLAUDE_DESKTOP: "1"
+        run: harness-ci/desktop-xvfb/run.sh desktop
+
+      - name: Upload Xvfb evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-xvfb-live
           path: harness-ci/desktop-xvfb/runs
           if-no-files-found: warn
           retention-days: 7

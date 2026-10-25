@@ -1,4 +1,5 @@
-# Desktop UI verify stopgap: headed Linux desktop under Xvfb, no GHA minutes.
+# Desktop UI verify stopgap: headed Linux desktop under Xvfb. The nightly GHA lane
+# runs only the stand-in image; local runs may install the real Desktop package.
 #
 # INSTALL_CLAUDE_DESKTOP=1 installs Anthropic's Linux beta package. Cowork is
 # deliberately not supported: /dev/kvm is not passed by default and the host
