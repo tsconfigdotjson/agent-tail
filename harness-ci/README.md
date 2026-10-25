@@ -391,10 +391,12 @@ snapshot of the IDE's `state.vscdb`; the missing piece is the live approval-wait
 ## A9: Claude Desktop adapter + Jev computer-use spike (2026-10-25, adapter #78)
 
 **Decision: Claude Desktop's local agent mode is read by a ported-unverified adapter; the
-Jev driver remains a documentation spike, not a harness lane.** There is still no Desktop
-scenario, mock handshake or GHA job. The discovery/adapter evidence is in
-[`docs/formats/claude-desktop.md`](../docs/formats/claude-desktop.md); the gap checklist for a
-future scenario is [`claude-desktop/README.md`](claude-desktop/README.md).
+Jev driver is now a local Docker + Xvfb implementation, not a harness lane.** There is still
+no completed Desktop scenario, Desktop↔mock handshake or GHA job. The discovery/adapter
+evidence is in [`docs/formats/claude-desktop.md`](../docs/formats/claude-desktop.md); the
+container, driver and current gap checklist are in
+[`desktop-xvfb/README.md`](desktop-xvfb/README.md) and
+[`claude-desktop/README.md`](claude-desktop/README.md).
 
 - Linux Desktop (beta) exists as `claude-desktop` on Ubuntu 22.04+/Debian 12+, but Anthropic
   Computer Use is not available on Linux, and Cowork needs KVM/QEMU. The reference
@@ -423,8 +425,41 @@ future scenario is [`claude-desktop/README.md`](claude-desktop/README.md).
   uses Jev only to choose a typed action; our code observes and acts, and `agenttail` scores
   the disk artifacts. No VLM is used as the scorer.
 
-Do not add a Desktop GHA job until a real install has produced a redacted artifact and the
-Linux Xvfb/KVM/accessibility path is proven. Billing for this month is already expended.
+Do not schedule a Desktop GHA job until a real install has produced a redacted artifact and
+a live Jev-driven turn has completed. Billing for this month is already expended.
+
+## A10: Desktop Xvfb stopgap (2026-10-25, issue #80)
+
+**Decision: the current local Desktop verify path is Docker + Xvfb on the Multibeast box, not
+a Mac runner and not paid GHA minutes.** The implementation is
+[`desktop-xvfb/`](desktop-xvfb/README.md). It is a stopgap for the observe/Jev/act loop, not a
+replacement for a future GHA Desktop regression lane.
+
+- The Ubuntu 24.04 image installs Anthropic's Linux beta package (pinned
+  `3.6556.2` in the Dockerfile). Claude Desktop launches under Xvfb; the standard sign-in
+  screen and the 3P gateway welcome screen are visible through AT-SPI.
+- `desktop_driver.py` observes AT-SPI candidates, asks **Jev via OpenRouter only**
+  (`typesafe/jev-1.14`) for a typed choice, performs the click/type itself, and scores
+  `agenttail ls` output from the Desktop audit log and/or Code-tab transcripts. It refuses to
+  run without `OPENROUTER_API_KEY`; there is no writer LLM or other chooser fallback for
+  Desktop. `ANTHROPIC_API_KEY` and `CLICKER_WRITER_*` are scrubbed from the child environment.
+- The committed thin scenario is `standin_plain_qa`: a GTK stand-in window writes a
+  Desktop-shaped `audit.jsonl`, and the scripted chooser selects its prompt field and Send
+  button. It proves the container/AT-SPI/action/scoring plumbing offline. It is explicitly
+  **not** Desktop verification; the stand-in writes its own artifact.
+- Local evidence on Multibeast: the stand-in run saw `idle -> working/thinking -> done`;
+  the standard and 3P Desktop probes found the real windows and their candidate controls. No
+  OpenRouter key was available, so no live Jev call, Desktop turn, Desktop artifact or
+  Desktop↔mock request was made.
+- Cowork is out of scope: the compose file does not pass `/dev/kvm`, and the box lacks the
+  required ~8 GB RAM / ~25 GB disk headroom for the Linux Cowork VM. Chromium GPU-process
+  warnings and a missing FUSE document portal are known Xvfb noise; they did not stop the
+  launch probes.
+
+`.github/workflows/desktop-xvfb.yml` is committed as a `workflow_dispatch`-only stub with no
+push, PR or schedule trigger. It has not run. Do not claim CI-verified Desktop UI until a real
+redacted Desktop artifact and a green container run exist; the support matrix stays
+**ported-unverified**.
 
 ## OpenCode: real-harness spike and scenarios (2026-10-25)
 
