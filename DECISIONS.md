@@ -393,6 +393,14 @@ baseline's Codex/Cursor content types map to a richer event or `Meta`.
 **`agenttail events [--agent ID] <path>` prints the stream as JSONL.** It infers the
 harness from the path first, then from the record shapes, and `--agent` overrides both.
 
+**Sidechain rows are marked on the event, not decided by stand-alone parse state.**
+Claude Code's `isSidechain: true` records are emitted by `parse_lines` too, with
+`Event::sidechain` set, because an event dump should show every record. `Session::apply_event`
+ignores them unless the reducer is following a helper transcript, so a parent fed the same
+events as bytes comes to the same status. Their usage high-water marks are kept apart from
+the parent's, so a helper row can't suppress a parent row that reuses a message id. The
+adapter no longer uses a stand-alone `is_helper` parse flag to decide whether to parse them.
+
 ## Phase B9: Cursor `state.vscdb` and the A5 decision (2026-10-24)
 
 **A5: Cursor stays out of the mock/PTY rig for v0.1.** `cursor-agent` 2026.10.01-e373342

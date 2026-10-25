@@ -50,8 +50,17 @@ pub struct Event {
     /// when the harness writes no time (Cursor's assistant and `turn_ended` records); the
     /// reducer then uses the transcript's mtime.
     pub at: Option<Timestamp>,
+    /// Whether this record is a Claude Code sidechain row (`isSidechain: true`): activity
+    /// in a helper conversation, not in the session that owns the transcript. A non-helper
+    /// [`SessionReducer`](crate::SessionReducer) ignores these events.
+    #[serde(skip_serializing_if = "is_false")]
+    pub sidechain: bool,
     #[serde(flatten)]
     pub kind: EventKind,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// The payload of an [`Event`]: what the record says, normalized to what status, titles,
@@ -267,9 +276,9 @@ pub fn parse_lines_with_source(
 /// one line at a time through the same adapter parser.
 pub(crate) fn parse_events(harness: Harness, source: u32, bytes: &[u8], mode: ParseMode) -> Vec<Event> {
     let mut out = Vec::new();
-    // A stand-alone parse sees every record in the file, including helper sidechains; the
-    // reducer decides whether a sidechain belongs to its main session or to a helper.
-    let mut state = ParseState { is_helper: true, ..Default::default() };
+    // A stand-alone parse sees every record in the file, including helper sidechains. Each
+    // sidechain event says so, so a parent reducer can ignore it.
+    let mut state = ParseState::default();
     let mut at = 0usize;
     let mut line_no = 1u64;
     while at < bytes.len() {
@@ -301,6 +310,7 @@ pub(crate) fn parse_events(harness: Harness, source: u32, bytes: &[u8], mode: Pa
                                 reason: "record is not a JSON object".into(),
                                 record: value,
                             },
+                            false,
                         );
                         continue;
                     }
@@ -316,10 +326,11 @@ pub(crate) fn parse_events(harness: Harness, source: u32, bytes: &[u8], mode: Pa
                                 subtype: subtype(&value),
                                 record: value,
                             },
+                            false,
                         );
                     } else {
                         for seed in seeds {
-                            push_event(harness, &mut out, provenance.clone(), seed.at, seed.kind);
+                            push_event(harness, &mut out, provenance.clone(), seed.at, seed.kind, seed.sidechain);
                         }
                     }
                 }
@@ -342,6 +353,7 @@ pub(crate) fn parse_events(harness: Harness, source: u32, bytes: &[u8], mode: Pa
                         reason: "malformed JSON line".into(),
                         record: Value::String(String::from_utf8_lossy(line).into_owned()),
                     },
+                    false,
                 );
             }
             Err(()) => {}
@@ -352,7 +364,14 @@ pub(crate) fn parse_events(harness: Harness, source: u32, bytes: &[u8], mode: Pa
     out
 }
 
-fn push_event(harness: Harness, out: &mut Vec<Event>, provenance: Provenance, at: Option<f64>, kind: EventKind) {
+fn push_event(
+    harness: Harness,
+    out: &mut Vec<Event>,
+    provenance: Provenance,
+    at: Option<f64>,
+    kind: EventKind,
+    sidechain: bool,
+) {
     let id = format!(
         "{}:{}:{}:{}:{}:{}",
         harness.id(),
@@ -362,7 +381,7 @@ fn push_event(harness: Harness, out: &mut Vec<Event>, provenance: Provenance, at
         provenance.length,
         out.len()
     );
-    out.push(Event { id, harness, provenance, at: at.map(Timestamp::from_secs_f64), kind });
+    out.push(Event { id, harness, provenance, at: at.map(Timestamp::from_secs_f64), sidechain, kind });
 }
 
 /// Parse the JSON values on one line, returning each with its byte start and length in the
@@ -468,9 +487,8 @@ pub(crate) fn record_ids(record: &Value) -> Vec<String> {
 /// highest usage seen per Claude message / the running Codex total.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct ParseState {
-    pub(crate) is_helper: bool,
     pub(crate) codex_prompt_source: Option<&'static str>,
-    pub(crate) claude_usage: HashMap<String, TokenUsage>,
+    pub(crate) claude_usage: HashMap<(bool, String), TokenUsage>,
     pub(crate) codex_usage: TokenUsage,
 }
 
@@ -498,6 +516,9 @@ pub(crate) fn prompt_wrappers(text: &str) -> Vec<PromptWrapper> {
 /// The reducer's event application: the one place an event becomes session state.
 impl Session {
     pub(crate) fn apply_event(&mut self, event: &Event) {
+        if event.sidechain && !self.is_helper {
+            return;
+        }
         let at = event.at.map(Timestamp::as_secs_f64);
         let t = at.unwrap_or(self.mtime);
         match &event.kind {
@@ -640,7 +661,6 @@ impl Session {
 /// Read one record's seeds through the harness's parser and apply them to a session. This is
 /// what [`Session::apply`] and the reducer's chunk reader use.
 pub(crate) fn apply_record(session: &mut Session, record: &Value) {
-    session.parse_state.is_helper = session.is_helper;
     let seeds = session.harness.adapter().parse(&mut session.parse_state, record);
     for seed in seeds {
         let event = Event {
@@ -648,6 +668,7 @@ pub(crate) fn apply_record(session: &mut Session, record: &Value) {
             harness: session.harness,
             provenance: Provenance::default(),
             at: seed.at.map(Timestamp::from_secs_f64),
+            sidechain: seed.sidechain,
             kind: seed.kind,
         };
         session.apply_event(&event);
@@ -947,6 +968,143 @@ mod tests {
         assert_eq!(usage.iter().filter_map(|(u, _)| u.input_tokens).sum::<u64>(), 2400);
         assert_eq!(usage.iter().filter_map(|(u, _)| u.output_tokens).sum::<u64>(), 84);
         assert_eq!(usage.last().unwrap().1.input_tokens, Some(2400));
+    }
+
+    #[test]
+    fn sidechain_records_do_not_change_the_parent_when_fed_as_events() {
+        let text = concat!(
+            r#"{"type":"user","timestamp":"2026-10-23T10:00:00Z","message":{"content":"parent"}}"#,
+            "\n",
+            r#"{"type":"assistant","isSidechain":true,"timestamp":"2026-10-23T10:00:01Z","message":{"id":"m1","stop_reason":"end_turn","usage":{"output_tokens":2},"content":[{"type":"text","text":"child"}]}}"#,
+            "\n",
+        );
+        let now = Timestamp::parse_rfc3339("2026-10-23T10:00:05Z").unwrap();
+        let path = Path::new("/h/.claude/projects/-w-app/s.jsonl");
+
+        let mut fed = SessionReducer::new(Harness::ClaudeCode, ReducerOptions::default());
+        fed.set_path(path);
+        fed.transcript_written(now);
+        fed.feed(text.as_bytes(), ChunkCtx { offset: 0, mtime: now, path }).unwrap();
+        assert_eq!(fed.state(now).activity, crate::Activity::Thinking, "the sidechain is not the parent's turn");
+
+        let events = parse_events(Harness::ClaudeCode, 0, text.as_bytes(), ParseMode::Full);
+        let parent = events
+            .iter()
+            .find(|event| matches!(&event.kind, EventKind::UserPrompt { text, .. } if text == "parent"))
+            .expect("the parent prompt");
+        assert!(!parent.sidechain);
+        let child = events
+            .iter()
+            .find(|event| matches!(&event.kind, EventKind::AssistantText { text } if text == "child"))
+            .expect("the helper text");
+        assert!(child.sidechain, "the public event says it is a sidechain record");
+        assert!(
+            events.iter().filter(|event| event.provenance.line == 2).all(|event| event.sidechain),
+            "every event from a sidechain record carries the marker"
+        );
+
+        let mut from_events = SessionReducer::new(Harness::ClaudeCode, ReducerOptions::default());
+        from_events.set_path(path);
+        from_events.transcript_written(now);
+        from_events.feed_events(&events);
+        assert_eq!(from_events.state(now).activity, crate::Activity::Thinking);
+    }
+
+    #[test]
+    fn a_parent_with_sidechains_feeds_the_same_state_from_bytes_and_events() {
+        // The sidechain rows carry facts a parent would otherwise pick up (a cwd, a prompt,
+        // a tool call, a turn end and a background-helper count); none of them are the
+        // parent's. The parent finishes on its own row at the end.
+        let text = concat!(
+            r#"{"type":"user","timestamp":"2026-10-23T10:00:00Z","cwd":"/w/app","message":{"content":"parent"}}"#,
+            "\n",
+            r#"{"type":"user","isSidechain":true,"timestamp":"2026-10-23T10:00:01Z","cwd":"/w/helper","message":{"content":"helper prompt"}}"#,
+            "\n",
+            r#"{"type":"assistant","isSidechain":true,"timestamp":"2026-10-23T10:00:02Z","message":{"id":"m1","stop_reason":"tool_use","usage":{"output_tokens":2},"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"sleep 9"}}]}}"#,
+            "\n",
+            r#"{"type":"assistant","isSidechain":true,"timestamp":"2026-10-23T10:00:03Z","message":{"id":"m1","stop_reason":"end_turn","usage":{"output_tokens":3},"content":[{"type":"text","text":"helper done"}]}}"#,
+            "\n",
+            r#"{"type":"system","isSidechain":true,"subtype":"turn_duration","timestamp":"2026-10-23T10:00:04Z","pendingBackgroundAgentCount":4}"#,
+            "\n",
+            r#"{"type":"assistant","timestamp":"2026-10-23T10:00:05Z","message":{"id":"m2","stop_reason":"end_turn","usage":{"output_tokens":5},"content":[{"type":"text","text":"parent done"}]}}"#,
+            "\n",
+        );
+        let now = Timestamp::parse_rfc3339("2026-10-23T10:00:10Z").unwrap();
+        let path = Path::new("/h/.claude/projects/-w-app/s.jsonl");
+        let options = ReducerOptions { mode: ParseMode::Full, ..Default::default() };
+
+        let mut fed = SessionReducer::new(Harness::ClaudeCode, options.clone());
+        fed.set_path(path);
+        fed.transcript_written(now);
+        fed.feed(text.as_bytes(), ChunkCtx { offset: 0, mtime: now, path }).unwrap();
+
+        let events = parse_events(Harness::ClaudeCode, 0, text.as_bytes(), ParseMode::Full);
+        assert!(
+            events
+                .iter()
+                .filter(|event| event.provenance.line > 1 && event.provenance.line < 5)
+                .all(|event| event.sidechain)
+        );
+        let mut from_events = SessionReducer::new(Harness::ClaudeCode, options);
+        from_events.set_path(path);
+        from_events.transcript_written(now);
+        from_events.feed_events(&events);
+
+        let mut a = serde_json::to_value(fed.state(now)).unwrap();
+        let mut b = serde_json::to_value(from_events.state(now)).unwrap();
+        for key in ["diagnostics", "last_write"] {
+            a.as_object_mut().unwrap().remove(key);
+            b.as_object_mut().unwrap().remove(key);
+        }
+        assert_eq!(a, b, "status from raw bytes and from events");
+        assert_eq!(fed.state(now).activity, crate::Activity::Done);
+        assert_eq!(fed.state(now).meta.project, "app", "the helper's cwd did not move the parent");
+        assert_eq!(fed.state(now).background.len(), 0, "the helper's turn end and count did not leak");
+    }
+
+    #[test]
+    fn sidechain_usage_does_not_mask_the_parent_rows() {
+        // Anchor the adversarial case: a sidechain row and a parent row share a message id.
+        // Their usage high-water marks are kept apart, so the parent still reports its own.
+        let text = concat!(
+            r#"{"type":"user","timestamp":"2026-10-23T10:00:00Z","message":{"content":"parent"}}"#,
+            "\n",
+            r#"{"type":"assistant","isSidechain":true,"timestamp":"2026-10-23T10:00:01Z","message":{"id":"m1","usage":{"output_tokens":8},"content":[]}}"#,
+            "\n",
+            r#"{"type":"assistant","timestamp":"2026-10-23T10:00:02Z","message":{"id":"m1","stop_reason":"end_turn","usage":{"output_tokens":2},"content":[]}}"#,
+            "\n",
+        );
+        let now = Timestamp::parse_rfc3339("2026-10-23T10:00:05Z").unwrap();
+        let path = Path::new("/h/.claude/projects/-w-app/s.jsonl");
+
+        let mut fed = SessionReducer::new(Harness::ClaudeCode, ReducerOptions::default());
+        fed.set_path(path);
+        fed.transcript_written(now);
+        fed.feed(text.as_bytes(), ChunkCtx { offset: 0, mtime: now, path }).unwrap();
+
+        let events = parse_events(Harness::ClaudeCode, 0, text.as_bytes(), ParseMode::Full);
+        let mut from_events = SessionReducer::new(Harness::ClaudeCode, ReducerOptions::default());
+        from_events.set_path(path);
+        from_events.transcript_written(now);
+        from_events.feed_events(&events);
+        assert_eq!(fed.state(now).usage.output_tokens, Some(2));
+        assert_eq!(from_events.state(now).usage.output_tokens, Some(2));
+    }
+
+    #[test]
+    fn only_a_boolean_true_is_a_sidechain() {
+        for value in [json!(null), json!("true"), json!(1), json!(false), json!({})] {
+            let record = json!({"type":"assistant","isSidechain":value,"message":{"content":[]}});
+            let events = no_unknown(Harness::ClaudeCode, record);
+            assert!(events.iter().all(|event| !event.sidechain), "{value}");
+        }
+        let record = json!({"type":"assistant","isSidechain":true,"message":{"content":[]}});
+        let events = no_unknown(Harness::ClaudeCode, record);
+        assert!(events.iter().all(|event| event.sidechain));
+        // Only the record's own top-level field counts; a nested one is just content.
+        let nested = json!({"type":"assistant","message":{"isSidechain":true,"content":[]}});
+        let events = no_unknown(Harness::ClaudeCode, nested);
+        assert!(events.iter().all(|event| !event.sidechain));
     }
 
     #[test]

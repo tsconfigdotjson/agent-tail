@@ -12,6 +12,7 @@ impl Adapter for ClaudeCode {
     fn parse(&self, state: &mut crate::event::ParseState, e: &Value) -> Vec<EventSeed> {
         use crate::event::{EventKind, TitleSource};
         let at = e["timestamp"].as_str().and_then(crate::time::parse_rfc3339);
+        let sidechain = e["isSidechain"] == true;
         let mut out = Vec::new();
         if let Some(info) = session_info(e) {
             out.push(EventSeed::new(info).at(at));
@@ -34,8 +35,8 @@ impl Adapter for ClaudeCode {
                     out.push(EventSeed::new(EventKind::Cost { usd: cost }).at(at));
                 }
             }
-            "user" if state.is_helper || e["isSidechain"] != true => user(state, e, at, &mut out),
-            "assistant" if state.is_helper || e["isSidechain"] != true => assistant(state, e, at, &mut out),
+            "user" => user(state, e, at, &mut out),
+            "assistant" => assistant(state, e, at, sidechain, &mut out),
             "system" => system(e, at, &mut out),
             "permission-mode" if e["permissionMode"].is_null() => {}
             kind if known_record(kind) => {
@@ -52,6 +53,11 @@ impl Adapter for ClaudeCode {
         }
         if out.is_empty() {
             out.push(meta(e).at(at));
+        }
+        if sidechain {
+            for seed in &mut out {
+                seed.sidechain = true;
+            }
         }
         out
     }
@@ -265,7 +271,13 @@ fn user(_state: &mut crate::event::ParseState, e: &Value, at: Option<f64>, out: 
     }
 }
 
-fn assistant(state: &mut crate::event::ParseState, e: &Value, at: Option<f64>, out: &mut Vec<EventSeed>) {
+fn assistant(
+    state: &mut crate::event::ParseState,
+    e: &Value,
+    at: Option<f64>,
+    sidechain: bool,
+    out: &mut Vec<EventSeed>,
+) {
     use crate::event::{EventKind, ToolKind, TurnEndReason};
     let msg = &e["message"];
     // A synthetic assistant row recording an API failure is the firm Errored signal. Its
@@ -290,7 +302,11 @@ fn assistant(state: &mut crate::event::ParseState, e: &Value, at: Option<f64>, o
         cache_read_input_tokens: msg["usage"]["cache_read_input_tokens"].as_u64(),
         cache_creation_input_tokens: msg["usage"]["cache_creation_input_tokens"].as_u64(),
     };
-    let previous = state.claude_usage.get(id).copied().unwrap_or_default();
+    // A sidechain row belongs to a helper conversation even when it is in the parent
+    // transcript; keep its usage apart so it can't suppress the parent's own row. The
+    // boolean is part of the key, so no message id can collide across the two.
+    let usage_key = (sidechain, id.to_string());
+    let previous = state.claude_usage.get(&usage_key).copied().unwrap_or_default();
     let next = highest(previous, reported);
     if next != previous {
         out.push(
@@ -302,7 +318,7 @@ fn assistant(state: &mut crate::event::ParseState, e: &Value, at: Option<f64>, o
             })
             .at(at),
         );
-        state.claude_usage.insert(id.into(), next);
+        state.claude_usage.insert(usage_key, next);
     }
     for c in msg["content"].as_array().into_iter().flatten() {
         match c["type"].as_str().unwrap_or_default() {

@@ -16,12 +16,15 @@ pub(crate) struct EventSeed {
     /// Seconds since the epoch when the record itself says (or, for Cursor prompts, its
     /// `<timestamp>` block); None means the reducer should use the transcript's mtime.
     pub(crate) at: Option<f64>,
+    /// The record is a Claude Code sidechain row (`isSidechain: true`): activity in a
+    /// helper's conversation, not the session that owns this transcript.
+    pub(crate) sidechain: bool,
     pub(crate) kind: EventKind,
 }
 
 impl EventSeed {
     pub(crate) fn new(kind: EventKind) -> Self {
-        EventSeed { at: None, kind }
+        EventSeed { at: None, sidechain: false, kind }
     }
 
     pub(crate) fn at(mut self, at: Option<f64>) -> Self {

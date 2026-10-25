@@ -42,7 +42,9 @@ Under status is the event layer: `parse_lines(harness, bytes, mode)` yields norm
 `Event`s (`UserPrompt`, `ToolCall`/`ToolResult`, `TurnEnd`, `Usage`, `PermissionMode`,
 `Title`, `HelperSpawn`/`HelperEnd`, `Compaction`, `Meta`, `Unknown`, …) with byte/line
 provenance, the harness's own record ids, and deterministic ids. The reducer folds the same
-events, so a status and the event dump cannot disagree. Unknown records and malformed lines
+events, so a status and the event dump cannot disagree. Claude Code's sidechain rows are
+still emitted, with `Event::sidechain` set; a parent reducer ignores them while
+`feed_helper` applies them to the helper's own state. Unknown records and malformed lines
 are kept as `Unknown` rather than dropped.
 
 ## Using it
