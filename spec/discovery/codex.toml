@@ -6,7 +6,7 @@ name = "Codex"
 [roots]
 # Rollouts sit in day folders below sessions/.
 default = ".codex/sessions"
-evidence = "docs/formats/codex.md#paths-and-layout; fixtures/legacy/codex-0.160-exec.jsonl"
+evidence = "docs/formats/codex.md#paths-and-layout; fixtures/codex/0.160/linux/seed-exec/input/session.jsonl"
 
 [[roots.env]]
 # CODEX_HOME replaces ~/.codex, so sessions/ below it holds rollouts. A4 confirmed this on
@@ -34,13 +34,13 @@ field = "timestamp"
 format = "rfc3339"
 timezone = "as written (UTC or a numeric offset)"
 fallback = "file mtime when an event has no timestamp"
-evidence = "docs/formats/codex.md#record-catalogue-1-rollout-counts; fixtures/legacy/codex-0.160-exec.jsonl"
+evidence = "docs/formats/codex.md#record-catalogue-1-rollout-counts; fixtures/codex/0.160/linux/seed-exec/input/session.jsonl"
 
 [asks_user]
 match = "exact"
-evidence = "fixtures/legacy/codex-0.160-resume.jsonl; docs/formats/codex.md#status-signals"
+evidence = "fixtures/codex/0.160/linux/seed-resume/input/session.jsonl; docs/formats/codex.md#status-signals"
 values = [
-  { name = "request_user_input", evidence = "harness-ci/driver/scenarios/codex_request_user_input.json (live Codex 0.160.1 plan mode); fixtures/legacy/codex-0.160-resume.jsonl" },
+  { name = "request_user_input", evidence = "harness-ci/driver/scenarios/codex_request_user_input.json (live Codex 0.160.1 plan mode); fixtures/codex/0.160/linux/seed-resume/input/session.jsonl" },
 ]
 
 [never_prompt]
@@ -83,7 +83,7 @@ evidence = "docs/formats/codex.md#record-catalogue-1-rollout-counts; crates/agen
 [[quirks]]
 id = "write-stdin-is-polling"
 summary = "`write_stdin` polls a command already running; it is not a new tool action and must not be logged as one."
-evidence = "fixtures/legacy/codex-0.160-exec.jsonl; crates/agenttail/src/adapters/codex.rs"
+evidence = "fixtures/codex/0.160/linux/seed-exec/input/session.jsonl; crates/agenttail/src/adapters/codex.rs"
 
 [[quirks]]
 id = "a4-harness-confirmed"

@@ -726,8 +726,8 @@ mod tests {
 
     /// Real rollouts from Codex CLI 0.160.1 (`codex exec`, then `codex exec resume`), run
     /// against a stand-in model; scrubbed of paths and trimmed of long instructions.
-    const EXEC: &str = include_str!("../../../../fixtures/legacy/codex-0.160-exec.jsonl");
-    const RESUMED: &str = include_str!("../../../../fixtures/legacy/codex-0.160-resume.jsonl");
+    const EXEC: &str = include_str!("../../../../fixtures/codex/0.160/linux/seed-exec/input/session.jsonl");
+    const RESUMED: &str = include_str!("../../../../fixtures/codex/0.160/linux/seed-resume/input/session.jsonl");
 
     #[test]
     fn reads_a_recorded_session() {

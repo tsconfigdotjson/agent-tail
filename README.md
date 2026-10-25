@@ -84,7 +84,14 @@ The CLI, for looking at what a dashboard would show:
 agenttail ls [--hours N] [--agents claude_code,codex,cursor]   # one poll, JSON lines
 agenttail watch [--hours N] [--agents …]                       # each change, with its reason
 agenttail events [--agent ID] <path>                           # normalized events, JSON lines
+agenttail fixture redact|capture|scan …                        # offline fixture tooling
 ```
+
+`fixture capture` picks a local session, copies its transcript and subagents, redacts home
+paths/usernames/hosts/emails and secrets, shows a value-free diff/report, and writes the
+versioned fixture directory. `fixture redact` is deterministic and structure-preserving;
+`fixture scan` is what the pre-commit hook and CI use. Everything is offline. See
+[fixtures/README.md](fixtures/README.md).
 
 ## What it reads, and what it touches
 

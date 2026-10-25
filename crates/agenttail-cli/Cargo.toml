@@ -13,4 +13,9 @@ path = "src/main.rs"
 
 [dependencies]
 agenttail = { workspace = true, features = ["fs"] }
-serde_json.workspace = true
+serde.workspace = true
+# Fixture redaction keeps the order fields were written in.
+serde_json = { workspace = true, features = ["preserve_order"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"

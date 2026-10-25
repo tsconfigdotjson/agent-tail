@@ -975,7 +975,7 @@ mod tests {
     /// A real Claude Code 2.1 session (scrubbed: prompts, tool inputs and outputs replaced,
     /// structure and bookkeeping entries kept): a prompt, Bash / Read / Write calls, a
     /// generated title and a cost entry.
-    const RECORDED: &str = include_str!("../../../../fixtures/legacy/claude-code-2.1.jsonl");
+    const RECORDED: &str = include_str!("../../../../fixtures/claude-code/2.1/linux/seed-session/input/session.jsonl");
 
     #[test]
     fn names_the_project_from_cwd_not_the_encoded_folder() {

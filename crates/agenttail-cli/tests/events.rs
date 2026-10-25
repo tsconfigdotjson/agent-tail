@@ -26,7 +26,7 @@ fn events(relative: &str) -> Vec<Value> {
 
 #[test]
 fn prints_normalized_events_as_json_lines() {
-    let cursor = events("legacy/cursor-synthetic.jsonl");
+    let cursor = events("cursor/unknown/any/seed-session/input/session.jsonl");
     assert!(cursor.iter().any(|event| event["type"] == "user_prompt"), "{cursor:#?}");
     assert!(cursor.iter().any(|event| event["type"] == "tool_call"), "{cursor:#?}");
     assert!(cursor.iter().any(|event| event["type"] == "turn_end"), "{cursor:#?}");
@@ -37,12 +37,32 @@ fn prints_normalized_events_as_json_lines() {
         assert_eq!(event["source"], 0);
     }
 
-    let codex = events("legacy/codex-0.160-exec.jsonl");
+    let codex = events("codex/0.160/linux/seed-exec/input/session.jsonl");
     assert!(codex.iter().any(|event| event["type"] == "usage"), "{codex:#?}");
     assert!(codex.iter().any(|event| event["type"] == "tool_call"), "{codex:#?}");
     assert!(codex.iter().any(|event| event["type"] == "turn_end"), "{codex:#?}");
 
-    let claude = events("legacy/claude-code-2.1.jsonl");
+    let claude = events("claude-code/2.1/linux/seed-session/input/session.jsonl");
     assert!(claude.iter().any(|event| event["type"] == "title"), "{claude:#?}");
     assert!(claude.iter().any(|event| event["type"] == "cost"), "{claude:#?}");
+}
+
+#[test]
+fn committed_expected_events_match_their_inputs() {
+    for input in [
+        "claude-code/2.1/linux/seed-session",
+        "codex/0.160/linux/seed-exec",
+        "codex/0.160/linux/seed-resume",
+        "cursor/unknown/any/seed-session",
+    ] {
+        let got = events(&format!("{input}/input/session.jsonl"));
+        let expected = fixture(&format!("{input}/expected/events.jsonl"));
+        let want: Vec<Value> = std::fs::read_to_string(&expected)
+            .unwrap_or_else(|e| panic!("{}: {e}", expected.display()))
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| serde_json::from_str(line).unwrap_or_else(|e| panic!("{line}: {e}")))
+            .collect();
+        assert_eq!(got, want, "{}: regenerate expected/events.jsonl", expected.display());
+    }
 }

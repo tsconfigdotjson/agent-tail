@@ -1,0 +1,6 @@
+harness = "codex"
+version = "0.160.1"
+os = "linux"
+capture = "donated"
+date = "2026-10-14"
+description = "The same session after `codex exec resume`: a patch, a command and a request_user_input; home paths redacted to <user> placeholders."

@@ -59,7 +59,7 @@ pub use event::{
 };
 #[cfg(feature = "fs")]
 pub use fs::{Filter, READ_CHUNK, SWEEP_EVERY, SessionKey, Tracker, read_from};
-pub use harness::{Harness, Layout, Role};
+pub use harness::{Harness, HelperOwner, Layout, Role};
 pub use reducer::{ChunkCtx, ParseMode, ReducerOptions, SessionReducer};
 #[cfg(feature = "sqlite")]
 pub use sqlite::{

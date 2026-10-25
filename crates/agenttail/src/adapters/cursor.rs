@@ -675,12 +675,12 @@ mod tests {
 
     /// A synthetic transcript in the shape seen on a real Mac (none of anyone's content):
     /// two turns, the second ending in an error.
-    const SYNTHETIC: &str = include_str!("../../../../fixtures/legacy/cursor-synthetic.jsonl");
+    const SYNTHETIC: &str = include_str!("../../../../fixtures/cursor/unknown/any/seed-session/input/session.jsonl");
 
     #[test]
     fn reads_a_whole_session() {
         let events: Vec<Value> = SYNTHETIC.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
-        let s = in_folder("Users-sam-Work-demo-app", &events);
+        let s = in_folder("Users-user-Work-demo-app", &events);
         assert_eq!((s.project.as_str(), s.title.as_str()), ("demo-app", "Add a health check to the API"));
         assert_eq!(
             log(&s),
@@ -695,14 +695,14 @@ mod tests {
         assert_eq!(status(&s), (Status::Done, "done"));
         // Stopped mid-turn, it's at work.
         let shell = events.iter().position(|e| e["message"]["content"][0]["name"] == "Shell").unwrap();
-        let s = in_folder("Users-sam-Work-demo-app", &events[..=shell]);
+        let s = in_folder("Users-user-Work-demo-app", &events[..=shell]);
         assert_eq!(status(&s), (Status::Working, "working"));
         // Each prompt is dated by its timestamp, the opening one and the one after a turn.
         let at = |s: &str| parse_rfc3339(s).unwrap();
-        let s = in_folder("Users-sam-Work-demo-app", &events[..1]);
+        let s = in_folder("Users-user-Work-demo-app", &events[..1]);
         assert_eq!((s.last_at, s.last), (at("2026-10-16T16:05:00Z"), Last::Prompt));
         let again = events.iter().rposition(|e| e["role"] == "user").unwrap();
-        let s = in_folder("Users-sam-Work-demo-app", &events[..=again]);
+        let s = in_folder("Users-user-Work-demo-app", &events[..=again]);
         assert_eq!((s.last_at, s.last), (at("2026-10-16T16:41:00Z"), Last::Prompt));
     }
 }
