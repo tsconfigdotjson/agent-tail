@@ -4,6 +4,9 @@ This is the periodic confirmation path for a Mac where Cursor is **already signe
 needs no new Cursor login, no API key, and no CI secret. Harness CI stays offline-only; this
 is a manual smoke run.
 
+No live snapshot was produced in the #108 lane: it still needs an already-signed-in Mac and
+Lee's interaction, so CI keeps the synthetic `state.vscdb` and transcript fixtures instead.
+
 Run from the repository root.
 
 ## 1. Capture the approval wait

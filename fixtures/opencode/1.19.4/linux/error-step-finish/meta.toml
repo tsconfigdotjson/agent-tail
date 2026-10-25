@@ -1,0 +1,6 @@
+harness = "opencode"
+version = "1.19.4"
+os = "linux"
+capture = "handmade"
+date = "2026-10-25"
+description = "A hand-made OpenCode 1.19.4 row export ending in a step-finish reason error with its error message. The partial assistant text must read as firm Errored, not Done."

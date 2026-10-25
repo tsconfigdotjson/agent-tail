@@ -143,3 +143,6 @@ synthetic journal shape only.
   reducer cannot undo earlier activity after a rewind.
 - A real interactive approval prompt was not captured because the journal does not record
   one; the synthetic `awaiting_approval` status is supported but unobserved.
+- Interrupted and multi-tool turns remain **deferred**: no real 0.65.0 journal shape exists
+  for them here (an API failure rewinds the prompt and only completed tool calls are written),
+  so there is no driver or fixture that claims those states.

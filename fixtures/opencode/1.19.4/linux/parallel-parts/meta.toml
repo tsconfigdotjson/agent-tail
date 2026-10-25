@@ -1,0 +1,6 @@
+harness = "opencode"
+version = "1.19.4"
+os = "linux"
+capture = "handmade"
+date = "2026-10-25"
+description = "A hand-made OpenCode 1.19.4 snapshot during a parallel tool step: one completed tool part and one still-running tool part in the same assistant message. The completed result must not clear the other pending call; at 30 seconds the pending part is the usual inferred approval wait."

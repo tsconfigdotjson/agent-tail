@@ -12,13 +12,32 @@ Fixtures under `fixtures/` run in `status_fixtures`, whether or not a driver exi
 | Adapter | Now covered | Still missing / deferred | Priority |
 |---|---|---|---|
 | **GitHub Copilot CLI** | CI: plain/`done`, single tool/`running_tool`, unattended permission denial/firm `awaiting_approval`, parallel tools, terminal `session.error`/`errored`. Fixtures cover approved/user-denied completions, `abort`/`interrupted` followed by routine shutdown, usage totals, idle, and an interleaved background helper that keeps the parent at `background_work` after its turn ends. | Live TUI approve/deny capture (no safe non-interactive path found; handmade approved/user-denied fixtures remain); unobserved ask-user tool. Follow-up: #107's TUI gap. | High → core and helper covered, TUI gap documented |
-| **Pi** | CI: plain/`done`, single tool/`running_tool`, parallel tools, failing tool result recovery, terminal API error/`errored`. Fixtures cover abandoned branches, parallel pending-then-thinking transitions, usage/cost totals, `aborted`/`interrupted`, and idle. | Compaction fixture, unknown-entry fixture, `deferred` stop reason. Helpers/approval are unsupported by design. Follow-up: #108. | High → covered core |
-| **Claude Code** | CI: plain, approval/pending/bypass, API errors, non-ASCII, long output. Fixtures: approval stall, background helpers, firm turn ends, late prompt, rejected tool/interrupt. Local drivers also cover ask-user, plan, interrupts, resume, accept-edits, compaction and mode/model. | Stable-CI ask-user/plan/interrupt/background drivers; cost/idle fixture checkpoints; dedicated multi-tool fixture. Follow-up: #108. | Medium |
+| **Pi** | CI: plain/`done`, single tool/`running_tool`, parallel tools, failing tool result recovery, terminal API error/`errored`. Fixtures cover abandoned branches, parallel pending-then-thinking transitions, usage/cost totals, `aborted`/`interrupted`, compaction on the active branch, an unknown entry type that still ends the turn, and idle. | A `deferred` stop reason has no real session, so no fixture claims it. Helpers/approval are unsupported by design. | High → covered core |
+| **Claude Code** | CI: plain, approval/pending/bypass, API errors, non-ASCII, long output, ask-user, plan exit, mid-tool interrupt, accept-edits. Fixtures: approval stall, background helpers, firm turn ends, late prompt, rejected tool/interrupt, cost/idle checkpoints. Local drivers also cover background-agent, resume, compaction and mode/model. | The background-agent driver is not stable across the pinned versions: 2.1.281 keeps `pendingBackgroundAgentCount` at 2 after the outer task notification while 2.1.310 reaches done. A dedicated multi-tool fixture is still missing. | Medium |
 | **Codex** | CI: plain, token usage, on-request inferred approval, never running, ask-user, parallel tools, abort, task error, resume. Fixtures cover approval modes and resumed sessions. | Idle checkpoint and a committed unknown-record fixture. | Low |
-| **Gemini CLI** | CI: plain and completed-tool turns. Fixture: `error` exercises the adapter's terminal `type:error` mapping. | No real `type:error` driver path: 0.65.0 rewinds the prompt on an API failure. No interrupted or multi-tool fixture yet. Follow-up: #108. | Medium |
-| **OpenCode** | CI: plain and tool turns. Fixtures: live `tool-running`/inferred approval, pending `question`/firm `awaiting_answer`, `step-finish aborted`/interrupted. | Error `step-finish`, multi-tool, and child-session/background fixtures. Follow-up: #108. | Medium |
-| **Claude Desktop** | Offline Xvfb stand-in; fixtures cover plain, tool-turn, tool-stall, terminal error and `terminal_reason: aborted_streaming` interruption. | No committed redacted live Desktop capture; adopter still `ported-unverified`. Follow-up: #108. | Medium |
-| **Cursor** | Handmade transcript covers thinking, running, done, errored, pending `AskUserQuestion`/awaiting-answer and user-stop interruption. Synthetic `state.vscdb` covers waiting/approved/denied decisions. | Live approval-wait capture remains the Mac smoke path; Cursor CLI stays out of the mock matrix by design. Follow-up: #108. | Low/Medium |
+| **Gemini CLI** | CI: plain and completed-tool turns. Fixture: `error` exercises the adapter's terminal `type:error` mapping. | No real `type:error` driver path: 0.65.0 rewinds the prompt on an API failure. No interrupted or multi-tool fixture: no real journal shape was found, and the driver is deliberately not invented. | Medium |
+| **OpenCode** | CI: plain and tool turns. Fixtures: live `tool-running`/inferred approval, pending `question`/firm `awaiting_answer`, `step-finish aborted`/interrupted, `step-finish error`/errored, parallel tool parts with one pending call, and a child-session/background parent. | A live interactive TUI approval is still uncaptured; only the pending/running tool part is on disk, so it stays inferred after the stall. | Medium |
+| **Claude Desktop** | Offline Xvfb stand-in; fixtures cover plain, tool-turn, tool-stall, terminal error and `terminal_reason: aborted_streaming` interruption. | No committed redacted live Desktop capture: none was already on disk or in artifacts in this lane, and the live Jev path needs its Actions secret. The adapter stays `ported-unverified`. | Medium |
+| **Cursor** | Handmade transcript covers thinking, running, done, errored, pending `AskUserQuestion`/awaiting-answer and user-stop interruption. Synthetic `state.vscdb` covers waiting/approved/denied decisions. | The Mac-smoke recipe is documented, but a live `AwaitingApproval`/`AwaitingAnswer` snapshot still needs an already-signed-in Mac and Lee interaction; no snapshot was produced in this lane. Cursor CLI stays out of the mock matrix by design. | Low/Medium |
+
+## Deferred after #108
+
+These are deliberate, evidence-backed gaps rather than silent skips:
+
+- **Pi `deferred` stop reason:** no real session was found in the local Pi corpus, so the
+  adapter keeps it as `Meta` and no fixture claims a terminal state.
+- **Gemini interrupted/multi-tool:** 0.65.0 rewinds a failed prompt and does not write a
+  pending tool call. No real journal shape exists for these paths, so no driver expectation
+  was invented.
+- **Claude Code background-agent CI:** the driver works on 2.1.310 but the pinned 2.1.281
+  leaves the parent's pending background count at 2 after the outer task notification. It
+  remains a local driver until the pinned-version behavior is reconciled.
+- **Claude Desktop live capture:** the offline stand-in and handmade fixtures are committed,
+  but no redacted live Jev capture was already available; starting an auth-dependent Desktop
+  chase is out of scope for this lane.
+- **Cursor live approval snapshot:** the recipe is in `harness-ci/cursor/mac-smoke.md`, but
+  the capture still requires Lee's already-signed-in Mac. CI keeps the synthetic `state.vscdb`
+  and transcript fixtures and does not add a Cursor Desktop stand-in or live login.
 
 ## Known behavior fixed by this audit
 
