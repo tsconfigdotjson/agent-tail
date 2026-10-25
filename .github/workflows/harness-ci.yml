@@ -192,6 +192,106 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  codex:
+    name: Codex ${{ matrix.version }} on ${{ matrix.os }}
+    needs: [unit]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: "0.160.1"
+            version: "0.160.1"
+            os: ubuntu-latest
+          - label: "0.160.1"
+            version: "0.160.1"
+            os: macos-latest
+    env:
+      # Codex is pinned to the version that wrote the committed rollout fixtures. It runs
+      # against the same local mock and never receives a real OpenAI credential.
+      HARNESS_CI_REQUIRE_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.88
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustc --version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Codex ${{ matrix.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          requested='${{ matrix.version }}'
+          echo "npm latest: $(npm view @openai/codex version)"
+          prefix="$RUNNER_TEMP/codex-$requested"
+          npm install --prefix "$prefix" --no-save --no-audit --no-fund "@openai/codex@$requested"
+          bin="$prefix/node_modules/.bin/codex"
+          actual="$("$bin" --version | head -n1 | awk '{print $2}')"
+          test -n "$actual"
+          if [[ "$actual" != "$requested" ]]; then
+            echo "installed $actual, wanted $requested" >&2
+            exit 1
+          fi
+          echo "$prefix/node_modules/.bin" >> "$GITHUB_PATH"
+          echo "CODEX_VERSION=$actual" >> "$GITHUB_ENV"
+          echo "CODEX_BIN=$bin" >> "$GITHUB_ENV"
+          echo "Testing Codex $actual"
+
+      - name: Build harness-ci explicitly
+        working-directory: harness-ci
+        run: cargo build -p harness-driver --release --locked
+
+      - name: Run Codex scenarios offline
+        shell: bash
+        run: |
+          set -uo pipefail
+          runs="$RUNNER_TEMP/codex-runs"
+          rm -rf "$runs"
+          mkdir -p "$runs"
+          failed=0
+          while IFS= read -r scenario; do
+            [[ -z "$scenario" || "$scenario" == \#* ]] && continue
+            echo "::group::$scenario ($CODEX_VERSION on ${{ runner.os }})"
+            if ! harness-ci/ci/offline-run.sh \
+              "$PWD/harness-ci/target/release/harness-driver" \
+              --scenario "$PWD/harness-ci/driver/scenarios/$scenario.json" \
+              --out "$runs/$scenario"; then
+              failed=1
+            fi
+            echo "::endgroup::"
+          done < harness-ci/ci/scenarios-codex.txt
+          exit "$failed"
+
+      - name: Survey transcript shape
+        if: always()
+        run: |
+          python3 harness-ci/ci/survey.py survey \
+            --runs "$RUNNER_TEMP/codex-runs" \
+            --harness codex \
+            --version "$CODEX_VERSION" \
+            --os "${{ runner.os }}" \
+            --out "$RUNNER_TEMP/codex-runs/shape.json"
+
+      - name: Upload runs and shape
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-${{ matrix.version }}-${{ runner.os }}
+          path: ${{ runner.temp }}/codex-runs
+          if-no-files-found: warn
+          retention-days: 7
+
   drift:
     name: Nightly drift PR
     needs: [unit, harness]

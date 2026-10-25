@@ -1,0 +1,14 @@
+{
+  "name": "codex_turn_aborted",
+  "description": "A delayed answer so Esc writes turn_aborted with reason=interrupted.",
+  "steps": [
+    {
+      "expect": { "user_contains": "long answer" },
+      "reply": {
+        "content": [{ "type": "text", "text": "This answer should never arrive." }],
+        "usage": { "input_tokens": 10, "output_tokens": 5 },
+        "fault": { "type": "slow_first_token", "delay_ms": 30000 }
+      }
+    }
+  ]
+}

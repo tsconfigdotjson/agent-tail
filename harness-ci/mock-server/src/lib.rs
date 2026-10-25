@@ -255,6 +255,45 @@ fn title_text(_body: &Value, override_title: Option<&str>) -> String {
     json!({"title": title}).to_string()
 }
 
+/// Codex asks for a one-line task title on its own Responses request. Like Claude's title
+/// request, it is not a scenario step: answer it with a fixed title and leave the script alone.
+fn is_codex_title_request(body: &Value) -> bool {
+    body.get("input").is_some_and(|input| {
+        input.as_str().is_some_and(|text| text.contains("single-line task title"))
+            || input.as_array().is_some_and(|items| {
+                items.iter().any(|item| {
+                    item.get("content").is_some_and(|content| {
+                        content.as_str().is_some_and(|text| text.contains("single-line task title"))
+                            || content.as_array().is_some_and(|parts| {
+                                parts.iter().any(|part| {
+                                    part.get("text")
+                                        .and_then(Value::as_str)
+                                        .is_some_and(|text| text.contains("single-line task title"))
+                                })
+                            })
+                    })
+                })
+            })
+    })
+}
+
+fn openai_title_response(body: &Value, override_title: Option<&str>) -> Response {
+    let reply = scenario::Reply {
+        model: None,
+        content: vec![scenario::Block::Text { text: override_title.unwrap_or("Mock session title").to_string() }],
+        stop_reason: None,
+        usage: Default::default(),
+        fault: None,
+    };
+    let model = body.get("model").and_then(Value::as_str).unwrap_or("gpt-5");
+    let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(true);
+    if stream {
+        sse_response(openai::stream_events(9000, model, &reply, "end_turn"))
+    } else {
+        Json(openai::response(9000, model, &reply, "end_turn")).into_response()
+    }
+}
+
 fn title_response(body: &Value, override_title: Option<&str>) -> Response {
     let reply = Step {
         expect: Default::default(),
@@ -289,6 +328,10 @@ async fn openai_responses(State(state): State<Arc<MockState>>, body: Bytes) -> R
             return fail(StatusCode::BAD_REQUEST, format!("request is not JSON: {error}"), Api::OpenAi);
         }
     };
+    if is_codex_title_request(&body) {
+        state.log_simple("POST", "/v1/responses?source=title");
+        return openai_title_response(&body, state.scenario.title.as_deref());
+    }
     let (index, step) = match state.take_step(Api::OpenAi, "/v1/responses", &body) {
         Ok(found) => found,
         Err(error) => return failure_response(error, Api::OpenAi),
@@ -492,6 +535,25 @@ mod tests {
         let (status, body) = post(app, "/v1/responses", json!({"stream": false, "input": "hi"})).await;
         assert_eq!(status, StatusCode::OK);
         assert!(body.contains("resp_mock_0"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn a_codex_title_request_does_not_consume_a_step() {
+        let app = router(state(vec![text_step("hello")]));
+        let title = json!({
+            "stream": false,
+            "input": [{
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "Generate a concise, single-line task title of at most 36 characters."}]
+            }]
+        });
+        let (status, body) = post(app.clone(), "/v1/responses", title).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("Mock session title"), "{body}");
+        let (status, body) = post(app, "/v1/responses", json!({"stream": false, "input": "hi"})).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("hello"), "{body}");
     }
 
     fn with_user(text: &str, user: &str, tool: Option<bool>) -> Step {

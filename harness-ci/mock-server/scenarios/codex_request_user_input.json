@@ -1,0 +1,39 @@
+{
+  "name": "codex_request_user_input",
+  "description": "Plan mode asks one request_user_input question, then completes after the answer.",
+  "steps": [
+    {
+      "expect": { "user_contains": "ask me which color" },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "request_user_input",
+            "input": {
+              "questions": [
+                {
+                  "id": "color",
+                  "header": "Color",
+                  "question": "Which color should the app use?",
+                  "options": [
+                    { "label": "Blue (Recommended)", "description": "Use blue." },
+                    { "label": "Green", "description": "Use green." }
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "usage": { "input_tokens": 10, "output_tokens": 20 },
+        "fault": { "type": "slow_first_token", "delay_ms": 800 }
+      }
+    },
+    {
+      "expect": { "has_tool_result": true },
+      "reply": {
+        "content": [{ "type": "text", "text": "Thanks for choosing a color." }],
+        "usage": { "input_tokens": 30, "output_tokens": 8 }
+      }
+    }
+  ]
+}

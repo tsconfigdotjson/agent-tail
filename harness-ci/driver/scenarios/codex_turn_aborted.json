@@ -1,0 +1,11 @@
+{
+  "name": "codex_turn_aborted",
+  "description": "Esc while the model is delayed writes turn_aborted reason=interrupted.",
+  "harness": "codex",
+  "mock": "../../mock-server/scenarios/codex_turn_aborted.json",
+  "prompt": "long answer please",
+  "keys": [{ "on": "working", "send": "\u001b", "occurrence": 0, "after_ms": 2000 }],
+  "run_for_ms": 12000,
+  "expected_activity": [{ "activity": "interrupted", "when": "end", "screen": "idle", "certainty": "firm" }],
+  "expect_observations": { "codex_turn_abort_reasons": ["interrupted"] }
+}

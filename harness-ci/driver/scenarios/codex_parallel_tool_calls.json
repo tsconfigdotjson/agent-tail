@@ -1,0 +1,10 @@
+{
+  "name": "codex_parallel_tool_calls",
+  "description": "Three function calls before any output; the turn ends only after all three results.",
+  "harness": "codex",
+  "mock": "../../mock-server/scenarios/codex_parallel_tool_calls.json",
+  "prompt": "run three commands",
+  "run_for_ms": 16000,
+  "expected_activity": [{ "activity": "done", "when": "end", "screen": "idle", "certainty": "firm" }],
+  "expect_observations": { "codex_min_pending_function_calls": 3 }
+}

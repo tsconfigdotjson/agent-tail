@@ -1,0 +1,20 @@
+{
+  "name": "codex_token_count",
+  "description": "Two Codex turns; token_count reports a running session total after each.",
+  "steps": [
+    {
+      "expect": { "user_contains": "say hello" },
+      "reply": {
+        "content": [{ "type": "text", "text": "Hello from the mock." }],
+        "usage": { "input_tokens": 10, "output_tokens": 5 }
+      }
+    },
+    {
+      "expect": { "user_contains": "now say goodbye" },
+      "reply": {
+        "content": [{ "type": "text", "text": "Goodbye from the mock." }],
+        "usage": { "input_tokens": 20, "output_tokens": 7 }
+      }
+    }
+  ]
+}

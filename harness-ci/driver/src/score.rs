@@ -579,6 +579,8 @@ pub struct Observations {
     pub lean: Option<LeanNote>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sessions: Option<SessionsNote>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex: Option<CodexNote>,
 }
 
 impl Observations {
@@ -596,7 +598,56 @@ impl Observations {
             && self.text.is_none()
             && self.lean.is_none()
             && self.sessions.is_none()
+            && self.codex.is_none()
     }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct CodexNote {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub approval_policies: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sandbox_policies: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub approval_events: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub turn_aborts: Vec<CodexAbort>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub task_errors: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub token_totals: Vec<CodexTokens>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub threads: Vec<CodexThread>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub session_index: Vec<CodexIndexEntry>,
+    pub max_pending_function_calls: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CodexAbort {
+    pub reason: Option<String>,
+    pub duration_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CodexTokens {
+    pub input_tokens: Option<u64>,
+    pub cached_input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub total_tokens: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CodexThread {
+    pub id: String,
+    pub files: usize,
+    pub prompts: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CodexIndexEntry {
+    pub id: Option<String>,
+    pub thread_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -685,6 +736,24 @@ pub struct RegistryExpect {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ObserveExpect {
+    #[serde(default)]
+    pub codex_approval_policies: Vec<String>,
+    #[serde(default)]
+    pub codex_sandbox_policies: Vec<String>,
+    #[serde(default)]
+    pub codex_no_approval_events: Option<bool>,
+    #[serde(default)]
+    pub codex_turn_abort_reasons: Vec<String>,
+    #[serde(default)]
+    pub codex_task_error_contains: Vec<String>,
+    #[serde(default)]
+    pub codex_token_output_totals: Vec<u64>,
+    #[serde(default)]
+    pub codex_same_file_resume: Option<bool>,
+    #[serde(default)]
+    pub codex_min_pending_function_calls: Option<usize>,
+    #[serde(default)]
+    pub codex_session_index_titles: Vec<String>,
     #[serde(default)]
     pub compaction_triggers: Vec<String>,
     #[serde(default)]
@@ -837,7 +906,171 @@ fn observe_run(request: &ScoreRequest<'_>) -> Observations {
     observations.text = text_note(&records);
     observations.lean = lean_note(request.transcripts);
     observations.sessions = sessions_note(request);
+    if request.harness == "codex" {
+        observations.codex = codex_note(&files);
+    }
     observations
+}
+
+fn codex_note(files: &[(String, Vec<Value>)]) -> Option<CodexNote> {
+    let mut note = CodexNote::default();
+    let mut thread_files: BTreeMap<String, usize> = BTreeMap::new();
+    let mut thread_prompts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut pending_calls: BTreeSet<String> = BTreeSet::new();
+    for (name, records) in files {
+        let file_id = records.iter().find_map(codex_session_id);
+        if let Some(id) = &file_id {
+            *thread_files.entry(id.clone()).or_default() += 1;
+        }
+        for record in records {
+            let kind = record.get("type").and_then(Value::as_str).unwrap_or_default();
+            let payload = record.get("payload").unwrap_or(&Value::Null);
+            let payload_type = payload.get("type").and_then(Value::as_str).unwrap_or_default();
+            if kind == "turn_context" {
+                if let Some(policy) = payload.get("approval_policy").and_then(Value::as_str)
+                    && !note.approval_policies.iter().any(|seen| seen == policy)
+                {
+                    note.approval_policies.push(policy.to_string());
+                }
+                if let Some(sandbox) =
+                    payload.get("sandbox_policy").and_then(|value| value.get("type")).and_then(Value::as_str)
+                    && !note.sandbox_policies.iter().any(|seen| seen == sandbox)
+                {
+                    note.sandbox_policies.push(sandbox.to_string());
+                }
+            }
+            if codex_approval_event(kind, payload_type) && !note.approval_events.iter().any(|seen| seen == payload_type)
+            {
+                note.approval_events.push(if payload_type.is_empty() {
+                    kind.to_string()
+                } else {
+                    payload_type.to_string()
+                });
+            }
+            if kind == "event_msg" && payload_type == "turn_aborted" {
+                note.turn_aborts.push(CodexAbort {
+                    reason: payload.get("reason").and_then(Value::as_str).map(str::to_string),
+                    duration_ms: payload.get("duration_ms").and_then(Value::as_u64),
+                });
+            }
+            if kind == "event_msg"
+                && matches!(payload_type, "task_complete" | "turn_complete")
+                && let Some(error) = codex_task_error(payload)
+            {
+                note.task_errors.push(error.to_string());
+            }
+            if kind == "event_msg"
+                && payload_type == "token_count"
+                && let Some(total) =
+                    payload.get("info").and_then(|info| info.get("total_token_usage")).filter(|v| !v.is_null())
+            {
+                note.token_totals.push(CodexTokens {
+                    input_tokens: total.get("input_tokens").and_then(Value::as_u64),
+                    cached_input_tokens: total.get("cached_input_tokens").and_then(Value::as_u64),
+                    output_tokens: total.get("output_tokens").and_then(Value::as_u64),
+                    total_tokens: total.get("total_tokens").and_then(Value::as_u64),
+                });
+            }
+            if kind == "response_item"
+                && matches!(payload_type, "function_call" | "custom_tool_call")
+                && let Some(id) = payload.get("call_id").and_then(Value::as_str).filter(|id| !id.is_empty())
+            {
+                pending_calls.insert(id.to_string());
+                note.max_pending_function_calls = note.max_pending_function_calls.max(pending_calls.len());
+            }
+            if kind == "response_item"
+                && matches!(payload_type, "function_call_output" | "custom_tool_call_output")
+                && let Some(id) = payload.get("call_id").and_then(Value::as_str)
+            {
+                pending_calls.remove(id);
+            }
+            if kind == "event_msg"
+                && payload_type == "item_completed"
+                && payload.get("item").and_then(|item| item.get("type")).and_then(Value::as_str) == Some("UserMessage")
+            {
+                let id =
+                    payload.get("thread_id").and_then(Value::as_str).map(str::to_string).or_else(|| file_id.clone());
+                if let Some(id) = id {
+                    *thread_prompts.entry(id).or_default() += 1;
+                }
+            }
+            if kind == "event_msg" && payload_type == "user_message" {
+                let id = file_id.clone();
+                if let Some(id) = id {
+                    *thread_prompts.entry(id).or_default() += 1;
+                }
+            }
+        }
+        if name == "session_index.jsonl" {
+            for record in records {
+                let Some(title) = record.get("thread_name").and_then(Value::as_str).filter(|title| !title.is_empty())
+                else {
+                    continue;
+                };
+                note.session_index.push(CodexIndexEntry {
+                    id: record.get("id").and_then(Value::as_str).map(str::to_string),
+                    thread_name: title.to_string(),
+                });
+            }
+        }
+    }
+    let ids: BTreeSet<String> = thread_files.keys().chain(thread_prompts.keys()).cloned().collect();
+    note.threads = ids
+        .into_iter()
+        .map(|id| CodexThread {
+            files: thread_files.get(&id).copied().unwrap_or(0),
+            prompts: thread_prompts.get(&id).copied().unwrap_or(0),
+            id,
+        })
+        .collect();
+    if note.approval_policies.is_empty()
+        && note.sandbox_policies.is_empty()
+        && note.approval_events.is_empty()
+        && note.turn_aborts.is_empty()
+        && note.task_errors.is_empty()
+        && note.token_totals.is_empty()
+        && note.threads.is_empty()
+        && note.session_index.is_empty()
+        && note.max_pending_function_calls == 0
+    {
+        None
+    } else {
+        Some(note)
+    }
+}
+
+fn codex_session_id(record: &Value) -> Option<String> {
+    if record.get("type").and_then(Value::as_str) != Some("session_meta") {
+        return None;
+    }
+    let payload = record.get("payload")?;
+    payload
+        .get("id")
+        .or_else(|| payload.get("session_id"))
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+}
+
+fn codex_task_error(payload: &Value) -> Option<&str> {
+    payload
+        .get("error")
+        .and_then(|error| error.as_str().or_else(|| error.get("message").and_then(Value::as_str)))
+        .filter(|error| !error.is_empty())
+}
+
+fn codex_approval_event(kind: &str, payload_type: &str) -> bool {
+    const EVENTS: [&str; 8] = [
+        "exec_approval_request",
+        "apply_patch_approval_request",
+        "request_permissions",
+        "request_user_input",
+        "elicitation_request",
+        "exec_command_begin",
+        "exec_command_end",
+        "error",
+    ];
+    EVENTS.contains(&kind) || (!payload_type.is_empty() && EVENTS.contains(&payload_type))
 }
 
 fn compaction_notes(files: &[(String, Vec<Value>)]) -> Vec<CompactionNote> {
@@ -1141,6 +1374,58 @@ fn unmet_observations(request: &ScoreRequest<'_>) -> Vec<String> {
             let got = observations.lean.as_ref().map(|note| note.max_tool_result_bytes).unwrap_or(0);
             if got < want {
                 failures.push(format!("tool result was {got} bytes, want at least {want}"));
+            }
+        }
+        if let Some(codex) = &observations.codex {
+            for policy in &expect.codex_approval_policies {
+                if !codex.approval_policies.iter().any(|seen| seen == policy) {
+                    failures.push(format!("Codex approval policy {policy} was not recorded"));
+                }
+            }
+            for sandbox in &expect.codex_sandbox_policies {
+                if !codex.sandbox_policies.iter().any(|seen| seen == sandbox) {
+                    failures.push(format!("Codex sandbox policy {sandbox} was not recorded"));
+                }
+            }
+            if expect.codex_no_approval_events == Some(true) && !codex.approval_events.is_empty() {
+                failures.push(format!("Codex wrote approval events: {}", codex.approval_events.join(", ")));
+            }
+            for reason in &expect.codex_turn_abort_reasons {
+                if !codex.turn_aborts.iter().any(|abort| abort.reason.as_deref() == Some(reason)) {
+                    failures.push(format!("Codex turn_aborted reason {reason} was not recorded"));
+                }
+            }
+            for text in &expect.codex_task_error_contains {
+                if !codex.task_errors.iter().any(|error| error.contains(text)) {
+                    failures.push(format!("Codex task_complete.error did not contain {text:?}"));
+                }
+            }
+            if !expect.codex_token_output_totals.is_empty() {
+                let got: Vec<u64> = codex.token_totals.iter().filter_map(|total| total.output_tokens).collect();
+                if got != expect.codex_token_output_totals {
+                    failures.push(format!(
+                        "Codex token_count output totals were {got:?}, want {:?}",
+                        expect.codex_token_output_totals
+                    ));
+                }
+            }
+            if expect.codex_same_file_resume == Some(true)
+                && !codex.threads.iter().any(|thread| thread.files == 1 && thread.prompts >= 2)
+            {
+                failures.push("Codex resume did not continue in the same file".into());
+            }
+            if let Some(want) = expect.codex_min_pending_function_calls
+                && codex.max_pending_function_calls < want
+            {
+                failures.push(format!(
+                    "Codex had at most {} pending function calls, want at least {want}",
+                    codex.max_pending_function_calls
+                ));
+            }
+            for title in &expect.codex_session_index_titles {
+                if !codex.session_index.iter().any(|entry| &entry.thread_name == title) {
+                    failures.push(format!("Codex session_index title {title:?} was not recorded"));
+                }
             }
         }
     }
@@ -2542,5 +2827,65 @@ not json
         assert!(scored.failures.iter().any(|failure| failure.contains("was not waiting")), "{:?}", scored.failures);
         assert!(scored.failures.iter().any(|failure| failure.contains("still present")), "{:?}", scored.failures);
         assert!(scored.failures.iter().any(|failure| failure.contains("waitingFor")), "{:?}", scored.failures);
+    }
+    #[test]
+    fn codex_observations_cover_policies_events_tokens_parallelism_and_titles() {
+        let rows = r#"
+{"type":"session_meta","payload":{"id":"codex-session","session_id":"codex-session","cwd":"/w/app"}}
+{"type":"turn_context","payload":{"approval_policy":"on-request","sandbox_policy":{"type":"workspace-write"}}}
+{"type":"response_item","payload":{"type":"function_call","name":"exec_command","call_id":"c1","arguments":"{}"}}
+{"type":"response_item","payload":{"type":"function_call","name":"exec_command","call_id":"c2","arguments":"{}"}}
+{"type":"response_item","payload":{"type":"function_call","name":"exec_command","call_id":"c3","arguments":"{}"}}
+{"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"ok"}}
+{"type":"event_msg","payload":{"type":"item_completed","thread_id":"codex-session","item":{"type":"UserMessage","content":[{"type":"text","text":"first"}]}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5,"total_tokens":15}}}}
+{"type":"event_msg","payload":{"type":"turn_aborted","reason":"interrupted","duration_ms":2000}}
+{"type":"event_msg","payload":{"type":"item_completed","thread_id":"codex-session","item":{"type":"UserMessage","content":[{"type":"text","text":"second"}]}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":30,"cached_input_tokens":2,"output_tokens":12,"total_tokens":42}}}}
+{"type":"event_msg","payload":{"type":"task_complete","error":{"message":"high demand","codex_error_info":"internal_server_error"}}}
+"#;
+        let index = r#"{"id":"codex-session","thread_name":"Codex title","updated_at":"2026-10-24T00:00:00Z"}"#;
+        let dumps = [dump("rollout.jsonl", rows), dump("session_index.jsonl", index)];
+        let expect = ObserveExpect {
+            codex_approval_policies: vec!["on-request".into()],
+            codex_sandbox_policies: vec!["workspace-write".into()],
+            codex_no_approval_events: Some(true),
+            codex_turn_abort_reasons: vec!["interrupted".into()],
+            codex_task_error_contains: vec!["high demand".into()],
+            codex_token_output_totals: vec![5, 12],
+            codex_same_file_resume: Some(true),
+            codex_min_pending_function_calls: Some(3),
+            codex_session_index_titles: vec!["Codex title".into()],
+            ..ObserveExpect::default()
+        };
+        let scored = score(&ScoreRequest {
+            scenario: "codex",
+            description: None,
+            harness: "codex",
+            no_approval: false,
+            expected: &[],
+            samples: &[],
+            mock_requests: 0,
+            remaining_mock_steps: 0,
+            transcript: None,
+            min_screen_ms: &BTreeMap::new(),
+            transcripts: &dumps,
+            helpers: &[],
+            registry: &[],
+            registry_fields: &[],
+            registry_files_after_exit: None,
+            expect_registry: None,
+            expect_observations: Some(&expect),
+        });
+        assert!(scored.failures.is_empty(), "{:?}", scored.failures);
+        let codex = scored.observations.codex.expect("codex observations");
+        assert!(codex.approval_events.is_empty());
+        assert_eq!(codex.max_pending_function_calls, 3);
+        assert_eq!(codex.turn_aborts[0].reason.as_deref(), Some("interrupted"));
+        assert_eq!(codex.task_errors, vec!["high demand".to_string()]);
+        assert_eq!(codex.token_totals[1].output_tokens, Some(12));
+        assert_eq!(codex.threads[0].files, 1);
+        assert_eq!(codex.threads[0].prompts, 2);
+        assert_eq!(codex.session_index[0].thread_name, "Codex title");
     }
 }

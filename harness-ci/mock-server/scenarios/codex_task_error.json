@@ -1,0 +1,13 @@
+{
+  "name": "codex_task_error",
+  "description": "A terminal HTTP 500 so task_complete carries an error object.",
+  "steps": [
+    {
+      "expect": { "user_contains": "please fail" },
+      "reply": {
+        "content": [{ "type": "text", "text": "unused" }],
+        "fault": { "type": "http", "status": 500, "message": "scripted model failure" }
+      }
+    }
+  ]
+}

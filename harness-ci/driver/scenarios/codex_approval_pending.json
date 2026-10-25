@@ -1,0 +1,15 @@
+{
+  "name": "codex_approval_pending",
+  "description": "on-request: a command asks for escalation and is left pending on screen.",
+  "harness": "codex",
+  "mock": "../../mock-server/scenarios/codex_approval_pending.json",
+  "prompt": "run the command",
+  "run_for_ms": 24000,
+  "expected_activity": [
+    { "activity": "awaiting_approval", "when": "end", "screen": "permission_prompt", "certainty": "inferred" }
+  ],
+  "expect_observations": {
+    "codex_approval_policies": ["on-request"],
+    "codex_no_approval_events": true
+  }
+}

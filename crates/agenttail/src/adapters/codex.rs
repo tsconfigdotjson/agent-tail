@@ -74,7 +74,7 @@ impl Adapter for Codex {
             }
             ("event_msg", "task_started" | "turn_started") => s.set(Last::Prompt, t),
             ("event_msg", "task_complete" | "turn_complete") => {
-                if let Some(error) = p["error"].as_str().filter(|e| !e.is_empty()) {
+                if let Some(error) = task_error(p) {
                     s.set_error(error, t);
                 } else {
                     s.set(Last::EndTurn, t);
@@ -122,6 +122,13 @@ fn prompts_from(s: &mut Session, kind: &str) -> bool {
     }
     s.seen.insert(format!("prompts:{kind}"));
     true
+}
+
+fn task_error(p: &Value) -> Option<&str> {
+    p["error"]
+        .as_str()
+        .filter(|error| !error.is_empty())
+        .or_else(|| p["error"]["message"].as_str().filter(|error| !error.is_empty()))
 }
 
 fn prompt(s: &mut Session, text: &str, t: f64) {
@@ -489,6 +496,15 @@ mod tests {
         let s = session(&[event("event_msg", json!({"type": "task_complete", "error": "stream disconnected"}))]);
         assert_eq!(s.last, Last::Errored);
         assert_eq!(s.error.as_deref(), Some("stream disconnected"));
+        assert_eq!(status(&s), (Status::Done, "done"));
+
+        // 0.160 writes an object: {"message": ..., "codex_error_info": ...}.
+        let s = session(&[event(
+            "event_msg",
+            json!({"type": "task_complete", "error": {"message": "high demand", "codex_error_info": "internal_server_error"}}),
+        )]);
+        assert_eq!(s.last, Last::Errored);
+        assert_eq!(s.error.as_deref(), Some("high demand"));
         assert_eq!(status(&s), (Status::Done, "done"));
     }
 

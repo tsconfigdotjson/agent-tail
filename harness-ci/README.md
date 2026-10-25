@@ -176,7 +176,7 @@ A scenario is a list of steps:
 - Claude Code's separate session-title request is answered with a fixed title and does not
   consume a step. Without that, the title request steals the scripted first reply.
 
-Codex's OpenAI Responses subset is implemented (`/v1/responses`), but its CLI spike is A4.
+Codex's OpenAI Responses subset is implemented (`/v1/responses`); A4 exercises it from the live CLI.
 
 ## A2: PTY driver (`driver/`)
 
@@ -274,9 +274,8 @@ Samples within 1 s of an agreeing sample are the write-latency allowance. `start
 
 ### Remaining A0/A2 work
 
-- Codex CLI is not installed on this machine. Its `model_providers` / `CODEX_HOME` spike is
-  still to do (issue A4). The Codex and Cursor screen readers return `unknown` until those
-  spikes capture real panes; they do not reuse Claude's strings.
+- Codex is covered by the A4 section above and its own screen-reader tests. Cursor still has no
+  real PTY capture; its screen reader returns `unknown` and does not reuse Claude's strings.
 - Claude screen readers cover the permission prompt, an ask-the-user question (including the
   plan-exit dialog and `accept edits` / `plan mode` idle footers), the idle composer, the
   spinner / working line, an error banner, and the settled interrupt composer
@@ -362,9 +361,10 @@ explicitly. The root `cargo test` still does not build it.
 - **PR/push:** one `unit` job runs `cargo fmt --check`, `cargo clippy -D warnings`, the driver and
   mock-server tests, and the Python survey tests. The `harness` matrix runs Claude Code
   **2.1.281**, **2.1.310** and npm **latest**, each on **ubuntu-latest** and **macos-latest**.
-  Every job installs the CLI from npm into `$RUNNER_TEMP`, checks the reported version, builds
-  `harness-driver --release`, and runs `ci/scenarios.txt` sequentially. A hard scoring failure
-  fails the job; run artifacts are uploaded even when a scenario fails.
+  A separate `codex` job runs pinned Codex **0.160.1** on both OSes with
+  `ci/scenarios-codex.txt`. Every job installs the CLI from npm into `$RUNNER_TEMP`, checks the
+  reported version, builds `harness-driver --release`, and runs its scenarios sequentially. A
+  hard scoring failure fails the job; run artifacts are uploaded even when a scenario fails.
 - **Offline:** `ci/offline-run.sh` wraps each driver in `sandbox-exec -f offline.sb` on macOS and
   in a fresh network namespace with loopback up on Linux. CI sets
   `HARNESS_CI_REQUIRE_OFFLINE=1`, so a host that cannot enforce either one fails instead of
@@ -382,10 +382,113 @@ explicitly. The root `cargo test` still does not build it.
 - **Proof:** `drift/reports/claude-code-2.1.281-to-2.1.310.md` is the report from running the
   same suite on both versions locally. It catches the new `api-request*` records, `turnPosition`,
   `renderedRole`/`renderedBesideToolResult`, request fields and permission-decision fields.
-- **Deferred:** Codex is not in the matrix yet: the CLI spike (A4) and its scenarios are still
-  missing, and no real API key may be used. Cursor likewise stays out. The
+- **Deferred:** Cursor stays out: it has no offline CLI path yet. The
   `cargo bench --bench first_read` `/usr/bin/time` budget (QUESTIONS.md #10) is not wired here;
   it belongs with the Phase C performance budget.
+
+## A4: Codex real-harness spike and scenarios (2026-10-24)
+
+Codex CLI **0.160.1** (the version that wrote the committed rollout fixtures) runs fully
+offline against the mock. npm latest at spike time was 0.164.0; the harness matrix pins
+0.160.1 because the scenario shapes and `sessions/YYYY/MM/DD` rollout format are the ones the
+repository already reads.
+
+### Pointing it at the mock
+
+Install into a temp prefix and give it a temp `CODEX_HOME`:
+
+```sh
+npm install --prefix "$TMP/codex" --no-save @openai/codex@0.160.1
+HOME="$TMP/home" CODEX_HOME="$TMP/home/.codex" "$TMP/codex/node_modules/.bin/codex" --no-daemon
+```
+
+`$CODEX_HOME/config.toml` uses a custom provider (the current docs' `model_providers` /
+`base_url` / `env_key` / `wire_api` fields):
+
+```toml
+model = "gpt-5.4"
+model_provider = "mock"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[tui]
+disable_paste_burst = true
+animations = false
+
+[model_providers.mock]
+name = "Mock"
+base_url = "http://127.0.0.1:<mock-port>/v1"
+env_key = "MOCK_API_KEY"
+wire_api = "responses"
+request_max_retries = 0
+stream_max_retries = 0
+```
+
+The driver writes that file, supplies `MOCK_API_KEY=dummy-key`, and starts Codex with
+`--no-daemon`. Without `--no-daemon`, 0.160.1 starts a persistent `app-server --managed-daemon`
+outside the driver's process group and the temp `CODEX_HOME` is held open after the run.
+`--no-daemon` keeps the whole harness inside the PTY driver's lifetime.
+
+Codex honours an absolute `CODEX_HOME`: it is the `.codex` home, and rollouts go to
+`$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`, exactly as `Tracker::from_env` assumes.
+A relative `CODEX_HOME` is resolved by the CLI against its current working directory; the
+tracker deliberately ignores relative values (B8), so CI always sets an absolute temp path.
+`HOME` is still pointed at the temp home, and no real OpenAI credential is read or accepted.
+
+### What the live TUI needed
+
+- Interactive Codex renders `Ask Codex to do anything` when idle, `Working (… · esc to interrupt)`
+  while a turn runs, `Would you like to run the following command?` for an approval, and
+  `Question 1/1 (… unanswered)` / `enter to submit answer` for `request_user_input`.
+- Plan mode is entered with `/plan`; `request_user_input` is only offered in that mode.
+- Codex's paste-burst detection otherwise swallows the immediate Enter after a scripted prompt.
+  `tui.disable_paste_burst = true` makes the driver's type-then-Enter deterministic.
+- Codex asks the model for a one-line thread title on a separate `/v1/responses` request.
+  The mock answers that request with a fixed title and does not consume a scenario step, just
+  like Claude's title request.
+- In 0.160.1 the requested title did **not** create `session_index.jsonl`; the live CLI keeps
+  thread state in its SQLite files. The tracker's `session_index.jsonl` reader (B7) remains
+  covered by the existing fixture tests, but there is no live index for this version to assert.
+
+### Approval events: none are written
+
+A pending approval is only a `response_item/function_call` with no matching
+`function_call_output`. The rollout's `turn_context` records `approval_policy`, and no
+`exec_approval_request`, `apply_patch_approval_request`, `request_permissions`,
+`request_user_input`, `elicitation_request`, `exec_command_begin/end` or `error` event was
+written in the on-request, never, ask-user, parallel, abort or error runs. The scenarios assert
+`codex_no_approval_events: true` for the pending captures. This confirms the prior-art claim for
+0.160.1: a pending approval or ask-user is visible only as a tool call with no output.
+
+`approval_policy = "untrusted"` cannot be exercised on 0.160.1: the CLI exits with
+`approval_policy = "untrusted" is no longer supported`, and `-a` only accepts `on-request` and
+`never`. The current Codex docs mark `untrusted` retired. The scenario therefore leaves an
+on-request escalation pending; the adapter still parses `untrusted` for older rollouts.
+
+### Scenario matrix
+
+| scenario | what it checks |
+|---|---|
+| `codex_plain_qa` | One text turn; firm `done`, the rollout contains `session_meta`, `turn_context`, `task_started`, `token_count`, `task_complete` |
+| `codex_token_count` | Two turns; `token_count.total_token_usage` is a running total (`5` then `12` output tokens) |
+| `codex_approval_pending` | `on-request` + `require_escalated` leaves the command pending on screen; inferred `awaiting_approval` after the 20 s stall, no approval event on disk |
+| `codex_approval_never` | `-a never` keeps a 60 s command `running_tool`/firm on the working screen, never `awaiting_approval` |
+| `codex_request_user_input` | `/plan`, a `request_user_input` question, firm `awaiting_answer` on the ask screen, then `done` after Enter |
+| `codex_parallel_tool_calls` | Three `function_call`s before any output; the mock requires the third call id's result before the text turn; `max_pending_function_calls` is 3 |
+| `codex_turn_aborted` | Esc while delayed writes `turn_aborted.reason = "interrupted"`; firm `interrupted` on the settled composer |
+| `codex_task_error` | Terminal HTTP 500 writes `task_complete.error` as an object (`{"message": …}`); firm `errored` on the error banner |
+| `codex_resume` | `codex resume <id>` appends the second prompt to the same rollout (one file, two prompts); no `continued-in` record |
+
+```sh
+cd harness-ci
+export PATH="$HOME/.cargo/bin:$PATH"
+cargo run -p harness-driver -- --scenario driver/scenarios/codex_plain_qa.json
+```
+
+The live 0.160.1 runs also confirmed `turn_aborted.reason`, `task_complete.error` (an object,
+not a string), resume appending to the same day folder, and no `.jsonl.zst` history from the
+live CLI. Older-day-folder resume and compressed history remain fixture-backed; they need a
+session old enough to have moved folders or been compressed.
 
 Green-path local check (the PTY matrix itself is also run by GHA):
 

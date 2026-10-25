@@ -1,0 +1,10 @@
+# Stable Codex scenarios for the version x OS matrix. Keep this list deterministic.
+codex_plain_qa
+codex_token_count
+codex_approval_pending
+codex_approval_never
+codex_request_user_input
+codex_parallel_tool_calls
+codex_turn_aborted
+codex_task_error
+codex_resume
