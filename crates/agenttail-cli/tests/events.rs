@@ -75,6 +75,7 @@ fn committed_expected_events_match_their_inputs() {
         "pi/1.4/linux/plain-qa",
         "pi/1.4/linux/tool-call",
         "pi/1.4/linux/api-error",
+        "pi/1.4/linux/branched",
         "gemini/0.65.0/linux/plain-qa",
         "gemini/0.65.0/linux/tool",
         "copilot/1.0.103/linux/plain-qa",

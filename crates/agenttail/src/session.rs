@@ -1,6 +1,7 @@
 //! One session's state as its adapter folds transcript entries into it, and the rules that
 //! turn that state (and its age) into an [`Activity`].
 
+use crate::adapters::pi::Branch;
 use crate::harness::Harness;
 use crate::reducer::ReducerOptions;
 use crate::state::{
@@ -186,6 +187,11 @@ pub(crate) struct Session {
     /// State carried across records while they are parsed into events (prompt-format
     /// dedupe and usage high-water marks).
     pub(crate) parse_state: crate::event::ParseState,
+    /// Pi's active branch. Only the leaf's parent chain moves this session's state.
+    pub(crate) pi_branch: Branch,
+    /// Pi entries seen so far, in file order, so a changed leaf can be reduced again
+    /// without re-reading the transcript. Other harnesses leave this empty.
+    pub(crate) pi_records: Vec<Value>,
 }
 
 impl Session {
@@ -230,6 +236,8 @@ impl Session {
             helper_mtime: 0.0,
             db_status: None,
             parse_state: crate::event::ParseState::default(),
+            pi_branch: Branch::default(),
+            pi_records: Vec::new(),
         }
     }
 
@@ -241,9 +249,45 @@ impl Session {
     }
 
     /// Fold one transcript entry into the session through the same normalized events the
-    /// public event layer exposes.
+    /// public event layer exposes. Pi is tree-shaped: an entry that does not extend the
+    /// current leaf makes the active chain change, so the retained entries are reduced again
+    /// (only the new leaf's parent chain).
     pub(crate) fn apply(&mut self, e: &Value) {
-        crate::event::apply_record(self, e);
+        if self.harness != Harness::Pi {
+            crate::event::apply_record(self, e);
+            return;
+        }
+        // Retain the header and id-less records too: a later rebuild must keep session facts
+        // (cwd, id) that are not part of the tree.
+        self.pi_records.push(e.clone());
+        let Some((_id, extends)) = self.pi_branch.observe(e) else {
+            crate::event::apply_record(self, e);
+            return;
+        };
+        if extends {
+            crate::event::apply_record(self, e);
+        } else {
+            self.rebuild_pi();
+        }
+    }
+
+    /// Reduce the retained Pi entries again after the active leaf changed. Normal appends
+    /// stay incremental; this runs only on a branch/switch-back or a duplicate id.
+    fn rebuild_pi(&mut self) {
+        let records = std::mem::take(&mut self.pi_records);
+        let branch = self.pi_branch.clone();
+        let mut fresh = Session::new(self.harness, self.log_lines);
+        fresh.mtime = self.mtime;
+        fresh.helper_mtime = self.helper_mtime;
+        fresh.is_helper = self.is_helper;
+        for record in &records {
+            if branch.on_active_chain(record) {
+                crate::event::apply_record(&mut fresh, record);
+            }
+        }
+        fresh.pi_branch = branch;
+        fresh.pi_records = records;
+        *self = fresh;
     }
 
     /// When the session was last seen at work: its transcript's last write, or a helper's.

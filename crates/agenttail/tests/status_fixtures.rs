@@ -121,7 +121,18 @@ fn every_expected_status_checkpoint_holds() {
                 seen[index] = true;
                 let now = time + std::time::Duration::from_secs_f64(checkpoint["now_offset_s"].as_f64().unwrap());
                 let state = serde_json::to_value(reducer.state(now)).unwrap();
-                for key in ["activity", "certainty", "reason", "permission", "sandbox", "title"] {
+                for key in [
+                    "activity",
+                    "certainty",
+                    "reason",
+                    "permission",
+                    "sandbox",
+                    "title",
+                    "cost_usd",
+                    "out_tokens",
+                    "usage",
+                    "recent",
+                ] {
                     let Some(want) = checkpoint.get(key) else { continue };
                     let got = if key == "title" {
                         state.get("title").or_else(|| state.get("meta").and_then(|meta| meta.get("title")))

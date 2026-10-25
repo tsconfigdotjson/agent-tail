@@ -131,7 +131,19 @@ fn status_runs_every_committed_checkpoint_file() {
         );
         for line in &got {
             assert_sorted(line);
-            for field in ["activity", "certainty", "reason", "permission", "sandbox", "title", "error"] {
+            for field in [
+                "activity",
+                "certainty",
+                "reason",
+                "permission",
+                "sandbox",
+                "title",
+                "error",
+                "cost_usd",
+                "out_tokens",
+                "usage",
+                "recent",
+            ] {
                 assert!(line.get(field).is_some(), "{}: {field} is always present", scenario.display());
             }
         }

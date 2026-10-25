@@ -12,7 +12,7 @@ artifact yet), and **unsupported** (no discovery spec or adapter).
 | Claude Code | **CI-verified** | 7 | 5 | `2.1.292`, `2.1.310` | 7 CI scenario(s); 0 ci-scripted, 1 donated, 4 hand-made fixture(s) |
 | Codex | **CI-verified** | 9 | 5 | `0.160.1` | 9 CI scenario(s); 0 ci-scripted, 2 donated, 3 hand-made fixture(s) |
 | Cursor | **ported-unverified** | 0 | 2 | unknown | 2 hand-made/synthetic fixture(s); no real capture |
-| Pi | **CI-verified** | 3 | 3 | `1.4.0` | 3 CI scenario(s); 3 ci-scripted, 0 donated, 0 hand-made fixture(s) |
+| Pi | **CI-verified** | 3 | 4 | `1.4.0` | 3 CI scenario(s); 3 ci-scripted, 0 donated, 1 hand-made fixture(s) |
 | OpenCode | **CI-verified** | 2 | 3 | `1.19.4` | 2 CI scenario(s); 3 ci-scripted, 0 donated, 0 hand-made fixture(s) |
 | Gemini CLI | **CI-verified** | 2 | 2 | `0.65.0` | 2 CI scenario(s); 2 ci-scripted, 0 donated, 0 hand-made fixture(s) |
 | GitHub Copilot CLI | **CI-verified** | 3 | 5 | `1.0.103` | 3 CI scenario(s); 3 ci-scripted, 0 donated, 2 hand-made fixture(s) |
@@ -56,6 +56,7 @@ artifact yet), and **unsupported** (no discovery spec or adapter).
 | opencode | `1.19.4` | `linux` | `ci-scripted` | `opencode/1.19.4/linux/tool` |
 | opencode | `1.19.4` | `linux` | `ci-scripted` | `opencode/1.19.4/linux/tool-running` |
 | pi | `1.4.0` | `linux` | `ci-scripted` | `pi/1.4/linux/api-error` |
+| pi | `1.4.0` | `linux` | `handmade` | `pi/1.4/linux/branched` |
 | pi | `1.4.0` | `linux` | `ci-scripted` | `pi/1.4/linux/plain-qa` |
 | pi | `1.4.0` | `linux` | `ci-scripted` | `pi/1.4/linux/tool-call` |
 

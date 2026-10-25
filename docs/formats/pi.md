@@ -117,7 +117,8 @@ cumulative `cost-state`.
 - **Direct shell commands:** role `bashExecution` entries are the user's `!` command output,
   not prompts or model tool calls; they become `Meta`.
 - **Custom/extension entries:** `custom`, `custom_message`, `label`, `context_edit` and
-  `branch_summary` become `Meta` (branch/compaction usage is still counted).
+  `branch_summary` become `Meta` (branch/compaction usage is counted when the entry is on
+  the active branch).
 
 No state is inferred from timing except the existing `idle_after` rule: a Pi session whose
 file was not written for 15 minutes is `Idle` like every other harness. There is no Pi
@@ -135,14 +136,32 @@ new release fails loudly instead of being skipped. The Pi path is transcript/sta
 not PTY-screen scored; Pi's TUI screen reader is not part of this spike. See
 `harness-ci/README.md#a7-pi-real-harness-spike-and-scenarios-2026-10-25`.
 
+## Branches
+
+The session file is an `id`/`parentId` tree, and Pi appends the active branch; the last
+entry in the file is the leaf. `SessionReducer` reduces only that leaf's parent chain for
+status, usage, cost, recent activity and title. An abandoned branch's tool lines, usage,
+title changes and turn ends therefore do not leak into a session's state.
+
+Pi's `branch()` only moves its in-memory leaf pointer. A switch-back becomes visible in the
+file as the next appended entry whose `parentId` is the older leaf. The reducer then
+rebuilds from the entries it has already parsed, retaining the restored ancestors and
+dropping the abandoned ones. Normal appends stay incremental; only a changed leaf triggers
+the replay. Pi's retained entries are the lean-parsed values already used for reduction,
+not a second raw copy of the file.
+
+`parse_lines` remains lossless: it emits events from every record in the file, including
+abandoned branches, with `Event::off_chain: true` on those records. `SessionReducer`
+ignores off-chain events, so `feed` and `feed_events(parse_lines(...))` produce the same
+state. A linear Pi session has no off-chain events and behaves as before.
+
+Compaction is just another entry on the active chain. Its `firstKeptEntryId` controls what
+Pi sends to the model after compaction; it does not prune the session's status/usage chain,
+so usage from active-chain ancestors before the compaction boundary remains counted, as
+does the compaction entry's own usage. An off-chain compaction contributes nothing.
+
 ## Open questions and limits
 
-- **Branches:** the session file is a tree. Pi appends the active branch and the last entry
-  is the leaf, so the latest status is right. But the adapter folds the file in write order,
-  like the other harnesses: entries on abandoned branches remain in the activity log, usage
-  and title history. A branch-heavy session can therefore show older tool lines or count
-  usage from an abandoned path. A branch-aware reducer would need the current leaf and its
-  parent chain, which the incremental tracker does not retain; not claimed.
 - **`deferred`** stop reasons have no observed session. They are kept as `Meta` rather than
   guessed as done or running.
 - **Extension ask tools** are not known. If a Pi extension adds an ask-the-user tool, the

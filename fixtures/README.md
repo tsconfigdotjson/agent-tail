@@ -22,6 +22,7 @@ The seed corpus from tvdash now lives in the versioned layout:
 | `pi/1.4/linux/plain-qa` | Pi 1.4.0 against the local mock: one prompt, one text answer, `stopReason: stop` |
 | `pi/1.4/linux/tool-call` | Pi 1.4.0: a `bash` tool call and result, then the final answer; proves a pending Pi tool is firm `running_tool`, not inferred approval |
 | `pi/1.4/linux/api-error` | Pi 1.4.0 with retries disabled: assistant `stopReason: error` and `errorMessage` |
+| `pi/1.4/linux/branched` | Hand-made Pi 1.4.0 tree: a main prompt, an abandoned tool-call/session-name/usage branch, then an active branch from the original prompt; checkpoints assert that only the active leaf's parent chain moves status, usage, cost, recent lines and title |
 | `opencode/1.19.4/linux/plain-qa` | a real `opencode run` text turn, exported from its SQLite database |
 | `opencode/1.19.4/linux/tool` | a real `opencode run` bash call and the answer after its result |
 | `opencode/1.19.4/linux/tool-running` | a live SQLite snapshot during a `sleep 8` tool call, including the 20 s stall inference |
@@ -48,10 +49,10 @@ A status checkpoint is one JSON object per line:
 
 `after_line` counts entries read after feeding `input/session.jsonl` from the top. `now` for
 that check is the checkpoint line's own timestamp plus `now_offset_s` (so a pending tool is
-checked 30 s after its call). Optional `permission`, `sandbox`, `title` and `error` fields
-are compared when present. `crates/agenttail/tests/status_fixtures.rs` runs every scenario,
-and `agenttail status <input-dir> --checkpoints <file>` runs the same file as the
-language-neutral conformance command (canonical JSON; see
+checked 30 s after its call). Optional `permission`, `sandbox`, `title`, `error`, `cost_usd`,
+`out_tokens`, `usage` and `recent` fields are compared when present. `crates/agenttail/tests/status_fixtures.rs`
+runs every scenario, and `agenttail status <input-dir> --checkpoints <file>` runs the same
+file as the language-neutral conformance command (canonical JSON; see
 [docs/conformance.md](../docs/conformance.md)).
 
 Helpers live under `input/subagents/<agent>.jsonl` with optional

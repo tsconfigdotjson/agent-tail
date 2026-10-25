@@ -514,9 +514,42 @@ and summed; `session_info.name` is the title, falling back to the opening prompt
 custom `anthropic-messages` provider (`baseUrl` without the `/v1` suffix). The driver runs
 `pi --mode json`, tails the real session file with the same reducer, and checks firm
 activities. The GHA matrix installs pinned 1.4.0 and npm latest on Linux and macOS; latest is
-not soft-skipped. The missing piece is branch-aware reduction: Pi stores a tree, and like the
-other adapters this spike folds file order, so abandoned-branch activity/usage remains in the
-log. That is documented, not claimed.
+not soft-skipped.
+
+## Pi branches: reduce only the active leaf chain (2026-10-25)
+
+**Pi's tree is reduced along the active leaf's parent chain, not the file's write order.**
+The last entry in the file is the leaf Pi appended; walking its `parentId` links gives the
+branch that owns the current status. `SessionReducer` now applies only entries on that
+chain for status, usage, cost, recent activity and title. Abandoned-branch tool calls,
+usage and `session_info` names no longer move the session. The committed
+`fixtures/pi/1.4/linux/branched` scenario is the handmade main-plus-abandoned fixture, and
+its checkpoints assert the reset when the leaf switches back to an older entry.
+
+**The event layer stays lossless; it marks what it excludes.** `parse_lines` still emits an
+event for every record in the file so a debugging dump has no gaps. Pi records off the
+active chain set `Event::off_chain`, and `SessionReducer::feed_event` ignores those events.
+This keeps the raw-bytes path and the `parse_lines` path in agreement: both end with the
+same state for the branched fixture. A linear Pi session flags nothing and keeps the old
+behaviour. `docs/formats/pi.md` and the Pi discovery quirk state the new rule.
+
+**Normal appends are incremental; only a leaf change replays.** The reducer retains the
+lean-parsed Pi records it has already seen (the same values the chunk reader uses, not a
+second raw transcript) and applies a new entry directly when its parent is the current
+leaf. If a new entry branches or switches back to an older leaf, the reducer rebuilds from
+those retained records, keeping the restored ancestors and dropping the abandoned path.
+That replay is bounded by the session file seen so far; it does not re-read the file or run
+on every normal poll. Pi's in-memory `branch()` writes nothing until the next append, so a
+switch-back is observed as the first new child of the older leaf.
+
+**Cost dashboards see branch truth, not lifetime spend.** A Pi session's usage/cost is the
+sum along the active branch, so after a switch to an older leaf the reported total can go
+down. That is the intended model-context total; it now agrees with what Pi would send and
+what a status/usage dashboard should attribute to the live branch. A dashboard that wants
+lifetime spend across abandoned branches should sum the event dump (off-chain events are
+still present and flagged), not read `SessionState.cost_usd`. Compaction is not a pruning
+boundary here: `firstKeptEntryId` affects Pi's model context, while active-chain ancestors
+before it and the compaction entry's own usage stay counted.
 
 ## Phase D: OpenCode 1.19.4 (2026-10-25)
 
