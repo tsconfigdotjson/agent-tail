@@ -406,9 +406,18 @@ future scenario is [`claude-desktop/README.md`](claude-desktop/README.md).
 - Desktop Code-tab transcripts are Claude Code transcripts under `~/.claude/projects/`;
   Cowork/local-agent-mode sessions are separate `local_<id>/audit.jsonl` files below app-data
   `local-agent-mode-sessions/`. They must not be treated as the same source.
-- No live TypeSafe/Jev request was made: `TYPESAFE_API_KEY` is not available yet. The planned
-  loop uses Jev only to choose a typed action; our code observes and acts, and `agenttail`
-  scores the disk artifacts. No VLM is used as the scorer.
+- Jev's default auth path is **OpenRouter**, billed to the existing OpenRouter credits:
+  `OPENROUTER_API_KEY`, model `typesafe/jev-1.14` / `~typesafe/jev-latest`, Decisions API
+  `POST https://openrouter.ai/api/alpha/decisions`, or the TypeSafe SDK at base URL
+  `https://openrouter.ai/api`. No separate TypeSafe console key is required.
+- Code that still reads `TYPESAFE_*` must set `TYPESAFE_API_KEY="$OPENROUTER_API_KEY"` and
+  `TYPESAFE_BASE_URL=https://openrouter.ai/api` together. The reference
+  `typesafe-computer-use` only documents `TYPESAFE_API_KEY`, but its bare `TypeSafeClient()`
+  inherits the base URL from `typesafe-sdk` 0.6.0; that handoff is source-inspected, not
+  live-verified.
+- No live OpenRouter/Jev or TypeSafe request was made, and no key was used. The planned loop
+  uses Jev only to choose a typed action; our code observes and acts, and `agenttail` scores
+  the disk artifacts. No VLM is used as the scorer.
 
 Do not add a Desktop GHA job until a real install has produced a redacted artifact and the
 Linux Xvfb/KVM/accessibility path is proven. Billing for this month is already expended.
