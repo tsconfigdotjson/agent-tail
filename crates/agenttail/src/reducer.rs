@@ -192,6 +192,21 @@ impl SessionReducer {
         self.session.helper_mtime = self.session.helper_mtime.max(mtime.as_secs_f64());
     }
 
+    /// Apply one event from the public parse layer to this reducer. The reducer's own
+    /// chunk reader goes through the same event application, so status and events agree.
+    /// Event times are used when present; a harness without times (Cursor) falls back to
+    /// the transcript mtime, as [`feed`](Self::feed) does.
+    pub fn feed_event(&mut self, event: &crate::Event) {
+        self.session.apply_event(event);
+    }
+
+    /// Apply a batch of events, in order.
+    pub fn feed_events<'a>(&mut self, events: impl IntoIterator<Item = &'a crate::Event>) {
+        for event in events {
+            self.feed_event(event);
+        }
+    }
+
     /// The session's state as of `now`: a pure function of what was fed and `now`.
     pub fn state(&self, now: Timestamp) -> SessionState {
         let mut state = self.session.state(now, &self.options, self.diagnostics);
