@@ -398,11 +398,14 @@ What the local runs proved on Multibeast (Ubuntu 26.04, Docker 29.1.3, 2 vCPU, 3
   the Chat UI and produced one mock `POST /v1/messages`. The body was a provider probe
   (`user` text `"."`, `max_tokens` 1). The strict `plain_qa` step expected `"say hello"`,
   the gateway banner reported an error, and AT-SPI never listed an editable, so Jev could
-  not type. Score: `idle_no_session` only. The follow-up in the desktop-xvfb harness
-  accepts that probe without consuming the say-hello step, resolves the mock scenario with
-  `../` from `desktop-xvfb/`, and types into a DOM composer over loopback DevTools when
-  AT-SPI has no editable. That follow-up has not been re-run live, and it is not a scored
-  turn.
+  not type. Score: `idle_no_session` only. The desktop-xvfb harness accepts that probe
+  without consuming the say-hello step and resolves the mock scenario with `../` from
+  `desktop-xvfb/`. A re-run of that tree on Desktop `3.6556.2` confirmed the probe, and
+  also showed the app refuses to launch with `--remote-debugging-port`. With the switch
+  omitted, Chat is push buttons plus `document web` and still has no editable. The driver
+  now clicks that document with `xdotool` and presses Enter, and the default launch does
+  not pass the rejected switch. That type path is covered by unit tests with fake
+  accessibility nodes. It has not been re-run live, and it is not a scored turn.
 
 The driver observes through AT-SPI (screenshot saved only as evidence), asks Jev on
 OpenRouter for a typed `choice` with model `typesafe/jev-1.14`, performs the chosen
@@ -436,9 +439,10 @@ run plus a real redacted artifact exists.
 - The clicker writer/`type_text` path was not evaluated through OpenRouter. The Xvfb
   driver does not use a writer.
 - Linux AT-SPI observes and acts on the stand-in and sees the real Desktop welcome and
-  Chat chrome. The live run's tree had no editable, which is why the driver now also
-  types through loopback DevTools. A Jev-typed prompt, a scored Desktop turn, Linux
-  Cowork under KVM, and any GHA desktop job are still unproven.
+  Chat chrome. The live tree has push buttons and `document web`, not an editable, and
+  Desktop `3.6556.2` refuses `--remote-debugging-port`. The driver clicks the document-web
+  composer with `xdotool` and presses Enter instead. A Jev-typed prompt, a scored Desktop
+  turn, Linux Cowork under KVM, and any GHA desktop job are still unproven.
 
 The support matrix therefore says **ported-unverified** for the adapter, not CI-verified and
 not donated-verified.
