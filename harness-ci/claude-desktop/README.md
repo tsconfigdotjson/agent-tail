@@ -1,12 +1,15 @@
 # Claude Desktop scenario stub
 
-**There is no CI scenario here yet, and no CI job runs Claude Desktop.** The `claude_desktop`
-discovery spec and adapter now read local-agent-mode `audit.jsonl` files; their handmade
-fixtures are under `fixtures/claude-desktop/`. This folder documents the remaining gap so a
-future Desktop lane is not mistaken for an existing harness. The evidence is in
-[`docs/formats/claude-desktop.md`](../../docs/formats/claude-desktop.md).
+**There is no CI scenario or CI job here.** The current local stopgap is
+[`../desktop-xvfb/`](../desktop-xvfb/README.md): Docker + Xvfb can install the Linux Desktop
+package, render its standard sign-in and 3P gateway welcome screens, and expose them over
+AT-SPI for an observe/Jev/act loop. The stand-in scenario in that folder passes locally, but
+no live Jev call or real Desktop turn has been completed, so this is still a stub for matrix
+purposes. The `claude_desktop` discovery spec and adapter read local-agent-mode
+`audit.jsonl` files; their handmade fixtures are under `fixtures/claude-desktop/`. The
+evidence is in [`docs/formats/claude-desktop.md`](../../docs/formats/claude-desktop.md).
 
-## Why it is a stub
+## Why it is still a stub
 
 The mock/PTY rig drives terminal CLIs. Claude Desktop is a GUI application, and the planned
 driver is a Jev computer-use loop, not a PTY prompt:
@@ -21,18 +24,20 @@ driver is a Jev computer-use loop, not a PTY prompt:
   that still reads `TYPESAFE_*` needs `TYPESAFE_API_KEY="$OPENROUTER_API_KEY"` and
   `TYPESAFE_BASE_URL=https://openrouter.ai/api` so the key and endpoint stay paired.
 
-No OpenRouter key was used for the spike, so no live Jev call was made and no Desktop install
-was driven. Source inspection of `typesafe-computer-use` shows its bare `TypeSafeClient()`
-inherits `TYPESAFE_BASE_URL` from `typesafe-sdk` 0.6.0, but that handoff has not been run.
+No OpenRouter key was used for the spike, so no live Jev call was made. The Xvfb container
+now launches the real Linux Desktop package, but it stops at the standard sign-in or 3P
+welcome screen; no Chat/Code turn or Desktop disk artifact has been driven. Source inspection
+of `typesafe-computer-use` shows its bare `TypeSafeClient()` inherits `TYPESAFE_BASE_URL` from
+`typesafe-sdk` 0.6.0, but that handoff has not been run.
 
 ## Candidate lanes
 
 | lane | what it would prove | blocker |
 |---|---|---|
 | macOS manual/scripted | Desktop can be observed and driven by a Jev choice loop; Code/Cowork artifacts appear where expected | OpenRouter key + credits, Desktop install, screen/accessibility permission |
-| Linux + Xvfb, Code/Chat UI | the same loop on Linux | a Linux AT-SPI observe/act adapter; Xvfb/desktop automation not written |
-| Linux + Xvfb, Cowork | Cowork transcript scoring on Linux | KVM/QEMU (about 25 GB disk, 8 GB RAM) is often unavailable |
-| 3P gateway + mock, no computer use | Desktop can talk to the Anthropic Messages mock and write scoreable Code/Cowork artifacts | real Desktop install, 3P managed settings, gateway auth; Desktop↔mock handshake never run |
+| Linux + Xvfb, Code/Chat UI | the same loop on Linux | **container + AT-SPI driver written**; waiting on a live Jev key and a completed Desktop turn |
+| Linux + Xvfb, Cowork | Cowork transcript scoring on Linux | KVM/QEMU (about 25 GB disk, 8 GB RAM) is often unavailable; not passed by the Xvfb compose file |
+| 3P gateway + mock, no computer use | Desktop can talk to the Anthropic Messages mock and write scoreable Code/Cowork artifacts | root-owned 3P settings and welcome screen now proven under Xvfb; Desktop↔mock request still not run |
 
 The gateway path needs `inferenceProvider: gateway`, `inferenceGatewayBaseUrl`, and an API
 key sent as Bearer or `x-api-key`. The gateway must implement `POST /v1/messages` with
@@ -55,7 +60,9 @@ Linux `~/.config`, Windows `%LOCALAPPDATA%`). Consumer builds commonly use `Clau
 
 ## Before adding a job
 
-Do not add a GitHub Actions Desktop job from this stub. This month's Actions billing is
-already expended, and Linux Xvfb/KVM/accessibility support is unproven. A CI scenario should
-be added only after a real run produces a redacted artifact and a readable status checkpoint.
-Until then the support matrix says **ported-unverified**, not CI-verified.
+Do not schedule a GitHub Actions Desktop job from this stub. This month's Actions billing is
+already expended. A `workflow_dispatch`-only stub exists at
+[`.github/workflows/desktop-xvfb.yml`](../../.github/workflows/desktop-xvfb.yml); it is ready
+for next month but has not run. Add a Desktop scenario to the normal matrix only after a real
+run produces a redacted artifact and a readable status checkpoint. Until then the support
+matrix says **ported-unverified**, not CI-verified.

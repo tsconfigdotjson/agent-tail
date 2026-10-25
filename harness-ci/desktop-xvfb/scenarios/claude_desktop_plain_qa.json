@@ -1,0 +1,18 @@
+{
+  "name": "claude_desktop_plain_qa",
+  "description": "Live Claude Desktop through the Jev/OpenRouter choose loop and the 3P Anthropic Messages mock. Requires OPENROUTER_API_KEY. This scenario has not completed in the Xvfb container yet; see README blocker notes.",
+  "target": "claude-desktop",
+  "chooser": "jev",
+  "window_title": "Claude",
+  "goal": "Start a new Chat, send the prompt, and wait until the turn is done.",
+  "prompt": "say hello",
+  "agents": "claude_desktop,claude_code",
+  "mock_scenario": "../../mock-server/scenarios/plain_qa.json",
+  "expect": {
+    "activities": ["thinking", "done"],
+    "end": "done"
+  },
+  "startup_timeout_s": 60,
+  "timeout_s": 90,
+  "max_steps": 12
+}

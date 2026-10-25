@@ -2,8 +2,11 @@
 
 There are two independent stories here. **Reading Desktop sessions is now product code:** a
 discovery spec, a `claude_desktop` adapter, sidecar handling, fixtures and reduce tests.
-**Driving the Desktop with Jev is still a documentation spike:** no live Jev call, key or
-Desktop install was used for it.
+**Driving the Desktop now has a local Docker + Xvfb implementation** at
+[`harness-ci/desktop-xvfb/`](../../harness-ci/desktop-xvfb/README.md): the real Linux package
+installs and renders its standard sign-in and 3P gateway welcome screens under AT-SPI. It is
+still not a verified Desktop lane: no live Jev/OpenRouter call, completed Chat/Code turn or
+Desktop disk artifact exists yet.
 
 Evidence is labelled **documented** (vendor docs), **source-inspected** (public repository or
 pinned package source, not a live call), **prior art** (another project's code or survey),
@@ -358,6 +361,52 @@ Score separately with `agenttail` against:
 Do not feed the transcript to Jev as part of the action state if the run is meant to test
 whether Jev can drive the UI; keep the scorer separate.
 
+## Docker + Xvfb stopgap (issue #80, 2026-10-25)
+
+The current local verify path is [`harness-ci/desktop-xvfb/`](../../harness-ci/desktop-xvfb/README.md),
+not a Mac runner and not a paid GitHub Actions lane. It installs the Linux beta package from
+Anthropic's apt repository and runs it in a headed Xvfb session:
+
+```sh
+cd harness-ci/desktop-xvfb
+./run.sh standin        # offline AT-SPI + act + agenttail disk-score plumbing
+./run.sh probe          # standard Desktop sign-in screen
+./run.sh desktop-probe  # 3P gateway welcome screen, root-owned managed settings
+OPENROUTER_API_KEY=... ./run.sh desktop   # Jev choose; refuses without a key
+```
+
+What the local runs proved on Multibeast (Ubuntu 26.04, Docker 29.1.3, 2 vCPU, 3.7 GiB RAM):
+
+- Claude Desktop package **3.6556.2** launches under Xvfb. The standard sign-in document is
+  visible in AT-SPI with its cookie controls. The 3P gateway mode also starts, reads the
+  root-owned `/etc/claude-desktop/managed-settings.json`, and renders the "Welcome to Claude /
+  Continue" screen with `Continue` and `Menu` candidates.
+- The stand-in scenario passes: a GTK window is observed through AT-SPI, the scripted chooser
+  selects the prompt field and Send button, and `agenttail` reads the Desktop-shaped
+  `audit.jsonl` as `idle -> working (thinking/prompt_sent) -> done (done/turn_ended)`.
+  The stand-in writes that audit file itself; it is plumbing evidence, **not** a Desktop
+  runtime capture.
+- No `OPENROUTER_API_KEY` was available, so `./run.sh desktop` stops before launch with a
+  missing-key blocker. No live Jev, TypeSafe or writer request was made, and no
+  Desktop↔mock request or real Desktop turn exists.
+
+The driver observes through AT-SPI (screenshot saved only as evidence), asks Jev on
+OpenRouter for a typed `choice` with model `typesafe/jev-1.14`, performs the chosen
+click/type itself, and polls `agenttail ls` with `HOME` pointed at the session. The Desktop
+scenario scores both `claude_desktop` (`audit.jsonl`) and `claude_code` (the Code tab's
+`~/.claude/projects`). `ANTHROPIC_API_KEY` and `CLICKER_WRITER_*` are scrubbed from the app
+environment; there is no writer LLM.
+
+The container deliberately does **not** pass `/dev/kvm` or install the Cowork VM packages.
+Cowork still needs hardware virtualization, about 8 GB RAM and 25 GB free disk. The Xvfb
+path covers the standard UI, 3P gateway, Chat and Code surfaces only. Chromium logs repeated
+GPU-process failures under Xvfb, and xdg-desktop-portal cannot mount its document FUSE path;
+neither stopped the launch probes.
+
+`.github/workflows/desktop-xvfb.yml` is a `workflow_dispatch`-only stub for next month. It has
+not run, and the support matrix must not claim CI-verified Desktop UI until a green container
+run plus a real redacted artifact exists.
+
 ## What remains unverified
 
 - No real Claude Desktop artifact was captured or parsed; all Desktop fixtures are handmade.
@@ -368,7 +417,9 @@ whether Jev can drive the UI; keep the scorer separate.
 - The `typesafe-computer-use` → OpenRouter handoff is source-inspected only; no `clicker`
   dry-run decision was made.
 - The clicker writer/`type_text` path was not evaluated through OpenRouter.
-- Linux AT-SPI + Jev under Xvfb, Linux Cowork under KVM, and any GHA desktop job are unproven.
+- Linux AT-SPI now observes and acts on the stand-in and sees the real Desktop welcome
+  screens, but no Jev-chosen action, live Desktop turn or Desktop↔mock request has run.
+  Linux Cowork under KVM and any GHA desktop job are unproven.
 
 The support matrix therefore says **ported-unverified** for the adapter, not CI-verified and
 not donated-verified.

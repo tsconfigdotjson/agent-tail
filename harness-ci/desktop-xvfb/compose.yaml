@@ -1,0 +1,21 @@
+services:
+  desktop:
+    build:
+      context: .
+      args:
+        INSTALL_CLAUDE_DESKTOP: "${INSTALL_CLAUDE_DESKTOP:-1}"
+        CLAUDE_DESKTOP_VERSION: "${CLAUDE_DESKTOP_VERSION:-3.6556.2}"
+    init: true
+    shm_size: "1gb"
+    environment:
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      AGENTTAIL_JEV_MODEL: "${AGENTTAIL_JEV_MODEL:-typesafe/jev-1.14}"
+      AGENTTAIL_JEV_CONFIDENCE: "${AGENTTAIL_JEV_CONFIDENCE:-0.55}"
+      AGENTTAIL_SCREEN: "${AGENTTAIL_SCREEN:-1440x900x24}"
+      AGENTTAIL_BIN: /repo/target/release/agenttail
+      AGENTTAIL_MOCK_SERVER: /repo/harness-ci/target/release/mock-server
+    volumes:
+      - ../..:/repo:ro
+      - ./runs:/out
+    # No --privileged, no /dev/kvm: this is Xvfb-only. Cowork needs KVM and is
+    # explicitly outside this stopgap.

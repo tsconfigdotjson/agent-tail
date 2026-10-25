@@ -1,0 +1,29 @@
+{
+  "name": "standin_plain_qa",
+  "description": "Offline plumbing smoke test: a GTK/X11 stand-in UI is observed through AT-SPI, a scripted chooser picks a field and Send button, and agenttail scores the Desktop-shaped audit.jsonl as idle -> thinking -> done. This is not Claude Desktop.",
+  "target": "standin",
+  "chooser": "scripted",
+  "window_title": "agenttail desktop stand-in",
+  "goal": "Type the prompt into the message field and send it, then wait for the turn to finish.",
+  "prompt": "say hello from Xvfb",
+  "script": [
+    {
+      "action": "type",
+      "role": "entry",
+      "name": "Prompt",
+      "text": "{{prompt}}"
+    },
+    {
+      "action": "click",
+      "role": "push button",
+      "name": "Send"
+    }
+  ],
+  "expect": {
+    "activities": ["thinking", "done"],
+    "end": "done"
+  },
+  "startup_timeout_s": 20,
+  "timeout_s": 30,
+  "max_steps": 4
+}

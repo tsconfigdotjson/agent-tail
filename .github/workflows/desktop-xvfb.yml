@@ -1,0 +1,80 @@
+# Desktop UI verify stopgap (issue #80).
+#
+# This workflow is intentionally workflow_dispatch-only. Do not add push,
+# pull_request or schedule triggers until the next billing month and until a
+# real Desktop run has been proven locally. The stand-in job is an offline
+# plumbing test, not a claim that Claude Desktop is CI-verified.
+name: Desktop Xvfb (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_desktop_probe:
+        description: "Install Claude Desktop and probe its Xvfb launch (heavier)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  standin:
+    name: Xvfb stand-in observe/act/score
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.88
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustc --version
+
+      - name: Build agenttail
+        run: cargo build --release --locked -p agenttail-cli
+
+      - name: Run offline stand-in scenario
+        env:
+          INSTALL_CLAUDE_DESKTOP: "0"
+        run: harness-ci/desktop-xvfb/run.sh standin
+
+      - name: Upload Xvfb evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-xvfb-standin
+          path: harness-ci/desktop-xvfb/runs
+          if-no-files-found: warn
+          retention-days: 7
+
+  desktop-probe:
+    name: Claude Desktop Xvfb launch probe
+    if: ${{ github.event.inputs.run_desktop_probe == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.88
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustc --version
+
+      - name: Build agenttail
+        run: cargo build --release --locked -p agenttail-cli
+
+      - name: Probe the 3P welcome screen under Xvfb
+        env:
+          INSTALL_CLAUDE_DESKTOP: "1"
+        run: harness-ci/desktop-xvfb/run.sh desktop-probe
+
+      - name: Upload Xvfb evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-xvfb-probe
+          path: harness-ci/desktop-xvfb/runs
+          if-no-files-found: warn
+          retention-days: 7
