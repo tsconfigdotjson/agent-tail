@@ -11,7 +11,7 @@ There are four pieces:
 | `mock-server/` | Local Anthropic Messages, OpenAI-compatible, and Gemini protocol mock. Scenario files control replies, tool calls, delays, and errors. |
 | `driver/` | Starts a CLI under a PTY, parses its screen, tails the session artifact it writes, and scores `agent-tail`'s state against the screen. |
 | `ci/` | Scenario lists, pinned/latest matrix generation, offline runner, shape survey, drift checks, and the first-read budget. |
-| `desktop-xvfb/` | Headless Xvfb path for the Claude Desktop stand-in and launch probe. |
+| `desktop-xvfb/` | Headless Xvfb path for the Desktop stand-in, live Jev lane, and launch probe. |
 
 This directory is a separate Cargo workspace so the library's dependencies stay small. The
 root `cargo test` does not build it; CI does.
@@ -55,8 +55,13 @@ that only the local mock sees, points the CLI at `localhost`, and uses a tempora
 config directory. CI additionally sets `HARNESS_CI_REQUIRE_OFFLINE=1` and enforces isolation
 with a network namespace on Linux or `sandbox-exec` on macOS.
 
-Do not add a scenario that needs a real account or an external service. If a CLI cannot run
-fully offline, document the limitation and test the artifact path with fixtures instead.
+The one deliberate exception is the live Jev Desktop lane under
+[`desktop-xvfb/`](desktop-xvfb/README.md). It runs on the nightly schedule only when the
+repository `OPENROUTER_API_KEY` Actions secret is present, is skipped cleanly when absent, and
+is never part of the push/PR matrix. It uses Jev to choose UI actions and scores the Desktop
+audit log on disk; there is no writer LLM in that path. Do not add another scenario that needs
+a real account or an external service. If a CLI cannot run fully offline, document the
+limitation and test the artifact path with fixtures instead.
 
 ## Scenarios and matrix
 
@@ -91,8 +96,13 @@ transcript shape fails loudly.
   Cursor's backend, so it is not in the mock/PTY matrix);
 - nightly shape-drift checks and fixture capture.
 
-Claude Desktop has a separate offline stand-in and manual launch probe under
-[`desktop-xvfb/`](desktop-xvfb/README.md). Its adapter status is documented in
+Claude Desktop has a separate offline stand-in, a live Jev lane, and a manual launch probe
+under [`desktop-xvfb/`](desktop-xvfb/README.md). The stand-in runs every night. The live lane
+also runs on the `43 3 * * *` schedule when the `OPENROUTER_API_KEY` Actions secret is set,
+and can be dispatched manually; it is absent from the PR matrix. It uses `typesafe/jev-1.14`
+through OpenRouter to choose UI actions and scores the on-disk Desktop audit log. Secret setup
+is documented in the [desktop-xvfb README](desktop-xvfb/README.md#configure-the-live-jev-secret).
+Its adapter status is documented in
 [`docs/formats/claude-desktop.md`](../docs/formats/claude-desktop.md).
 
 ## What the driver checks

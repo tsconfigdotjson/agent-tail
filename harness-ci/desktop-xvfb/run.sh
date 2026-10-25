@@ -1,7 +1,8 @@
 #!/bin/bash
 # Host-side wrapper: build agent-tail and the existing mock once, then run one
-# Xvfb scenario. The stand-in smoke test needs no secret; it is also the nightly
-# GHA lane. Desktop probes and live Jev are manual.
+# Xvfb scenario. The stand-in smoke test needs no secret; it is the nightly
+# GHA lane. The live Jev lane runs on the nightly when OPENROUTER_API_KEY is
+# configured (and can be dispatched manually); the Desktop launch probe is manual.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)

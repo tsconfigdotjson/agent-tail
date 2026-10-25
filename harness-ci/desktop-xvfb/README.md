@@ -1,14 +1,16 @@
 # Desktop Xvfb harness
 
-A Docker + Xvfb path for observing a Linux desktop without a physical display. It has two
+A Docker + Xvfb path for observing a Linux desktop without a physical display. It has three
 uses:
 
 - an offline stand-in that exercises the observe → act → score loop with a small GTK app;
+- a live Jev Desktop lane that chooses UI actions and scores the on-disk Desktop audit log;
 - an optional launch probe for Anthropic's Linux beta Claude Desktop package.
 
-The nightly workflow runs only the offline stand-in. The Desktop probe is manual
-`workflow_dispatch` only. The stand-in is a plumbing test, not a claim that Claude Desktop is
-CI-verified.
+The nightly workflow always runs the offline stand-in. When the repository Actions secret
+`OPENROUTER_API_KEY` is present, the same schedule also runs the live Jev lane; without it
+that lane is skipped cleanly. The Desktop probe is manual `workflow_dispatch` only. The
+stand-in is a plumbing test, not a claim that Claude Desktop is CI-verified.
 
 ## What runs
 
@@ -17,9 +19,10 @@ CI-verified.
 | Xvfb + openbox | yes | 1440x900x24 by default, no physical display |
 | AT-SPI observation/action | yes | works with GTK and Electron when accessibility is enabled |
 | Stand-in observe/act/score | yes | offline; no Desktop package required |
+| Live Jev Desktop Chat | nightly when the secret is set | Jev picks UI actions; `agent-tail` scores the on-disk audit log |
 | Claude Desktop standard sign-in UI | launch probe | rendered under Xvfb; no account needed |
 | Claude Desktop 3P gateway welcome UI | launch probe | uses a root-owned mock settings file |
-| Claude Desktop Chat/Code end-to-end | not proven | no scored Desktop turn in this repository |
+| Claude Desktop Code end-to-end | not proven | no scored Code-tab turn in this repository |
 | Cowork | no | Linux Cowork needs KVM/QEMU, roughly 8 GB RAM and 25 GB disk |
 
 ## Quick start
@@ -29,6 +32,9 @@ From `harness-ci/desktop-xvfb`:
 ```sh
 # Offline plumbing check: AT-SPI observe -> scripted act -> agent-tail disk score.
 ./run.sh standin
+
+# Live Jev Desktop lane (needs OPENROUTER_API_KEY in the environment).
+./run.sh desktop
 
 # Claude Desktop standard sign-in screen under Xvfb.
 ./run.sh probe
@@ -54,22 +60,47 @@ Desktop or using external credentials.
 
 ## Nightly and manual lanes
 
-- **Nightly:** only the stand-in. It builds the stand-in image
+- **Nightly stand-in:** always runs on the `43 3 * * *` schedule. It builds the stand-in image
   (`INSTALL_CLAUDE_DESKTOP=0`), runs the offline observe/act/score path, and uploads `runs/`.
+- **Nightly live Jev:** also runs on that schedule when `secrets.OPENROUTER_API_KEY` is
+  present. It installs Claude Desktop, uses Jev (`typesafe/jev-1.14` through OpenRouter) to
+  choose UI actions, and scores the Desktop audit log written on disk. There is no writer
+  LLM in the path; the driver removes writer credentials and fails instead of falling back.
+  A missing secret skips only this lane, with a run-summary note; the stand-in still runs.
 - **Manual:** `run_desktop_probe` installs Claude Desktop and probes the sign-in or 3P gateway
-  welcome screen. It does not need an account.
-- Desktop is deliberately absent from `push` and `pull_request`, so it is not in the hot PR
-  matrix.
+  welcome screen. It does not need an account. `run_live_jev` opts into the live lane on a
+  manual dispatch.
+- Desktop is deliberately absent from `push` and `pull_request`, so live Jev is schedule or
+  manual dispatch only and cannot spend credits on every PR.
 
 The workflow is [`.github/workflows/desktop-xvfb.yml`](../../.github/workflows/desktop-xvfb.yml).
+
+### Configure the live Jev secret
+
+Add a repository Actions secret named `OPENROUTER_API_KEY` with the same OpenRouter key
+Multibeast uses. In the GitHub UI that is **Settings → Secrets and variables → Actions → New
+repository secret**. From a machine where the key is already in the environment, without
+putting the value in the command line:
+
+```sh
+printf '%s' "$OPENROUTER_API_KEY" | \
+  gh secret set OPENROUTER_API_KEY --repo tsconfigdotjson/agent-tail
+```
+
+Multibeast sets this secret after this PR merges. Until it exists, nightly runs report that
+`OPENROUTER_API_KEY` is not set and skip the live lane while the stand-in continues to run.
+The secret is read only by the scheduled/manual live job; pull requests from forks never
+receive it.
 
 ## Evidence and limits
 
 The container installs Anthropic's Linux beta Desktop package and can render the standard
-sign-in and 3P gateway screens under Xvfb. The stand-in scenario passes locally.
+sign-in and 3P gateway screens under Xvfb. The stand-in scenario passes locally. The scheduled
+live lane exercises a real Desktop turn when the secret is configured, but its evidence is an
+ephemeral Actions artifact; no redacted Desktop capture is committed yet.
 
-What is still missing is a real Desktop turn that writes a redacted artifact and reaches a
-known status checkpoint. Until that exists, the adapter and support matrix stay
+What is still missing is a committed redacted artifact from that live turn that reaches a
+known status checkpoint. Until it exists, the adapter and support matrix stay
 **ported-unverified**, not CI-verified. See
 [`docs/formats/claude-desktop.md`](../../docs/formats/claude-desktop.md) for the adapter
 details and fixture status.
@@ -87,6 +118,9 @@ Useful environment variables:
 | `AGENT_TAIL_OUT` | host output directory mounted into the container |
 | `AGENT_TAIL_SCREEN` | Xvfb geometry (default `1440x900x24`) |
 | `AGENT_TAIL_MOCK_URL` | mock model endpoint seen by the Desktop gateway settings |
+| `OPENROUTER_API_KEY` | OpenRouter key for the live Jev chooser; empty disables that lane |
+| `AGENT_TAIL_JEV_MODEL` | Jev model (default `typesafe/jev-1.14`) |
+| `AGENT_TAIL_JEV_CONFIDENCE` | optional Jev confidence floor |
 | `AGENT_TAIL_CDP_PORT` | optional Chrome DevTools port for builds that accept it |
 | `AGENT_TAIL_DOCKER_NETWORK` | compose network mode |
 
