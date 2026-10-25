@@ -146,6 +146,13 @@ pub(crate) struct Session {
     pub(crate) error: Option<String>,
     /// Claude Code's `turn_duration.pendingBackgroundAgentCount`, when it records one.
     pub(crate) background_agents: usize,
+    /// How many explicit zero counts (Claude's `agents_killed`, or a `turn_duration` with no
+    /// pending helpers) this session has seen. The reducer uses each increase to mark the
+    /// helpers it already follows ended.
+    pub(crate) background_kills: u64,
+    /// When the latest explicit zero count was recorded. A helper file first seen after the
+    /// kill only counts if its own entries are newer.
+    pub(crate) background_killed_at: f64,
     /// Claude Code's async background launches, linked to their helper files.
     pub(crate) launched_helpers: HashMap<String, LaunchedHelper>,
     /// The Codex thread id (`session_meta.payload.id`), for `session_index.jsonl` titles.
@@ -196,6 +203,8 @@ impl Session {
             approval_reviewer_auto: false,
             error: None,
             background_agents: 0,
+            background_kills: 0,
+            background_killed_at: 0.0,
             launched_helpers: HashMap::new(),
             session_id: String::new(),
             is_helper: false,
@@ -366,11 +375,14 @@ impl Session {
         self.out_tokens = usage.output_tokens.unwrap_or(0);
     }
 
-    /// Claude Code's firm count of helpers still running when the turn ended.
-    pub(crate) fn set_background_agents(&mut self, n: usize) {
+    /// Claude Code's firm count of helpers still running when the turn ended. An explicit
+    /// zero is also a kill signal: it means no background helper survives this record.
+    pub(crate) fn set_background_agents(&mut self, n: usize, at: f64) {
         self.background_agents = n;
         if n == 0 {
             self.launched_helpers.clear();
+            self.background_kills = self.background_kills.saturating_add(1);
+            self.background_killed_at = at;
         }
     }
 
