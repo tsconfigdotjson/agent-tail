@@ -15,7 +15,7 @@ artifact yet), and **unsupported** (no discovery spec or adapter).
 | Pi | **CI-verified** | 3 | 3 | `1.4.0` | 3 CI scenario(s); 3 ci-scripted, 0 donated, 0 hand-made fixture(s) |
 | OpenCode | **CI-verified** | 2 | 3 | `1.19.4` | 2 CI scenario(s); 3 ci-scripted, 0 donated, 0 hand-made fixture(s) |
 | Gemini CLI | **CI-verified** | 2 | 2 | `0.65.0` | 2 CI scenario(s); 2 ci-scripted, 0 donated, 0 hand-made fixture(s) |
-| GitHub Copilot CLI | **CI-verified** | 3 | 3 | `1.0.103` | 3 CI scenario(s); 3 ci-scripted, 0 donated, 0 hand-made fixture(s) |
+| GitHub Copilot CLI | **CI-verified** | 3 | 5 | `1.0.103` | 3 CI scenario(s); 3 ci-scripted, 0 donated, 2 hand-made fixture(s) |
 
 ## What each harness can read
 
@@ -43,7 +43,9 @@ artifact yet), and **unsupported** (no discovery spec or adapter).
 | codex | `0.160.1` | `linux` | `handmade` | `codex/0.160/linux/approval-on-request` |
 | codex | `0.160.1` | `linux` | `donated` | `codex/0.160/linux/seed-exec` |
 | codex | `0.160.1` | `linux` | `donated` | `codex/0.160/linux/seed-resume` |
+| copilot | `1.0.103` | `linux` | `handmade` | `copilot/1.0.103/linux/permission-approved` |
 | copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/permission-denied` |
+| copilot | `1.0.103` | `linux` | `handmade` | `copilot/1.0.103/linux/permission-user-denied` |
 | copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/plain-qa` |
 | copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/tool` |
 | cursor | `unknown` | `any` | `handmade` | `cursor/handmade/vscdb-reader` |

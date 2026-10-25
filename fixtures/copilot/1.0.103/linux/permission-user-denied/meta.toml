@@ -1,0 +1,6 @@
+harness = "copilot"
+version = "1.0.103"
+os = "linux"
+capture = "handmade"
+date = "2026-10-25"
+description = "Synthetic 1.0.103 event log for a user denial: permission.requested, permission.completed with result kind `denied-interactively-by-user` and decision source `human_response`, a failed tool result, then the model recovers and answers. Not captured from the TUI; the shape is derived from the 1.0.103 CLI source and the existing real permission-denied fixture."

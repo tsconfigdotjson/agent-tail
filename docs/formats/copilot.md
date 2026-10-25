@@ -63,7 +63,13 @@ continues.
 - **Approval completed:** `permission.completed` clears the firm approval. An approved
   request is followed by the tool run; a denied request is followed by a failed tool result.
   The adapter treats result kinds beginning `approved` as approved and all other kinds as
-  not approved.
+  not approved. The 1.0.103 kinds covered by the fixtures are `approved`,
+  `approved-for-session`, `approved-for-location`, `approved-read-only-for-session`,
+  `denied-interactively-by-user`, `denied-by-rules`,
+  `denied-no-approval-rule-and-could-not-request-from-user`,
+  `denied-by-content-exclusion-policy`, `denied-by-permission-request-hook`, `cancelled`
+  and `user-not-available`. A user decision carries `decisionSource: "human_response"`;
+  the unattended fallback carries `"unattended_fallback"`.
 - **Tool result:** `tool.execution_complete` is firm `Thinking` / `tool_result_in` when no
   other calls are pending.
 - **Turn end:** an assistant message with text and no tool requests, followed by
@@ -100,7 +106,10 @@ The mock's OpenAI **Chat Completions** route is enough. Scenarios:
 The CI matrix installs pinned **1.0.103** and npm **latest** on Linux and macOS. A latest
 failure is a failing job, not a silent skip. The committed fixtures are under
 `fixtures/copilot/1.0.103/linux/` (`plain-qa`, `tool`, `permission-denied`), captured from
-the real CLI through the mock and redacted by `agenttail fixture capture`.
+the real CLI through the mock and redacted by `agenttail fixture capture`. The
+`permission-approved` and `permission-user-denied` fixtures are **hand-made** from the
+1.0.103 event/result shapes, not captured from a TUI; they are not additional CI
+scenarios.
 
 Local green runs (1.0.103, Linux):
 
@@ -117,8 +126,11 @@ cargo run -p harness-driver -- --scenario driver/scenarios/copilot_permission_de
 - The real GitHub Copilot routing service, sign-in flow and premium-request accounting are
   not exercised; the BYOK path is. A GitHub-auth-only behaviour change would not be caught
   by this lane.
-- A real interactive approval (user approves or denies at the TUI) was not captured. The
-  event shape for `permission.requested` is real; the prompt-mode denial is the completed
-  result that was available without a human.
+- A real interactive approval (user approves or denies at the TUI) was still not captured.
+  The event shape for `permission.requested` is real; the prompt-mode denial is the completed
+  result that was available without a human. The user-approved (`result.kind: "approved"`)
+  and user-denied (`result.kind: "denied-interactively-by-user"`) completion shapes are
+  exercised by the hand-made `permission-approved` and `permission-user-denied` fixtures,
+  derived from 1.0.103. A live TUI capture remains optional future work.
 - `subagent.started`/`subagent.completed` are not followed into helper state.
 - `session-store.db` is not read; the event log is authoritative.

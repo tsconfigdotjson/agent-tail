@@ -1,0 +1,6 @@
+harness = "copilot"
+version = "1.0.103"
+os = "linux"
+capture = "handmade"
+date = "2026-10-25"
+description = "Synthetic 1.0.103 event log for an interactive approval: permission.requested, permission.completed with result kind `approved` and decision source `human_response`, the bash tool runs, then the model answers. Not captured from the TUI; the shape is derived from the 1.0.103 CLI source and the existing real permission-denied fixture."

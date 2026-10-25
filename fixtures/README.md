@@ -30,6 +30,8 @@ The seed corpus from tvdash now lives in the versioned layout:
 | `copilot/1.0.103/linux/plain-qa` | Copilot CLI 1.0.103 against the mock: a prompt, one text answer, normal shutdown |
 | `copilot/1.0.103/linux/tool` | Copilot CLI 1.0.103: a bash call pending for two seconds, then the answer after its result |
 | `copilot/1.0.103/linux/permission-denied` | Copilot CLI 1.0.103 prompt mode with no interactive user: `permission.requested`, unattended denial, failed tool result, then the answer |
+| `copilot/1.0.103/linux/permission-approved` | Hand-made 1.0.103 shape for a user approval: `permission.completed` with `result.kind: approved`, `decisionSource: human_response`, then a successful tool run and the answer |
+| `copilot/1.0.103/linux/permission-user-denied` | Hand-made 1.0.103 shape for a user denial: `result.kind: denied-interactively-by-user`, `decisionSource: human_response`, a failed tool result, then the answer |
 
 They were already scrubbed of prose when copied from tvdash; `agenttail fixture redact`
 then replaced their fake placeholder usernames (`dev`, `sam`) with canonical

@@ -80,6 +80,8 @@ fn committed_expected_events_match_their_inputs() {
         "copilot/1.0.103/linux/plain-qa",
         "copilot/1.0.103/linux/tool",
         "copilot/1.0.103/linux/permission-denied",
+        "copilot/1.0.103/linux/permission-approved",
+        "copilot/1.0.103/linux/permission-user-denied",
     ] {
         let got = events(&format!("{input}/input/session.jsonl"));
         let expected = fixture(&format!("{input}/expected/events.jsonl"));
@@ -90,6 +92,22 @@ fn committed_expected_events_match_their_inputs() {
             .map(|line| serde_json::from_str(line).unwrap_or_else(|e| panic!("{line}: {e}")))
             .collect();
         assert_eq!(got, want, "{}: regenerate expected/events.jsonl", expected.display());
+    }
+}
+
+#[test]
+fn copilot_permission_fixtures_record_approval_versus_denial() {
+    for (scenario, approved, result_kind) in [
+        ("copilot/1.0.103/linux/permission-approved", true, "approved"),
+        ("copilot/1.0.103/linux/permission-user-denied", false, "denied-interactively-by-user"),
+    ] {
+        let events = events(&format!("{scenario}/input/session.jsonl"));
+        let completion = events
+            .iter()
+            .find(|event| event["type"] == "approval_completed")
+            .unwrap_or_else(|| panic!("{scenario}: no approval_completed event"));
+        assert_eq!(completion["approved"], approved, "{scenario}");
+        assert_eq!(completion["result_kind"], result_kind, "{scenario}");
     }
 }
 
