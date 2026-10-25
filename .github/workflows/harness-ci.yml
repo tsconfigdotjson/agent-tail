@@ -830,7 +830,7 @@ jobs:
           prefix="$RUNNER_TEMP/copilot-$requested"
           npm install --prefix "$prefix" --no-save --no-audit --no-fund "@github/copilot@$requested"
           bin="$prefix/node_modules/.bin/copilot"
-          actual="$("$bin" --version | head -n1 | awk '{print $4}' | tr -d '.')"
+          actual="$("$bin" --version | head -n1 | awk '{print $4}')"
           test -n "$actual"
           if [[ "$actual" != "$requested" ]]; then
             echo "installed $actual, wanted $requested" >&2

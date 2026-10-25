@@ -8,6 +8,9 @@
 # `cargo bench` would report cargo's peak RSS, not the bench child's.
 set -euo pipefail
 export LC_ALL=C
+# CI sets CARGO_TERM_COLOR=always, but this build log is parsed below. Keep it plain and
+# strip any escape sequences a caller might still force into the output.
+export CARGO_TERM_COLOR=never
 
 lean_budget_seconds=3
 rss_budget_kib=$((50 * 1024))
@@ -50,7 +53,10 @@ if ! cargo bench -p agent-tail --bench first_read --no-run --locked >"$build_log
 fi
 
 # Cargo's human output ends with: Executable benches/first_read.rs (target/release/deps/...)
-bench_bin="$(sed -nE 's/^[[:space:]]*Executable .* \(([^)]*)\)[[:space:]]*$/\1/p' "$build_log" | tail -n 1)"
+# Strip SGR color escapes first so a forced CARGO_TERM_COLOR cannot hide the line.
+clean_build_log="$work/build.clean.log"
+sed -E $'s/\x1B\\[[0-9;]*m//g' "$build_log" > "$clean_build_log"
+bench_bin="$(sed -nE 's/^[[:space:]]*Executable .* \(([^)]*)\)[[:space:]]*$/\1/p' "$clean_build_log" | tail -n 1)"
 if [[ -z "$bench_bin" || ! -x "$bench_bin" ]]; then
   cat "$build_log" >&2
   echo "first-read budget: could not find the built bench executable in cargo output" >&2
