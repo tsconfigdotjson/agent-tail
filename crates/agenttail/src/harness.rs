@@ -25,12 +25,24 @@ pub enum Harness {
     /// OpenCode's CLI, whose sessions live in a SQLite database.
     #[serde(rename = "opencode")]
     OpenCode,
+    /// Gemini CLI's chat journals below `.gemini/tmp`.
+    Gemini,
+    /// GitHub Copilot CLI's session event logs below `.copilot/session-state`.
+    #[serde(rename = "copilot")]
+    Copilot,
 }
 
 impl Harness {
     /// Every harness, in the order their folders are scanned.
-    pub const ALL: [Harness; 5] =
-        [Harness::ClaudeCode, Harness::Codex, Harness::Cursor, Harness::Pi, Harness::OpenCode];
+    pub const ALL: [Harness; 7] = [
+        Harness::ClaudeCode,
+        Harness::Codex,
+        Harness::Cursor,
+        Harness::Pi,
+        Harness::OpenCode,
+        Harness::Gemini,
+        Harness::Copilot,
+    ];
 
     /// A stable id: `claude_code`, `codex`, `cursor`, `pi`, `opencode`.
     pub fn id(self) -> &'static str {
@@ -40,6 +52,8 @@ impl Harness {
             Harness::Cursor => "cursor",
             Harness::Pi => "pi",
             Harness::OpenCode => "opencode",
+            Harness::Gemini => "gemini",
+            Harness::Copilot => "copilot",
         }
     }
 
@@ -51,6 +65,8 @@ impl Harness {
             Harness::Cursor => "Cursor",
             Harness::Pi => "Pi",
             Harness::OpenCode => "OpenCode",
+            Harness::Gemini => "Gemini CLI",
+            Harness::Copilot => "GitHub Copilot CLI",
         }
     }
 
@@ -66,6 +82,8 @@ impl Harness {
             Harness::Cursor => &adapters::cursor::Cursor,
             Harness::Pi => &adapters::pi::Pi,
             Harness::OpenCode => &adapters::opencode::OpenCode,
+            Harness::Gemini => &adapters::gemini::Gemini,
+            Harness::Copilot => &adapters::copilot::Copilot,
         }
     }
 }
@@ -240,6 +258,8 @@ mod tests {
                 ("cursor", "Cursor"),
                 ("pi", "Pi"),
                 ("opencode", "OpenCode"),
+                ("gemini", "Gemini CLI"),
+                ("copilot", "GitHub Copilot CLI"),
             ]
         );
     }
@@ -247,7 +267,7 @@ mod tests {
     #[test]
     fn unknown_ids_get_a_useful_message() {
         for (id, want) in [
-            ("vim", "no agent \"vim\" (there are: claude_code, codex, cursor, pi, opencode)"),
+            ("vim", "no agent \"vim\" (there are: claude_code, codex, cursor, pi, opencode, gemini, copilot)"),
             ("Claude Code", "no agent \"Claude Code\""),
             ("", "no agent \"\""),
         ] {

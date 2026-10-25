@@ -1,0 +1,5 @@
+{"after_line":6,"now_offset_s":0.0,"activity":"running_tool","certainty":"firm","reason":"tool_call_pending","title":"run the tool"}
+{"after_line":8,"now_offset_s":0.0,"activity":"awaiting_approval","certainty":"firm","reason":"approval_requested","permission":"manual","title":"run the tool"}
+{"after_line":9,"now_offset_s":0.0,"activity":"running_tool","certainty":"firm","reason":"tool_call_pending","title":"run the tool"}
+{"after_line":10,"now_offset_s":0.0,"activity":"thinking","certainty":"firm","reason":"tool_result_in","title":"run the tool"}
+{"after_line":15,"now_offset_s":0.0,"activity":"done","certainty":"firm","reason":"turn_ended","title":"run the tool"}

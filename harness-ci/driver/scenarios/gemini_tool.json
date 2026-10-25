@@ -1,0 +1,9 @@
+{
+  "name": "gemini_tool",
+  "description": "Gemini runs a shell tool; its call is written only after completion, then the answer ends Done.",
+  "harness": "gemini",
+  "mock": "../../mock-server/scenarios/gemini_tool.json",
+  "prompt": "use the tool",
+  "run_for_ms": 30000,
+  "expected_activity": [{ "activity": "done", "when": "end", "certainty": "firm" }]
+}

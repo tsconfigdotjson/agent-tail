@@ -1,0 +1,95 @@
+{
+  "format": 1,
+  "files": [
+    {
+      "format": 1,
+      "file": "session.jsonl",
+      "lorem": false,
+      "lines": 7,
+      "bytes_before": 1463,
+      "bytes_after": 1463,
+      "replacements": {
+        "home_path": 3
+      },
+      "offsets": [
+        {
+          "line": 1,
+          "before_start": 0,
+          "before_end": 228,
+          "after_start": 0,
+          "after_end": 228,
+          "delta": 0
+        },
+        {
+          "line": 2,
+          "before_start": 228,
+          "before_end": 923,
+          "after_start": 228,
+          "after_end": 923,
+          "delta": 0
+        },
+        {
+          "line": 3,
+          "before_start": 923,
+          "before_end": 975,
+          "after_start": 923,
+          "after_end": 975,
+          "delta": 0
+        },
+        {
+          "line": 4,
+          "before_start": 975,
+          "before_end": 1107,
+          "after_start": 975,
+          "after_end": 1107,
+          "delta": 0
+        },
+        {
+          "line": 5,
+          "before_start": 1107,
+          "before_end": 1159,
+          "after_start": 1107,
+          "after_end": 1159,
+          "delta": 0
+        },
+        {
+          "line": 6,
+          "before_start": 1159,
+          "before_end": 1411,
+          "after_start": 1159,
+          "after_end": 1411,
+          "delta": 0
+        },
+        {
+          "line": 7,
+          "before_start": 1411,
+          "before_end": 1463,
+          "after_start": 1411,
+          "after_end": 1463,
+          "delta": 0
+        }
+      ],
+      "findings": [
+        {
+          "line": 2,
+          "kind": "home_path",
+          "placeholder": "<user>"
+        },
+        {
+          "line": 2,
+          "kind": "home_path",
+          "placeholder": "<user>"
+        },
+        {
+          "line": 2,
+          "kind": "home_path",
+          "placeholder": "<user>"
+        }
+      ],
+      "malformed_lines": []
+    }
+  ],
+  "replacements": {
+    "home_path": 3
+  }
+}

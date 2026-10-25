@@ -176,6 +176,8 @@ fn main() {
         ("cursor.toml", "Cursor", "cursor"),
         ("pi.toml", "Pi", "pi"),
         ("opencode.toml", "OpenCode", "opencode"),
+        ("gemini.toml", "Gemini", "gemini"),
+        ("copilot.toml", "Copilot", "copilot"),
     ];
 
     let mut generated = String::from(

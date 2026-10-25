@@ -1101,6 +1101,14 @@ fn harness_root(harness: Harness, home: &Path) -> PathBuf {
             })
             .unwrap_or_else(|| home.join(".pi/agent/sessions")),
         Harness::OpenCode => home.join(".local/share/opencode"),
+        Harness::Gemini => std::env::var_os("GEMINI_CLI_HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .map_or_else(|| home.join(".gemini/tmp"), |dir| dir.join(".gemini/tmp")),
+        Harness::Copilot => std::env::var_os("COPILOT_HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .map_or_else(|| home.join(".copilot/session-state"), |dir| dir.join("session-state")),
         _ => home.join(harness.layout().root),
     }
 }
@@ -1146,6 +1154,10 @@ fn session_id(harness: Harness, path: &Path) -> String {
         // Pi's file is <timestamp>_<session-id>.jsonl; the timestamp has no underscore, so
         // the first one separates a custom id that may contain more.
         Harness::Pi => file_stem(path).split_once('_').map_or_else(|| file_stem(path), |(_, id)| id.into()),
+        Harness::Copilot => path
+            .parent()
+            .and_then(Path::file_name)
+            .map_or_else(|| file_stem(path), |name| name.to_string_lossy().into_owned()),
         _ => file_stem(path),
     }
 }
@@ -1225,6 +1237,7 @@ pub fn version_of(candidate: &SessionCandidate) -> String {
             // Pi's session header version is the file-format version, not the CLI version.
             Harness::Pi => None,
             Harness::OpenCode => record.pointer("/row/version").and_then(Value::as_str),
+            Harness::Copilot => record.pointer("/data/copilotVersion").and_then(Value::as_str),
             _ => None,
         };
         if let Some(version) = version {

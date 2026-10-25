@@ -1,6 +1,6 @@
 //! `agenttail`: the library on the command line, for debugging what a dashboard shows.
 //!
-//!   agenttail ls [--hours N] [--agents claude_code,codex,cursor,pi,opencode]
+//!   agenttail ls [--hours N] [--agents claude_code,codex,cursor,pi,opencode,gemini,copilot]
 //!       One poll of this machine's sessions, printed as JSON lines, most urgent first.
 //!   agenttail watch [--hours N] [--agents …]
 //!       Polls every second and prints each change of a session's activity, with its reason.
@@ -39,7 +39,7 @@ const USAGE: &str = "usage: agenttail ls [--hours N] [--agents ID,…]
        agenttail fixture scan [PATH…]
 
   --hours N       sessions written in the last N hours (default 24)
-  --agents IDS    only these harnesses: claude_code, codex, cursor, pi, opencode (default: all)
+  --agents IDS    only these harnesses: claude_code, codex, cursor, pi, opencode, gemini, copilot (default: all)
   --agent ID      the harness for events/status when it can't be told from the path
   events          prints normalized events as canonical JSON lines
   status          runs status checkpoints; --checkpoints is the timing and expected file
@@ -234,9 +234,8 @@ fn fixture_capture(args: &[String]) -> Result<(), String> {
     std::fs::write(target.join("redaction.json"), report_text + "\n")
         .map_err(|e| format!("{}: {e}", target.join("redaction.json").display()))?;
     let description = format!(
-        "Captured offline from a {} session ({}) and redacted by `agenttail fixture capture`.",
-        candidate.harness.name(),
-        candidate.id
+        "Captured offline from a {} session and redacted by `agenttail fixture capture`.",
+        candidate.harness.name()
     );
     let meta = [
         format!("harness = {}", fixture::toml_string(candidate.harness.id())),
@@ -345,6 +344,10 @@ pub(crate) fn harness_for(path: &std::path::Path) -> Option<Harness> {
         Some(Harness::Cursor)
     } else if text.contains("/.pi/") || text.contains("/pi/agent/sessions/") {
         Some(Harness::Pi)
+    } else if text.contains("/.gemini/tmp/") || text.contains("/.gemini/tmp\\") {
+        Some(Harness::Gemini)
+    } else if text.contains("/.copilot/session-state/") || text.contains("/.copilot/session-state\\") {
+        Some(Harness::Copilot)
     } else if text.contains("/opencode/") || text.contains("opencode.db") {
         Some(Harness::OpenCode)
     } else if text.contains("/.codex/") || text.contains("/sessions/") && file.starts_with("rollout-") {
@@ -380,6 +383,13 @@ pub(crate) fn harness_from_bytes(bytes: &[u8]) -> Option<Harness> {
         Some(Harness::Codex)
     } else if first_record_is_pi(bytes) {
         Some(Harness::Pi)
+    } else if text.contains(r#""projectHash""#) && text.contains(r#""sessionId""#) {
+        Some(Harness::Gemini)
+    } else if text.contains(r#""type":"session.start""#)
+        || text.contains(r#""type": "session.start""#)
+        || text.contains(r#""copilotVersion""#)
+    {
+        Some(Harness::Copilot)
     } else if text.contains(r#""type":"turn_ended""#) || text.contains(r#""type": "turn_ended""#) {
         Some(Harness::Cursor)
     } else if text.contains(r#""type":"permission-mode""#)
@@ -465,6 +475,8 @@ mod tests {
             ("/h/.codex/sessions/2026/10/24/claude-copy.jsonl", Harness::Codex),
             ("/h/.cursor/projects/w-claude/agent-transcripts/a/a.jsonl", Harness::Cursor),
             ("/h/.pi/agent/sessions/--w-app--/2026-10-25T01-00-00-000Z_s.jsonl", Harness::Pi),
+            ("/h/.gemini/tmp/app/chats/session-2026-10-25T01-00-abc.jsonl", Harness::Gemini),
+            ("/h/.copilot/session-state/abc/events.jsonl", Harness::Copilot),
             ("fixtures/legacy/claude-code-2.1.jsonl", Harness::ClaudeCode),
             ("fixtures/legacy/codex-0.160-exec.jsonl", Harness::Codex),
             ("fixtures/legacy/cursor-synthetic.jsonl", Harness::Cursor),

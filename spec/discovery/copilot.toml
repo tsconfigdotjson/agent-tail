@@ -1,0 +1,84 @@
+# GitHub Copilot CLI discovery, as observed in 1.0.103. This file is embedded by
+# crates/agenttail/build.rs. A session is an append-only events.jsonl in its own folder.
+schema = 1
+harness = "copilot"
+name = "GitHub Copilot CLI"
+
+[roots]
+default = ".copilot/session-state"
+evidence = "docs/formats/copilot.md#paths-and-layout; harness-ci/README.md#github-copilot-cli-real-harness-2026-10-25"
+
+[[roots.env]]
+var = "COPILOT_HOME"
+append = "session-state"
+absolute = true
+semantics = "Copilot's config/state home; session-state below it holds one folder per session; relative values are ignored"
+evidence = "docs/formats/copilot.md#paths-and-layout; copilot help environment in 1.0.103"
+
+[layout]
+# <session-uuid>/events.jsonl. The sibling session-store.db is a separate index, not read.
+max_depth = 2
+session_pattern = "*.jsonl"
+day_folders = false
+evidence = "docs/formats/copilot.md#paths-and-layout; crates/agenttail/src/adapters/copilot.rs"
+
+[project]
+source = "session.start.data.context.cwd; the last one read wins"
+encoding = "cwd is recorded directly, with no project-folder encoding"
+evidence = "docs/formats/copilot.md#event-catalogue; fixtures/copilot/1.0/linux/plain-qa/input/session.jsonl"
+
+[[project.examples]]
+cwd = "/home/ubuntu/work/app"
+folder = "app"
+
+[timestamps]
+field = "timestamp"
+format = "ISO 8601"
+timezone = "as written (UTC with Z in every observed event)"
+fallback = "file mtime when an event has no timestamp"
+evidence = "docs/formats/copilot.md#event-catalogue; fixtures/copilot/1.0/linux/plain-qa/input/session.jsonl"
+
+[asks_user]
+# The tool catalogue mentions an ask_user tool in some modes, but no ask-user event was
+# observed. Keep the list empty rather than claiming a name from a prompt fragment.
+match = "exact"
+evidence = "docs/formats/copilot.md#status-signals; harness-ci/README.md#github-copilot-cli-real-harness-2026-10-25"
+values = []
+
+[never_prompt]
+# --allow-all-tools suppresses prompts, but that is a CLI flag, not a persisted mode. No
+# tool is never-prompt from the event log alone.
+evidence = "docs/formats/copilot.md#status-signals; copilot --help in 1.0.103"
+values = []
+
+[modes]
+# permission.requested carries permissionMode; the observed value was "manual".
+evidence = "docs/formats/copilot.md#status-signals; fixtures/copilot/1.0/linux/permission-denied/input/session.jsonl"
+values = [
+  { value = "manual", can_ask_human = true, observed = true, evidence = "fixtures/copilot/1.0/linux/permission-denied/input/session.jsonl" },
+]
+
+[[quirks]]
+id = "approval-requests-are-persisted"
+summary = "permission.requested is written before the tool runs, joined by toolCallId; permission.completed records the result kind. This makes a pending approval firm on disk."
+evidence = "docs/formats/copilot.md#status-signals; fixtures/copilot/1.0/linux/permission-denied/input/session.jsonl"
+
+[[quirks]]
+id = "unattended-fallback-denial"
+summary = "In prompt mode with no interactive user, Copilot writes permission.requested then permission.completed with result kind denied-no-approval-rule-and-could-not-request-from-user; the tool is not run."
+evidence = "docs/formats/copilot.md#status-signals; harness-ci/README.md#github-copilot-cli-real-harness-2026-10-25"
+
+[[quirks]]
+id = "per-model-turn-boundaries"
+summary = "assistant.turn_start/turn_end wrap each model call, not the whole user interaction; a turn_end after a tool request does not finish the session."
+evidence = "docs/formats/copilot.md#event-catalogue; crates/agenttail/src/adapters/copilot.rs"
+
+[[quirks]]
+id = "byok-mock-provider"
+summary = "COPILOT_PROVIDER_BASE_URL with COPILOT_OFFLINE=true points the CLI at an OpenAI-compatible local provider without GitHub authentication."
+evidence = "docs/formats/copilot.md#harness-ci; copilot help environment in 1.0.103"
+
+[[quirks]]
+id = "session-store-not-read"
+summary = "session-store.db indexes sessions but the event log is the session's record; the adapter does not open the SQLite index."
+evidence = "docs/formats/copilot.md#paths-and-layout"

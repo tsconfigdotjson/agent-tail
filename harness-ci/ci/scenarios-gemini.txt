@@ -1,0 +1,4 @@
+# Stable Gemini CLI scenarios for the pinned + latest matrix. A latest failure is upstream
+# drift, not a silent skip.
+gemini_plain_qa
+gemini_tool

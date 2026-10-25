@@ -174,7 +174,10 @@ async fn run(args: Args) -> Result<(), String> {
     let scenario: DriverScenario =
         serde_json::from_str(&scenario_text).map_err(|e| format!("parse {}: {e}", scenario_path.display()))?;
     let harness: Harness = scenario.harness.parse().map_err(|e| format!("harness: {e}"))?;
-    if !matches!(harness, Harness::ClaudeCode | Harness::Codex | Harness::Pi | Harness::OpenCode) {
+    if !matches!(
+        harness,
+        Harness::ClaudeCode | Harness::Codex | Harness::Pi | Harness::OpenCode | Harness::Gemini | Harness::Copilot
+    ) {
         return Err(format!("{} harness is not wired up yet", harness.name()));
     }
     let mock_path = scenario_path.parent().unwrap_or(Path::new(".")).join(&scenario.mock);
@@ -214,8 +217,8 @@ async fn run(args: Args) -> Result<(), String> {
     let scenario_name = scenario.name.clone();
     let run_out = out.clone();
     let outcome = tokio::task::spawn_blocking(move || {
-        if harness == Harness::Pi {
-            run_pi_json(scenario, harness, addr.to_string(), run_state, run_out, &home, &work)
+        if matches!(harness, Harness::Pi | Harness::Gemini | Harness::Copilot) {
+            run_headless_json(scenario, harness, addr.to_string(), run_state, run_out, &home, &work)
         } else {
             run_pty(scenario, harness, addr.to_string(), run_state, run_out, &home, &work)
         }
@@ -236,10 +239,11 @@ async fn run(args: Args) -> Result<(), String> {
     if score.failures.is_empty() { Ok(()) } else { Err("scenario had hard failures (see score.json)".into()) }
 }
 
-/// Pi's JSON mode is a one-shot run, not a TUI. It still exercises the real CLI, the mock
-/// provider, the session writer and the same reducer; samples are transcript-based and the
-/// screen is `unknown`, so Pi driver scenarios assert activities without screen strings.
-fn run_pi_json(
+/// Pi, Gemini CLI and Copilot CLI can run a one-shot prompt without a TUI. They still
+/// exercise the real CLI, the mock provider, the session writer and the same reducer;
+/// samples are transcript-based and the screen is `unknown`, so their driver scenarios
+/// assert activities without screen strings.
+fn run_headless_json(
     scenario: DriverScenario,
     harness: Harness,
     addr: String,
@@ -260,19 +264,44 @@ fn run_pi_json(
         if let Some(prompt) = &phase.prompt {
             command.push(prompt.clone());
         }
-        let events = std::fs::File::create(out.join(format!("pi-events-{index}.jsonl")))
-            .map_err(|e| format!("create pi events: {e}"))?;
-        let stderr = std::fs::File::create(out.join(format!("pi-stderr-{index}.log")))
-            .map_err(|e| format!("create pi stderr: {e}"))?;
+        let events = std::fs::File::create(out.join(format!("{}-events-{index}.jsonl", harness.id())))
+            .map_err(|e| format!("create {} events: {e}", harness.id()))?;
+        let stderr = std::fs::File::create(out.join(format!("{}-stderr-{index}.log", harness.id())))
+            .map_err(|e| format!("create {} stderr: {e}", harness.id()))?;
         let mut builder = std::process::Command::new(&command[0]);
         builder.args(&command[1..]);
         builder.current_dir(work);
         builder.env("HOME", home);
-        builder.env("PI_CODING_AGENT_DIR", home.join(".pi").join("agent"));
-        builder.env("PI_CODING_AGENT_SESSION_DIR", home.join(".pi").join("agent").join("sessions"));
-        builder.env("PI_OFFLINE", "1");
-        builder.env("PI_SKIP_VERSION_CHECK", "1");
-        builder.env("PI_TELEMETRY", "0");
+        match harness {
+            Harness::Pi => {
+                builder.env("PI_CODING_AGENT_DIR", home.join(".pi").join("agent"));
+                builder.env("PI_CODING_AGENT_SESSION_DIR", home.join(".pi").join("agent").join("sessions"));
+                builder.env("PI_OFFLINE", "1");
+                builder.env("PI_SKIP_VERSION_CHECK", "1");
+                builder.env("PI_TELEMETRY", "0");
+            }
+            Harness::Gemini => {
+                builder.env("GEMINI_CLI_HOME", home);
+                builder.env("GEMINI_API_KEY", DUMMY_KEY);
+                builder.env("GOOGLE_GEMINI_BASE_URL", format!("http://{addr}"));
+                builder.env("CI", "true");
+                builder.env("GEMINI_CLI_TRUST_WORKSPACE", "true");
+                builder.env("GEMINI_CLI_NO_RELAUNCH", "true");
+                builder.env("GEMINI_TELEMETRY_ENABLED", "false");
+            }
+            Harness::Copilot => {
+                builder.env("COPILOT_HOME", home.join(".copilot"));
+                builder.env("COPILOT_OFFLINE", "true");
+                builder.env("COPILOT_PROVIDER_BASE_URL", format!("http://{addr}/v1"));
+                builder.env("COPILOT_PROVIDER_TYPE", "openai");
+                builder.env("COPILOT_PROVIDER_API_KEY", DUMMY_KEY);
+                builder.env("COPILOT_PROVIDER_MODEL_ID", "test-model");
+                builder.env("COPILOT_MODEL", "test-model");
+                builder.env("CI", "true");
+                builder.env("NO_COLOR", "1");
+            }
+            _ => {}
+        }
         builder.env("TERM", "xterm-256color");
         for (key, value) in &phase.env {
             builder.env(key, value);
@@ -913,6 +942,14 @@ fn session_id_in(jsonl: &str) -> Option<String> {
         if let Some(id) = value.get("sessionId").and_then(serde_json::Value::as_str).filter(|id| !id.is_empty()) {
             return Some(id.to_string());
         }
+        if let Some(id) = value
+            .get("data")
+            .and_then(|data| data.get("sessionId"))
+            .and_then(serde_json::Value::as_str)
+            .filter(|id| !id.is_empty())
+        {
+            return Some(id.to_string());
+        }
         if value.get("type").and_then(serde_json::Value::as_str) == Some("session")
             && let Some(id) = value.get("id").and_then(serde_json::Value::as_str).filter(|id| !id.is_empty())
         {
@@ -1025,6 +1062,23 @@ fn default_command(harness: Harness) -> Vec<String> {
             "-m".into(),
             "test/test-model".into(),
         ],
+        Harness::Gemini => vec![
+            "gemini".into(),
+            "--output-format".into(),
+            "json".into(),
+            "--approval-mode".into(),
+            "yolo".into(),
+            "--skip-trust".into(),
+            "-p".into(),
+        ],
+        Harness::Copilot => vec![
+            "copilot".into(),
+            "--output-format".into(),
+            "json".into(),
+            "--allow-all-tools".into(),
+            "--trust-folder".into(),
+            "-p".into(),
+        ],
         _ => vec![],
     }
 }
@@ -1076,6 +1130,8 @@ fn seed_harness(
         Harness::Codex => seed_codex(home, mock_addr),
         Harness::Pi => seed_pi(home, mock_addr, settings),
         Harness::OpenCode => Ok(()),
+        Harness::Gemini => seed_gemini(home, settings),
+        Harness::Copilot => Ok(()),
         _ => Err(format!("{} harness is not wired up yet", harness.name())),
     }
 }
@@ -1111,6 +1167,18 @@ fn seed_pi(home: &Path, mock_addr: &str, extra: &serde_json::Map<String, serde_j
     }
     std::fs::write(config_dir.join("settings.json"), serde_json::to_vec_pretty(&settings).expect("settings serialize"))
         .map_err(|e| format!("seed Pi settings.json: {e}"))
+}
+
+fn seed_gemini(home: &Path, extra: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+    let config_dir = home.join(".gemini");
+    std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
+    let mut settings = serde_json::json!({"security": {"auth": {"selectedType": "gemini-api-key"}}});
+    let object = settings.as_object_mut().expect("settings object");
+    for (key, value) in extra {
+        object.insert(key.clone(), value.clone());
+    }
+    std::fs::write(config_dir.join("settings.json"), serde_json::to_vec_pretty(&settings).expect("settings serialize"))
+        .map_err(|e| format!("seed Gemini settings.json: {e}"))
 }
 
 fn seed_codex(home: &Path, mock_addr: &str) -> Result<(), String> {
@@ -1301,6 +1369,8 @@ fn transcript_root(home: &Path, harness: Harness) -> PathBuf {
         Harness::Codex => home.join(".codex").join("sessions"),
         Harness::Pi => home.join(".pi").join("agent").join("sessions"),
         Harness::OpenCode => home.join(".local/share/opencode"),
+        Harness::Gemini => home.join(".gemini").join("tmp"),
+        Harness::Copilot => home.join(".copilot").join("session-state"),
         _ => home.join(".unwired"),
     }
 }
@@ -1369,6 +1439,27 @@ mod tests {
         let bypass = scenario("claude_bash_bypass.json");
         assert!(bypass.no_approval);
         assert!(bypass.expected_activity.is_empty());
+    }
+
+    #[test]
+    fn gemini_and_copilot_scenarios_parse() {
+        for (name, harness) in [
+            ("gemini_plain_qa.json", "gemini"),
+            ("gemini_tool.json", "gemini"),
+            ("copilot_plain_qa.json", "copilot"),
+            ("copilot_tool.json", "copilot"),
+            ("copilot_permission_denied.json", "copilot"),
+        ] {
+            let scenario = scenario(name);
+            assert_eq!(scenario.harness, harness, "{name}");
+            assert!(!scenario.expected_activity.is_empty(), "{name}");
+            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scenarios").join(name);
+            let mock_path = path.parent().unwrap().join(&scenario.mock);
+            let text =
+                std::fs::read_to_string(&mock_path).unwrap_or_else(|e| panic!("read {}: {e}", mock_path.display()));
+            mock_server::scenario::Scenario::parse(&text)
+                .unwrap_or_else(|e| panic!("parse {}: {e}", mock_path.display()));
+        }
     }
 
     #[test]

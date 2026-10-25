@@ -2,13 +2,14 @@
 
 **What every coding agent on this machine is doing right now**: thinking, running a tool,
 waiting for your answer, perhaps waiting for an approval, done, or idle. Read from the
-sessions Claude Code, Codex, Cursor, Pi and OpenCode already write, so there's nothing to
-install into the agents and nothing to configure.
+sessions Claude Code, Codex, Cursor, Pi, OpenCode, Gemini CLI and GitHub Copilot CLI
+already write, so there's nothing to install into the agents and nothing to configure.
 
 Status: **pre-release, private.** The sans-IO core, the `fs` tracker, the CLI and the
 real-harness rig are in place. Permission modes, firm turn ends, interrupts, errors and
-background helpers are implemented; harness CI covers Claude Code, Codex, OpenCode and Pi,
-while Cursor still needs a donated live-approval capture. StatusWall adoption is next.
+background helpers are implemented; harness CI covers Claude Code, Codex, OpenCode, Pi,
+Gemini CLI and Copilot CLI, while Cursor still needs a donated live-approval capture.
+StatusWall adoption is next.
 See [PLAN.md](PLAN.md) and [issue #1](https://github.com/tsconfigdotjson/agenttail/issues/1).
 
 ## Status is the headline
@@ -18,12 +19,12 @@ For each session you get a `SessionState`:
 | `activity` | when (today's rules) | `certainty` |
 |---|---|---|
 | `awaiting_answer` | the last entry calls an ask-the-user tool (`AskUserQuestion`, `ExitPlanMode`, `request_user_input`, Cursor's ask tools, OpenCode's `question`/`plan_exit`) | firm |
-| `awaiting_approval` | a tool call has had no result for 20 s **and the mode can ask a human**: perhaps a permission prompt | **inferred** |
+| `awaiting_approval` | a persisted permission request is pending (Copilot's `permission.requested`), or a tool call has had no result for 20 s **and the mode can ask a human**: perhaps a permission prompt | firm (Copilot) / **inferred** |
 | `running_tool` | a tool call is waiting for its result, including under bypass/`dontAsk`/`never`, an SDK entrypoint or an AI approval reviewer | firm |
 | `thinking` | a prompt was sent, a tool's result came back, or Cursor's composer status is `generating` | firm |
-| `done` | the turn ended normally (Claude `end_turn`/`stop_hook_summary`/`turn_duration`/`agents_killed`, or a rejected tool use; Codex `task_complete`/`turn_complete`; Cursor `turn_ended` or `composerData.status: completed`; OpenCode's `step-finish` reason `stop`) | firm |
-| `interrupted` | the user interrupted or aborted (Claude's interrupt text, Codex `turn_aborted`, Cursor's `turn_ended` or `composerData.status: aborted`, OpenCode's aborted `step-finish`) | firm |
-| `errored` | the harness recorded an error ending the turn (Claude's synthetic API row, Codex `task_complete.error`, Cursor's error status and message, OpenCode's failed `step-finish`/assistant error) | firm |
+| `done` | the turn ended normally (Claude `end_turn`/`stop_hook_summary`/`turn_duration`/`agents_killed`, or a rejected tool use; Codex `task_complete`/`turn_complete`; Cursor `turn_ended` or `composerData.status: completed`; OpenCode's `step-finish` reason `stop`; Gemini's final text message; Copilot's final assistant message/`session.shutdown`) | firm |
+| `interrupted` | the user interrupted or aborted (Claude's interrupt text, Codex `turn_aborted`, Cursor's `turn_ended` or `composerData.status: aborted`, OpenCode's aborted `step-finish`, Copilot `abort`) | firm |
+| `errored` | the harness recorded an error ending the turn (Claude's synthetic API row, Codex `task_complete.error`, Cursor's error status and message, OpenCode's failed `step-finish`/assistant error, Gemini's `type: error`) | firm |
 | `background_work` | the turn ended, but a subagent or background task is still writing (Claude's `pendingBackgroundAgentCount` makes this firm; a helper's own transcript makes it inferred) | firm / **inferred** |
 | `idle` | nothing written for 15 min | firm |
 | `unknown` | nothing that moves the state has been read yet: an empty or metadata-only session. A dashboard can map this to its idle look (StatusWall adoption is #16) | firm |
@@ -87,7 +88,7 @@ and quirks with their evidence.
 The CLI, for looking at what a dashboard would show:
 
 ```
-agenttail ls [--hours N] [--agents claude_code,codex,cursor,pi,opencode]  # one poll, JSON lines
+agenttail ls [--hours N] [--agents claude_code,codex,cursor,pi,opencode,gemini,copilot]  # one poll, JSON lines
 agenttail watch [--hours N] [--agents …]                                  # each change, with its reason
 agenttail events [--agent ID] <input-dir|path>                            # canonical JSON events
 agenttail status <input-dir> --checkpoints <file>                         # status conformance
@@ -114,8 +115,9 @@ the language-neutral `events`/`status` contract, canonical JSON and `survey --dr
   `~/.pi/agent/sessions/<encoded-cwd>/*.jsonl` (Pi; `PI_CODING_AGENT_DIR` and
   `PI_CODING_AGENT_SESSION_DIR` move it), and
   `~/.local/share/opencode/opencode.db` (OpenCode; `XDG_DATA_HOME` moves it and `OPENCODE_DB`
-  names the file). Claude Code subagent transcripts and their sibling `.meta.json` are read
-  too. Only the bytes appended since the last poll are read; a session's first read goes 1 MB
+  names the file), `~/.gemini/tmp/<project>/chats/*.jsonl` (Gemini CLI; `GEMINI_CLI_HOME`
+  moves it), and `~/.copilot/session-state/<id>/events.jsonl` (Copilot CLI; `COPILOT_HOME`
+  moves it). Claude Code subagent transcripts and their sibling `.meta.json` are read too. Only the bytes appended since the last poll are read; a session's first read goes 1 MB
   at a time. Cursor's and OpenCode's databases are never opened in place: they are copied with
   `-wal`/`-shm` into a private temporary folder, opened `mode=ro`, and that folder is deleted
   afterwards. Cursor's copy is throttled to once every 30 s; OpenCode's is taken when its
@@ -139,6 +141,8 @@ the language-neutral `events`/`status` contract, canonical JSON and `survey --dr
 | Cursor agent | `~/.cursor/projects/<project>/agent-transcripts/<id>/<id>.jsonl`, plus the IDE's `state.vscdb` | a handmade transcript and synthetic SQLite rows in the shape seen on a real Mac; live approval waits still need a donated capture |
 | Pi | `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<id>.jsonl` | Pi 1.4.0 (pinned and npm latest at the time); `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR` overrides; no approval prompt, so a pending tool is firm `RunningTool` |
 | OpenCode | `~/.local/share/opencode/opencode.db` (`XDG_DATA_HOME`, `OPENCODE_DB`) | a live 1.19.4 `opencode run` against the harness mock, with exported/redacted row fixtures; approvals remain inferred because they are not persisted |
+| Gemini CLI | `~/.gemini/tmp/<project>/chats/session-*.jsonl` (`GEMINI_CLI_HOME`) | live 0.65.0 runs against the harness mock; tool calls are written only after completion, so no pending approval is on disk |
+| Copilot CLI | `~/.copilot/session-state/<id>/events.jsonl` (`COPILOT_HOME`) | live 1.0.103 runs through its BYOK mock provider; `permission.requested`/`permission.completed` make approval waits firm, and the prompt-mode unattended denial is captured |
 
 ## Building
 

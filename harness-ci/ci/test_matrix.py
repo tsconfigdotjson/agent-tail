@@ -36,6 +36,17 @@ class MatrixTests(unittest.TestCase):
         self.assertIn({"label": "latest", "version": "1.20.0", "os": "macos-latest"}, opencode)
         self.assertEqual(len(opencode), 4)
 
+    def test_gemini_and_copilot_have_pinned_and_latest_lanes(self):
+        gemini = matrix.build_matrix("gemini", "0.66.0")["include"]
+        self.assertIn({"label": "0.65.0", "version": "0.65.0", "os": "ubuntu-latest"}, gemini)
+        self.assertIn({"label": "latest", "version": "0.66.0", "os": "macos-latest"}, gemini)
+        self.assertEqual(len(gemini), 4)
+
+        copilot = matrix.build_matrix("copilot", "1.1.0")["include"]
+        self.assertIn({"label": "1.0.103", "version": "1.0.103", "os": "ubuntu-latest"}, copilot)
+        self.assertIn({"label": "latest", "version": "1.1.0", "os": "macos-latest"}, copilot)
+        self.assertEqual(len(copilot), 4)
+
     def test_codex_has_a_pinned_and_latest_lane(self):
         entries = matrix.build_matrix("codex", "0.164.0")["include"]
         self.assertIn({"label": "0.160.1", "version": "0.160.1", "os": "ubuntu-latest"}, entries)

@@ -251,6 +251,8 @@ mod tests {
         let pi = Harness::Pi.discovery();
         assert_eq!(pi.env_root("PI_CODING_AGENT_DIR").unwrap().append, "sessions");
         assert_eq!(pi.env_root("PI_CODING_AGENT_SESSION_DIR").unwrap().append, "");
+        assert_eq!(Harness::Gemini.discovery().env_root("GEMINI_CLI_HOME").unwrap().append, ".gemini/tmp");
+        assert_eq!(Harness::Copilot.discovery().env_root("COPILOT_HOME").unwrap().append, "session-state");
         assert!(Harness::Cursor.discovery().roots.env.is_empty());
         let registry = claude.registry.as_ref().expect("Claude has a registry decision");
         assert!(!registry.used, "the tracker does not read the registry");
