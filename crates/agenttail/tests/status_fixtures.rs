@@ -127,7 +127,12 @@ fn every_expected_status_checkpoint_holds() {
                 let state = serde_json::to_value(reducer.state(now)).unwrap();
                 for key in ["activity", "certainty", "reason", "permission", "sandbox", "title"] {
                     let Some(want) = checkpoint.get(key) else { continue };
-                    assert_eq!(state.get(key), Some(want), "{} after line {line_no}: {key}", scenario.display());
+                    let got = if key == "title" {
+                        state.get("title").or_else(|| state.get("meta").and_then(|meta| meta.get("title")))
+                    } else {
+                        state.get(key)
+                    };
+                    assert_eq!(got, Some(want), "{} after line {line_no}: {key}", scenario.display());
                 }
             }
         }

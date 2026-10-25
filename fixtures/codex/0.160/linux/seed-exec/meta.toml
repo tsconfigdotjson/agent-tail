@@ -1,0 +1,6 @@
+harness = "codex"
+version = "0.160.1"
+os = "linux"
+capture = "donated"
+date = "2026-10-14"
+description = "A real `codex exec` rollout against a stand-in model; long instructions were trimmed and home paths redacted to <user> placeholders."

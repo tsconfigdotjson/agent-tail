@@ -1,0 +1,6 @@
+harness = "claude_code"
+version = "2.1.292"
+os = "linux"
+capture = "donated"
+date = "2026-10-07"
+description = "The seed recording from tvdash: a prompt, Bash / Read / Write calls, a generated title and a cost entry. Prose was already scrubbed; home paths are now <user> placeholders."

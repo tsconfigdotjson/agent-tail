@@ -434,3 +434,50 @@ inference; turning `userDecision` into firm approval without that capture would 
 malformed row and `toolFormerData` with both decision locations. The tests build a real
 SQLite database from it, leave the rows in the WAL, and read them back; a separate fs test
 checks the title/status override, the throttle, and that no Cursor session means no read.
+
+## Phase C fixture redaction and the versioned seed layout (2026-10-25)
+
+**The fixture tooling lives in `agenttail-cli`, not the library.** `fixture redact`,
+`capture` and `scan` are local development/CI tools: they read files, write fixture
+directories, and never touch a harness or the network. Keeping them out of the sans-IO core
+means the library still only parses bytes and states.
+
+**Redaction is deterministic and value-free.** JSONL records are parsed and re-serialized
+with `serde_json`'s `preserve_order`, so object field order, array order and line count are
+kept. Values are replaced in a fixed order: secret-valued keys, private keys/auth headers,
+home paths, URL/SSH hosts, emails, secret patterns, then entropy. Placeholders are stable
+per value: `<user>`, `<email>`, `<host>`, `<path-NNNN>`, and `<secret-NNNN>`. Token usage
+look-alikes (`input_tokens`, `token_count`, `total_tokens`) are deliberately not secret
+keys; secret detection combines known token prefixes and Shannon entropy. `--lorem`
+replaces prose with lorem of the same character length and keeps whitespace, so line shapes
+do not change.
+
+**Every run writes a reviewable report, and the report is safe to commit.** The report has
+replacement counts, per-line findings that name only the placeholder, and before/after byte
+spans so event offsets can be remapped. It never records the original secret or home path.
+The default report sits beside the output (or under the captured fixture as
+`redaction.json`). The scan ignores generated reports because their contents are already
+value-free.
+
+**The scan is the guardrail, not a best-effort log.** It detects secrets and non-placeholder
+home paths in fixture data and docs; emails and hosts are reported as warnings because the
+issue only makes secrets and home paths hard failures. A path-like token (lowercase, digits,
+`/_-.'`) is not misread as an entropy secret. `.githooks/pre-commit` runs the same scan when
+`fixtures/` is staged, and a dedicated CI job runs it on every change to the CLI or
+fixtures.
+
+**The seed corpus moved through the tool.** The four tvdash recordings became
+`fixtures/claude-code/2.1/linux/seed-session`, `fixtures/codex/0.160/linux/seed-exec`,
+`fixtures/codex/0.160/linux/seed-resume` and
+`fixtures/cursor/unknown/any/seed-session`. Each has `meta.toml`,
+`expected/events.jsonl` and `expected/status.jsonl`; the event fixture is compared exactly
+by the CLI tests. The fake usernames became canonical `<user>` path segments, and the Cursor
+fixture test now uses the correspondingly encoded folder name. The status fixture runner
+also compares a checkpoint's `title` against `meta.title`, which is where `SessionState`
+carries it.
+
+**Nightly capture uses the same redactor before opening a PR.** `harness-ci/ci/survey.py`
+still has its local fallback for tests, but when `AGENTTAIL_BIN` is set (the nightly workflow
+builds `agenttail-cli` and sets it) the captured fixture is re-redacted by the Rust tool.
+The workflow then runs `agenttail fixture scan fixtures` before it commits or opens the
+drift PR, so an incomplete redaction fails closed instead of publishing a fixture.

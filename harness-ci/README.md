@@ -404,7 +404,9 @@ explicitly. The root `cargo test` still does not build it.
   fixtures under `fixtures/claude-code/<version>/<os>/ci-<scenario>/`, and the workflow opens a
   PR. Ids, timestamps and free text are not surveyed, so value-only changes do not open a PR.
   A committed baseline that changes under the same version is reported as a regression and does
-  not get silently rewritten.
+  not get silently rewritten. The workflow builds `agenttail-cli`, passes it as
+  `AGENTTAIL_BIN` so the capture uses the same Rust redactor as `fixture redact`, and runs
+  `agenttail fixture scan fixtures` before the PR step.
 - **Proof:** `drift/reports/claude-code-2.1.281-to-2.1.310.md` is the report from running the
   same suite on both versions locally. It catches the new `api-request*` records, `turnPosition`,
   `renderedRole`/`renderedBesideToolResult`, request fields and permission-decision fields.

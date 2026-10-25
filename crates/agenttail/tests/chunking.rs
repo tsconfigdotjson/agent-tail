@@ -165,10 +165,10 @@ proptest! {
 }
 
 const FIXTURES: [(Harness, &str); 4] = [
-    (Harness::ClaudeCode, include_str!("../../../fixtures/legacy/claude-code-2.1.jsonl")),
-    (Harness::Codex, include_str!("../../../fixtures/legacy/codex-0.160-exec.jsonl")),
-    (Harness::Codex, include_str!("../../../fixtures/legacy/codex-0.160-resume.jsonl")),
-    (Harness::Cursor, include_str!("../../../fixtures/legacy/cursor-synthetic.jsonl")),
+    (Harness::ClaudeCode, include_str!("../../../fixtures/claude-code/2.1/linux/seed-session/input/session.jsonl")),
+    (Harness::Codex, include_str!("../../../fixtures/codex/0.160/linux/seed-exec/input/session.jsonl")),
+    (Harness::Codex, include_str!("../../../fixtures/codex/0.160/linux/seed-resume/input/session.jsonl")),
+    (Harness::Cursor, include_str!("../../../fixtures/cursor/unknown/any/seed-session/input/session.jsonl")),
 ];
 
 proptest! {

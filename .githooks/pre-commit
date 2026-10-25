@@ -1,0 +1,14 @@
+#!/bin/sh
+# Scan staged fixture changes for secrets and real home paths. Enable with:
+#   git config core.hooksPath .githooks
+set -eu
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+if ! git diff --cached --name-only --diff-filter=ACM | grep -q '^fixtures/'; then
+    exit 0
+fi
+if ! command -v cargo >/dev/null 2>&1; then
+    echo "pre-commit: cargo not found; skipping fixture scan" >&2
+    exit 0
+fi
+exec cargo run --quiet -p agenttail-cli -- fixture scan fixtures

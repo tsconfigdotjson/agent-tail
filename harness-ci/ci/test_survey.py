@@ -1,7 +1,9 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import survey
 
@@ -88,6 +90,30 @@ class ShapeSurveyTests(unittest.TestCase):
             diff = survey.shape_diff(old, new)
             self.assertTrue(survey.has_drift(diff))
             self.assertIn("new_block", diff["added_fields"]["content_types"]["assistant.content"])
+
+    def test_capture_uses_the_external_redactor_when_configured(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            run = write_transcript(root, base_records())
+            fake = root / "agenttail"
+            fake.write_text(
+                "#!/bin/sh\n"
+                "report=''\n"
+                "input=''\n"
+                "while [ \"$#\" -gt 0 ]; do\n"
+                "  case \"$1\" in --report) shift; report=\"$1\" ;; esac\n"
+                "  input=\"$1\"; shift\n"
+                "done\n"
+                "printf '%s\\n' '{\"redacted\":true}' > \"$input\"\n"
+                "printf '%s\\n' '{}' > \"$report\"\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            with mock.patch.dict(os.environ, {"AGENTTAIL_BIN": str(fake)}):
+                target = survey.capture_fixture(run, root / "fixtures", "claude_code", "1.0.0", "linux")
+            self.assertIsNotNone(target)
+            self.assertEqual((target / "input" / "session.jsonl").read_text(encoding="utf-8"), '{"redacted":true}\n')
+            self.assertTrue((target / "redaction.json").is_file())
 
     def test_capture_redacts_ids_and_temp_paths(self):
         with tempfile.TemporaryDirectory() as temp:

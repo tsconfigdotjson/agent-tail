@@ -41,6 +41,7 @@ repeated here when they're still open.
     (numbers in the Phase 1a report). Peak RSS is measured from outside (`/usr/bin/time`);
     a CI job would wrap it the same way and fail over budget. Wanted now, or with harness
     CI?
-11. **Fixture layout.** The seed fixtures sit in `fixtures/legacy/` as they were. Moving them
-    into `fixtures/<harness>/<version>/<os>/<scenario>/` with `meta.toml` and expected
-    checkpoints waits for `fixture redact` and the status checkpoints (Phase 2).
+11. **Fixture layout.** Resolved: the seed fixtures now live under
+    `fixtures/<harness>/<version>/<os>/<scenario>/` with `meta.toml`,
+    `expected/events.jsonl` and `expected/status.jsonl`. `agenttail fixture redact|capture`
+    and the fixture scan landed with #24.
