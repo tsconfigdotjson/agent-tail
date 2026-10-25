@@ -1,9 +1,10 @@
 [package]
 name = "harness-driver"
-description = "Runs a coding-agent CLI under a PTY and scores agenttail's status against its screen."
+description = "Runs a coding-agent CLI under a PTY and scores agent-tail's status against its screen."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [[bin]]
@@ -11,7 +12,7 @@ name = "harness-driver"
 path = "src/main.rs"
 
 [dependencies]
-agenttail = { path = "../../crates/agenttail", features = ["fs"] }
+agent-tail = { path = "../../crates/agent-tail", features = ["fs"] }
 axum = "0.8"
 mock-server = { path = "../mock-server" }
 portable-pty = "0.8"

@@ -1,10 +1,9 @@
 # Codex rollout format
 
-Survey: read-only, structure only, 2026-10-23. **This Mac only: 1 rollout** (`cli_version`
-`0.118.0-alpha.2`, `source: vscode`, written by the VS Code extension). **vibe-os was not
-surveyed**: `ssh vibe-os` failed with "Could not resolve hostname" because Tailscale is stopped on
-this Mac, and the scope was cut to skip retries. Treat everything below as one sample. tvdash's
-`codex-0.160-*.jsonl` fixtures remain the better evidence for 0.160.
+This note is based on a read-only survey of one rollout (`cli_version`
+`0.118.0-alpha.2`, `source: vscode`, written by the VS Code extension), plus live harness runs
+and fixtures for **0.160.1**. Treat the 0.118 details as one sample; the 0.160.1 evidence is
+stronger.
 
 ## Paths and layout
 ```
@@ -14,13 +13,13 @@ this Mac, and the scope was cut to skip retries. Treat everything below as one s
 ```
 `CODEX_HOME` overrides `~/.codex`. The tracker reads it when set.
 
-## A4 live CLI check (2026-10-24)
+## Live CLI check: 0.160.1
 
 Codex CLI **0.160.1** from npm was run under a PTY against the local mock (no real backend).
 An absolute `CODEX_HOME` is the `.codex` home: config, SQLite state, and
 `sessions/YYYY/MM/DD/rollout-*.jsonl` all live below it, and `Tracker::from_env`'s
 `$CODEX_HOME/sessions` root is correct. The CLI also accepts a relative `CODEX_HOME`, resolved
-against its current working directory; the tracker ignores relative values as a B8 safety rule.
+against its current working directory; the tracker ignores relative values as a safety rule.
 CI always gives the CLI an absolute temp path.
 
 A custom `model_providers.<id>` entry with `base_url` pointing at the mock, `env_key` for a
@@ -47,7 +46,7 @@ current docs mark it retired, and `-a` accepts only `on-request` and `never`.
 
 `codex resume <id>` appended the new prompt to the same rollout file (one file, two prompts).
 The live CLI produced no `.jsonl.zst`; compressed history and resume from an older day folder
-remain covered by fixtures rather than this spike.
+remain covered by fixtures rather than this survey.
 
 ## Record catalogue (1 rollout; counts)
 Envelope: `{timestamp, type, payload}`.
@@ -78,45 +77,40 @@ Enums seen: `approval_policy: on-request`; `sandbox_policy.type: workspace-write
 - **Turn start:** `event_msg/task_started` (with `turn_id`), then `turn_context`, then
   `user_message`. Firm.
 - **Turn end:** `event_msg/task_complete` (same `turn_id`). Firm. The original 0.118 sample
-  had neither `turn_aborted` nor `turn_complete`; A4 saw `turn_aborted` with
-  `reason: interrupted`, and tvdash's 0.160 fixtures cover `turn_complete`.
+  had neither `turn_aborted` nor `turn_complete`; the live 0.160.1 run saw `turn_aborted` with
+  `reason: interrupted`, and the 0.160.1 fixtures cover `turn_complete`.
 - **Approval:** `turn_context.approval_policy` is firm for "can't ask" when it is `never`.
   `approvals_reviewer: auto_review` also means no human; `on-failure` is the older name for
   `on-request`. `sandbox_policy.type` is recorded in `SessionState.sandbox` but does not by
   itself prove no human can be asked (full access is `danger-full-access` with `never`).
-  A4 confirmed on 0.160.1 that **approval requests are not written to the rollout**: a pending
+  The live 0.160.1 run confirmed that **approval requests are not written to the rollout**: a pending
   approval is a `function_call` with no output, and no `exec_approval_request` or
   `apply_patch_approval_request` record appears. A pending ask-user tool is the same shape,
   identified by the `request_user_input` function name.
 - **Tool pending:** a `function_call`/`custom_tool_call` with no matching `call_id` output.
   `write_stdin` polls a running exec session (`session_id`): it is not a new action.
-- **Ask-user tool:** `request_user_input` (tvdash, from 0.160). A4 saw it live in Plan mode;
+- **Ask-user tool:** `request_user_input` (first observed in 0.160). It was seen live in Plan mode;
   it also has no approval/request event, just the `function_call` until its output arrives.
 - **Subagents:** none seen.
 
 ## Versions seen
-`cli_version` 0.118.0-alpha.2 (this Mac). tvdash fixtures: 0.160.1.
+`cli_version` 0.118.0-alpha.2 in the original one-rollout survey. CI and committed fixtures use
+0.160.1.
 
-## What tvdash gets wrong or misses (`src/sessions/codex.rs`)
-- `turn_context.approval_policy` and `sandbox_policy` are read only for `cwd` (codex.rs:51 to 56).
-  Under `never`, a long `exec_command` still turns into "may need approval" after 20 s.
-- Matches tool output to "the last tool call" rather than by `call_id`. With parallel calls
-  (2 to 5 `function_call`s before their outputs are common here), the first output flips the
-  session to "thinking" while others are still pending.
-- `turn_aborted` maps to `EndTurn` ("done"). Interrupted and aborted are not told apart, and its
-  `reason` is unread.
-- `session_index.jsonl`'s `thread_name` is ignored. The title is the first prompt line.
-  This library reads the index (beside `sessions/`, so `CODEX_HOME` works) and uses
-  `thread_name` when present, with the first prompt as the fallback.
-- Skips `.jsonl.zst` (by design).
+## How agent-tail handles these records
 
-CLIs on this Mac's PATH: none of `codex`, `gemini`, `opencode`, `copilot` or `cursor-agent`
-(Codex here comes from the VS Code extension). Not checked on vibe-os.
+- Reads `turn_context.approval_policy`, `approvals_reviewer`, and `sandbox_policy`. Under
+  `never`, a long `exec_command` remains firmly `running_tool`.
+- Matches tool output by `call_id`, so parallel `function_call`s stay pending until their own
+  outputs arrive.
+- Maps `turn_aborted` to `interrupted` and keeps its `reason`; `task_complete` and
+  `turn_complete` are firm normal ends.
+- Reads `session_index.jsonl` beside `sessions/` (so `CODEX_HOME` works) and uses
+  `thread_name` as the title when present, with the first prompt as the fallback.
+- Skips `.jsonl.zst` compressed history by design; live sessions are not compressed.
 
 ## Open questions
-- Everything on vibe-os (Codex versions, `.zst` presence, Claude Code and Cursor there, and
-  installed CLIs). Rerun once Tailscale is up.
 - Approval requests are not written to rollouts in 0.160.1. Recheck a future CLI before relying
-  on an approval event; the A4 scenarios assert the current negative.
+  on an approval event; the current scenarios assert the negative.
 - `CODEX_HOME` is confirmed against 0.160.1 for absolute paths. Older-day-folder resume and
   `.jsonl.zst` history still need a session old enough to exercise them.

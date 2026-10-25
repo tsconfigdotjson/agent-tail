@@ -2,7 +2,7 @@
 
 The fixture format is language-neutral. A port in another language implements two commands
 over the same `input/` directory and compares canonical JSON, without linking Rust or
-understanding `agenttail`'s internals.
+understanding `agent-tail`'s internals.
 
 ## Commands
 
@@ -20,7 +20,7 @@ The language-neutral contract is frozen in [`spec/schema/`](../spec/schema/):
 `status.schema.json` for a checkpoint line. [`spec/status.md`](../spec/status.md) explains
 the status fields, checkpoint protocol, canonical output and how a port passes. The
 committed fixtures' expected events and statuses are validated against these schemas by
-`crates/agenttail/tests/schema_fixtures.rs`.
+`crates/agent-tail/tests/schema_fixtures.rs`.
 
 - **events** writes one normalized event per line. It reads the main transcript only;
   helper transcripts are reducer inputs, not part of `expected/events.jsonl`.
@@ -28,7 +28,7 @@ committed fixtures' expected events and statuses are validated against these sch
   one status object per checkpoint, in checkpoint order. It exits 1 when a checkpoint's
   declared expected fields do not match.
 
-`agenttail events` also accepts a single transcript path for compatibility. `--agent
+`agent-tail events` also accepts a single transcript path for compatibility. `--agent
 claude_code|codex|cursor|pi` overrides harness detection.
 
 ## Canonical JSON
@@ -57,7 +57,7 @@ and always accepted. Optional `permission`, `sandbox`, `title`, `error`, `cost_u
 
 ## Shape survey
 
-`agenttail survey [--drift] [PATH…]` records structure only: record types, field paths,
+`agent-tail survey [--drift] [PATH…]` records structure only: record types, field paths,
 content-block types, discriminator values and tool names. It never records ids, timestamps or
 free text.
 
@@ -80,7 +80,7 @@ not surveyed yet either, and there is no committed OpenCode baseline.
 
 ## Support matrix
 
-`agenttail support-matrix [--root DIR] [--out FILE] [--check]` regenerates
+`agent-tail support-matrix [--root DIR] [--out FILE] [--check]` regenerates
 [`docs/support-matrix.md`](support-matrix.md) from `spec/discovery/*.toml`, fixture
 `meta.toml` files and the `harness-ci/ci/scenarios*.txt` lists. `--check` fails when the
 committed file is stale.

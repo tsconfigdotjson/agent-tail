@@ -1,4 +1,4 @@
-use agenttail::Harness;
+use agent_tail::Harness;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

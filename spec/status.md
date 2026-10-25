@@ -1,11 +1,11 @@
 # Status conformance (v0.1)
 
 This file freezes the status contract a port implements without linking Rust or knowing
-`agenttail`'s internals. It sits beside the machine-readable schemas in
+`agent-tail`'s internals. It sits beside the machine-readable schemas in
 [`spec/schema/`](schema/):
 
 - [`event.schema.json`](schema/event.schema.json): one normalized event, as printed by
-  `agenttail events`.
+  `agent-tail events`.
 - [`session-state.schema.json`](schema/session-state.schema.json): the full
   `SessionReducer::state(now)` object.
 - [`status.schema.json`](schema/status.schema.json): one line of a fixture
@@ -31,7 +31,7 @@ The v0.1 event types are `user_prompt`, `assistant_text`, `reasoning`, `tool_cal
 `helper_end`, `compaction`, `session_info`, `meta` and `unknown`. Known records with no richer
 form are `meta`; records or lines this version does not understand are `unknown`, never
 dropped. Required fields are the deterministic id, provenance and the fields that make the
-event meaningful. An optional field may be absent or `null`; `agenttail` emits explicit
+event meaningful. An optional field may be absent or `null`; `agent-tail` emits explicit
 `null`s, and canonical comparison treats the two as equal. `sidechain` and `off_chain` are
 omitted unless true; the latter marks a record on an abandoned Pi branch that the reducer
 ignores. A title's origin is `title_source`; a tool call's short display line is
@@ -108,7 +108,7 @@ or metadata ended it.
    steps, compute the state at `now`, and compare the declared fields. Exit non-zero on a
    mismatch; an unreached checkpoint is also a failure.
 4. Validate your event and status objects against the schemas above. The committed fixture
-   corpus is the reference; `crates/agenttail/tests/schema_fixtures.rs` validates every
+   corpus is the reference; `crates/agent-tail/tests/schema_fixtures.rs` validates every
    committed `expected/events.jsonl` and `expected/status.jsonl` line against these schemas.
 
 ## Time and remote frames

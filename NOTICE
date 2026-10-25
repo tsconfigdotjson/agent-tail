@@ -1,0 +1,7 @@
+agent-tail
+Copyright (c) 2026 agent-tail contributors
+
+This product is licensed under the MIT License. See LICENSE.
+
+Third-party Rust dependencies are distributed under their own licenses. Their license
+metadata is available from Cargo and the corresponding upstream projects.

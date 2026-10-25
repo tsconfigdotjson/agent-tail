@@ -7,13 +7,13 @@ set -euo pipefail
 MODE="${1:-standin}"
 if [[ "$#" -gt 0 ]]; then shift; fi
 
-OUT="${AGENTTAIL_OUT:-/out}"
+OUT="${AGENT_TAIL_OUT:-/out}"
 DISPLAY="${DISPLAY:-:99}"
 export OUT DISPLAY
-mkdir -p "$OUT" /home/claude/work /tmp/agenttail-xvfb/runtime /tmp/agenttail-xvfb/home
-chmod 777 "$OUT" /tmp/agenttail-xvfb /tmp/agenttail-xvfb/home
-chown -R claude:claude "$OUT" /home/claude /tmp/agenttail-xvfb
-chmod 700 /tmp/agenttail-xvfb/runtime
+mkdir -p "$OUT" /home/claude/work /tmp/agent-tail-xvfb/runtime /tmp/agent-tail-xvfb/home
+chmod 777 "$OUT" /tmp/agent-tail-xvfb /tmp/agent-tail-xvfb/home
+chown -R claude:claude "$OUT" /home/claude /tmp/agent-tail-xvfb
+chmod 700 /tmp/agent-tail-xvfb/runtime
 
 desktop_3p=0
 case "$MODE" in
@@ -22,13 +22,13 @@ esac
 
 if [[ "$desktop_3p" == "1" ]]; then
   mkdir -p /etc/claude-desktop
-  python3 - "${AGENTTAIL_MOCK_URL:-http://127.0.0.1:8765}" > /etc/claude-desktop/managed-settings.json <<'PY'
+  python3 - "${AGENT_TAIL_MOCK_URL:-http://127.0.0.1:8765}" > /etc/claude-desktop/managed-settings.json <<'PY'
 import json, sys
 url = sys.argv[1].rstrip("/")
 print(json.dumps({
     "inferenceProvider": "gateway",
     "inferenceGatewayBaseUrl": url,
-    "inferenceGatewayApiKey": "agenttail-mock-key",
+    "inferenceGatewayApiKey": "agent-tail-mock-key",
     "inferenceGatewayAuthScheme": "bearer",
     "inferenceModels": [{"name": "claude-sonnet-4-5", "labelOverride": "Mock Sonnet"}],
     "disableDeploymentModeChooser": True,
@@ -54,7 +54,7 @@ fi
 
 case "$MODE" in
   standin)
-    set -- --target standin --scenario /opt/agenttail-desktop/scenarios/standin_plain_qa.json "$@"
+    set -- --target standin --scenario /opt/agent-tail-desktop/scenarios/standin_plain_qa.json "$@"
     ;;
   probe)
     set -- --target claude-desktop --probe-only "$@"
@@ -63,7 +63,7 @@ case "$MODE" in
     set -- --target claude-desktop --probe-only "$@"
     ;;
   desktop)
-    set -- --target claude-desktop --chooser jev --scenario /opt/agenttail-desktop/scenarios/claude_desktop_plain_qa.json "$@"
+    set -- --target claude-desktop --chooser jev --scenario /opt/agent-tail-desktop/scenarios/claude_desktop_plain_qa.json "$@"
     ;;
   driver)
     ;;
@@ -73,7 +73,7 @@ case "$MODE" in
     ;;
 esac
 
-Xvfb "$DISPLAY" -screen 0 "${AGENTTAIL_SCREEN:-1440x900x24}" -nolisten tcp > "$OUT/xvfb.log" 2>&1 &
+Xvfb "$DISPLAY" -screen 0 "${AGENT_TAIL_SCREEN:-1440x900x24}" -nolisten tcp > "$OUT/xvfb.log" 2>&1 &
 XVFB_PID=$!
 cleanup() {
   kill "$XVFB_PID" 2>/dev/null || true
@@ -95,5 +95,5 @@ exec runuser -u claude --preserve-environment -- env \
   USER=claude \
   LOGNAME=claude \
   DISPLAY="$DISPLAY" \
-  XDG_RUNTIME_DIR=/tmp/agenttail-xvfb/runtime \
-  dbus-run-session -- /opt/agenttail-desktop/session.sh "$@"
+  XDG_RUNTIME_DIR=/tmp/agent-tail-xvfb/runtime \
+  dbus-run-session -- /opt/agent-tail-desktop/session.sh "$@"

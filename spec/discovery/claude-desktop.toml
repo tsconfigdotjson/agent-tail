@@ -1,5 +1,5 @@
 # Claude Desktop local agent mode (Cowork / Chat), from app-data. This file is embedded by
-# crates/agenttail/build.rs. The Code tab stays on the Claude Code adapter: its transcript is
+# crates/agent-tail/build.rs. The Code tab stays on the Claude Code adapter: its transcript is
 # `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`, not this layout.
 schema = 1
 harness = "claude_desktop"
@@ -9,13 +9,13 @@ name = "Claude Desktop"
 # The Linux consumer path is the default for tools that only read one root. Tracker::roots
 # uses the platform entries for the OS it runs on, so macOS and Windows never fall back here.
 default = ".config/Claude/local-agent-mode-sessions"
-evidence = "docs/formats/claude-desktop.md#app-data-roots; docs/prior-art.md#claude-desktop-agent-mode-adr-only; https://claude.com/docs/third-party/claude-desktop/data-storage"
+evidence = "docs/formats/claude-desktop.md#app-data-roots; https://claude.com/docs/third-party/claude-desktop/data-storage"
 
 [[roots.platform]]
 os = "macos"
 path = "Library/Application Support/Claude/local-agent-mode-sessions"
 build = "consumer"
-evidence = "prior art: ADR S/parsers/claude_desktop_parser.py DEFAULT_BASE_PATHS; docs/prior-art.md#claude-desktop-agent-mode-adr-only"
+evidence = "prior art: ADR S/parsers/claude_desktop_parser.py DEFAULT_BASE_PATHS"
 
 [[roots.platform]]
 os = "linux"
@@ -57,7 +57,7 @@ session_pattern = "audit.jsonl"
 session_dir_prefix = "local_"
 session_dir_hex8 = true
 day_folders = false
-evidence = "docs/formats/claude-desktop.md#where-desktop-writes-sessions; Claude Desktop 3.6556.2 app.asar getSessionStorageDir/UJ and session-folder regex /^(local_|[0-9a-f]{8})$/; prior art: ADR S/parsers/claude_desktop_parser.py:119-171; docs/prior-art.md#claude-desktop-agent-mode-adr-only"
+evidence = "docs/formats/claude-desktop.md#session-layout; Claude Desktop 3.6556.2 app.asar getSessionStorageDir/UJ and session-folder regex /^(local_|[0-9a-f]{8})$/; prior art: ADR S/parsers/claude_desktop_parser.py:119-171"
 
 [project]
 # The sibling local_<id>.json carries cwd. The folder names are opaque ids, not a project.
@@ -73,14 +73,14 @@ fallback = "audit.jsonl's mtime; sidecar lastActivityAt/createdAt are session fa
 evidence = "claude-agent-sdk-python types.py (UserMessage/AssistantMessage/ResultMessage); prior art: ADR S/parsers/claude_desktop_parser.py"
 
 [asks_user]
-# The SDK makes a pending tool look like any other tool_use. No Desktop artifact or prior-art
+# The SDK makes a pending tool look like any other tool_use. No Desktop artifact or public
 # parser shows an ask-user record, so this list stays empty rather than borrowing Claude Code's.
 match = "exact"
 evidence = "docs/formats/claude-desktop.md#what-the-adapter-reads; no Desktop artifact shows an ask-user tool"
 values = []
 
 [never_prompt]
-# No Desktop audit artifact or prior-art parser observed a tool run without a prompt.
+# No Desktop audit artifact or public parser observed a tool run without a prompt.
 evidence = "docs/formats/claude-desktop.md#what-the-adapter-reads; no Desktop artifact was captured"
 values = []
 
@@ -100,7 +100,7 @@ values = [
 [[quirks]]
 id = "code-tab-is-claude-code"
 summary = "Code-tab sessions are Claude Code transcripts under ~/.claude/projects and stay on the Claude Code adapter; only local agent mode uses app-data local-agent-mode-sessions."
-evidence = "docs/formats/claude-desktop.md#two-surfaces; docs/formats/claude-code.md#paths-and-layout"
+evidence = "docs/formats/claude-desktop.md#two-surfaces-two-readers; docs/formats/claude-code.md#paths-and-layout"
 
 [[quirks]]
 id = "audit-is-sdk-stream-json"
@@ -115,12 +115,12 @@ evidence = "docs/formats/claude-desktop.md#sidecar-local_idjson; prior art: ADR 
 [[quirks]]
 id = "dispatch-sessions-are-nested"
 summary = "Delegated Dispatch sessions live at <org>/agent/local_ditto_<id>/audit.jsonl and are reduced as their own sessions, not as helpers of an interactive session."
-evidence = "docs/formats/claude-desktop.md#where-desktop-writes-sessions; prior art: ADR S/parsers/claude_desktop_parser.py:4-14, 119-171"
+evidence = "docs/formats/claude-desktop.md#session-layout; prior art: ADR S/parsers/claude_desktop_parser.py:4-14, 119-171"
 
 [[quirks]]
 id = "no-persisted-permission-request"
 summary = "The audit stream has no permission.requested/completed pair like Copilot's; a pending tool is AwaitingApproval only after the shared 20 s stall inference, and only when the recorded mode can ask a human."
-evidence = "docs/formats/claude-desktop.md#status; prior art: ADR S/parsers/claude_desktop_parser.py (no permission record); crates/agenttail/src/session.rs"
+evidence = "docs/formats/claude-desktop.md#status; prior art: ADR S/parsers/claude_desktop_parser.py (no permission record); crates/agent-tail/src/session.rs"
 
 [[quirks]]
 id = "messages-have-no-clock"
@@ -129,5 +129,5 @@ evidence = "claude-agent-sdk-python types.py UserMessage/AssistantMessage/Result
 
 [[quirks]]
 id = "hmac-chain-not-checked"
-summary = "The vendor says audit.jsonl is HMAC-chained; agenttail reads it read-only and does not verify the chain or treat a broken chain as a parse failure."
-evidence = "docs/formats/claude-desktop.md#where-desktop-writes-sessions; https://claude.com/docs/third-party/claude-desktop/data-storage"
+summary = "The vendor says audit.jsonl is HMAC-chained; agent-tail reads it read-only and does not verify the chain or treat a broken chain as a parse failure."
+evidence = "docs/formats/claude-desktop.md#session-layout; https://claude.com/docs/third-party/claude-desktop/data-storage"

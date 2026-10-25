@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Enforce PLAN.md section 6.2's first-read budget: a 500 MB synthetic Claude Code transcript
+# Enforce the first-read budget: a 500 MB synthetic Claude Code transcript
 # must reach state in under 3 s in Lean mode, with peak RSS under 50 MB.
 #
 # Usage: harness-ci/ci/first-read-budget.sh [MB]
@@ -43,7 +43,7 @@ bench_log="$work/bench.log"
 time_log="$work/time.log"
 
 echo "first-read budget: $(rustc --version), $(cargo --version)"
-if ! cargo bench -p agenttail --bench first_read --no-run --locked >"$build_log" 2>&1; then
+if ! cargo bench -p agent-tail --bench first_read --no-run --locked >"$build_log" 2>&1; then
   cat "$build_log" >&2
   echo "first-read budget: building the bench failed" >&2
   exit 1

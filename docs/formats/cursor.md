@@ -1,9 +1,8 @@
 # Cursor agent-transcript format
 
-Survey: read-only, structure only, this Mac, 2026-10-23. It covered 12 session transcripts and
-1 subagent transcript across 5 project folders, plus a 5-minute look at a copy of `state.vscdb`
-(last modified 2026-10-15; the copy was deleted afterwards). No version string exists in either
-source.
+This note is based on a read-only survey of 12 session transcripts and 1 subagent transcript
+across 5 project folders, plus a 5-minute look at a copy of `state.vscdb` (the copy was deleted
+afterwards). No version string exists in either source.
 
 ## Paths and layout
 ```
@@ -58,9 +57,9 @@ Tables: `ItemTable`, `cursorDiskKV`, `composerHeaders`. `cursorDiskKV` key prefi
   transcript (older, or `chat`-mode, *inference*). IDE agent chats appear in **both** places.
   `state.vscdb` alone has times and a status.
 
-### Reader (B9, 2026-10-24)
+### Reader
 
-`agenttail`'s `sqlite` feature (on by default) copies `state.vscdb` plus `-wal` and `-shm`
+`agent-tail`'s `sqlite` feature (on by default) copies `state.vscdb` plus `-wal` and `-shm`
 into a private temporary folder, opens the copy `mode=ro`, and deletes the folder before it
 returns. It never opens the live database; the WAL is copied because live writes land there.
 
@@ -71,11 +70,11 @@ It reads:
   `generating` (or a non-empty `generatingBubbleIds` when the status is `none`) is firm
   `Thinking`. An unknown status changes nothing. The snapshot's `lastUpdatedAt` must be at
   least as new as the transcript's last entry, so a throttled read can't rewind a newer
-  transcript. `name` is the Cursor title (B7); the opening prompt remains the fallback.
+  transcript. `name` is the Cursor title; the opening prompt remains the fallback.
 - `bubbleId:*`: `toolFormerData.name`, `status`, `userDecision`, `additionalData.status`,
   `additionalData.userDecision` and `error`. Cursor also writes `status: loading`,
   `completed`, `error` and `cancelled`, and `userDecision: accepted`, `rejected` or
-  `pending` (public Cursor storage/export code and prior-art snapshots; the 2026-10-23
+  `pending` (public Cursor storage/export code and public snapshots; the
   survey copy was idle, so it did not show a live wait).
 
 The tracker checks the three files' stamps on every poll but copies them at most every 30 s,
@@ -87,7 +86,7 @@ stored default composer state and in third-party readers; the reader accepts it 
 `Thinking` mapping has not been checked against a live Cursor capture yet. Stale
 `generatingBubbleIds` are ignored when the status says `completed`.
 
-### A5: the Cursor CLI cannot join the mock/PTY rig yet (2026-10-24)
+### Cursor CLI and the mock/PTY rig
 
 Tested on Linux with `cursor-agent` **2026.10.01-e373342** and a temp `HOME`, a dummy
 `CURSOR_API_KEY`, and `CURSOR_API_ENDPOINT` (also `--endpoint`) pointed at a local logging
@@ -104,13 +103,12 @@ endpoint:
    `[internal] Protocol error`.
 
 So Cursor needs its backend, or a new mock that implements Cursor's auth exchange,
-protobuf model catalogue and streaming chat protocol. That is not v0.1 work. **Decision:**
-Cursor does not join the mock/PTY matrix; it ships through donated fixtures and, if a key is
-available later, a budget-capped nightly real run (`PLAN.md` §8). This box has
-`cursor-agent` but no just-created IDE `state.vscdb`, so the live approval capture is still
-deferred to Lee.
+protobuf model catalogue and streaming chat protocol. **Decision:** Cursor does not join the
+mock/PTY matrix; it ships through donated fixtures and, if a key is available later, a
+budget-capped nightly real run. A freshly created IDE `state.vscdb` during a live approval
+wait is still needed.
 
-### Needs Lee: the live approval wait (A5 #3)
+### Unverified: the live approval wait
 
 While Cursor shows a tool waiting for approval, copy the database **and its sidecars** (never
 read or open the live file), then record these before answering, after approving and after
@@ -146,29 +144,32 @@ does not turn them into `AwaitingApproval`.
 - **Tool pending:** no results are recorded. The adapter treats later assistant text as "results are in"
   (inference, unchanged). `toolFormerData.status` is read from the database but is not yet
   used to decide status.
-- **Approval pending:** not in transcripts or the idle survey copy. This is the A5 manual
+- **Approval pending:** not in transcripts or the idle survey copy. This is the manual
   capture above; until it is captured, Cursor keeps the shared 20 s `AwaitingApproval`
   inference.
 - **Times:** none in transcripts except the prompt's `<timestamp>` (to the minute). Use mtime.
   The database has millisecond `createdAt`/`lastUpdatedAt`; the reader uses those for its
   status freshness.
 
-## What tvdash gets wrong or misses (`src/sessions/cursor.rs`)
-- `turn_ended` with `status: error` becomes "done" (cursor.rs:66 to 71). The statuses are all user stops
-  (Interrupted), and the `error` string that says so is unread.
-- `ASKS_USER` lists `askquestion, askuserquestion, askfollowupquestion, requestuserinput`. None
-  of these appeared here, so the list is unverified.
-- Subagents count only as activity (mtime). Their `turn_ended` is not read, so a finished
-  subagent and a stuck one look alike. `state.vscdb` (status, titles via `name`, times) is
-  unread by tvdash; `agenttail` now reads it in the `sqlite` feature.
-- Tool calls stall into "may need approval" after 20 s. Cursor's auto-run settings are unknown.
+## How agent-tail handles these records
+
+- Maps `turn_ended` with a user-stop error string to firm `interrupted`; it does not collapse
+  every `status: error` into `done`.
+- Reads `state.vscdb` in the `sqlite` feature for `composerData.status`, titles via `name`, and
+  timestamps. A completed composer is firm `done`, aborted is firm `interrupted`, and
+  generating is firm `thinking`.
+- Follows Cursor subagent transcripts and their own `turn_ended`, so a finished helper and a
+  stuck one are distinguishable.
+- Keeps tool calls pending until later assistant text indicates the result is in, and keeps the
+  shared 20 second approval inference until a real approval-wait capture proves a firm signal.
+- Treats the discovery spec's ask-user tool names as unverified data rather than assuming them.
 
 ## Open questions
-- The `toolFormerData` field paths and status values are now read, with the prior-art values
-  above; the live approval-waiting value still needs Lee's capture (A5 #3).
+- The `toolFormerData` field paths and status values are read, with the public Cursor values
+  above; the live approval-waiting value still needs a real capture.
 - Whether `composerData.status` reads `generating` while live: accepted by the reader, not
-  yet seen in a local live capture (the 2026-10-23 copy was idle).
+  yet seen in a local live capture (the survey copy was idle).
 - `<cursor_commands>` and other wrappers; any ask-user tool name; how `cursor-agent` (CLI)
-  sessions differ. The CLI is not in the rig (A5); its `~/.cursor/chats/.../store.db` is not read.
-- Env overrides Cursor honours: not researched; `state.vscdb` uses the platform default below
-  the home folder.
+  sessions differ. The CLI is not in the rig; its `~/.cursor/chats/.../store.db` is not read.
+- Environment overrides Cursor honours are not researched; `state.vscdb` uses the platform
+  default below the home folder.

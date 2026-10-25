@@ -1,10 +1,9 @@
 # Pi session format
 
-Survey: read-only and a scripted offline run, 2026-10-25. Pi **1.4.0** (npm latest at the
-time) on Linux, through the local Anthropic-compatible mock; 20 real local sessions from
-this box were also inspected for structure. The committed fixtures were captured with
-`agenttail fixture capture` from Pi 1.4.0 sessions, then scanned by `agenttail fixture scan`.
-Everything below is observed on 1.4.0 unless marked *inference*.
+This note is based on read-only surveys, a scripted offline run, and harness CI for Pi
+**1.4.0** on Linux, against the local Anthropic-compatible mock. The committed fixtures were
+captured with `agent-tail fixture capture` from Pi 1.4.0 sessions and scanned by
+`agent-tail fixture scan`. Everything below is observed on 1.4.0 unless marked *inference*.
 
 ## Paths and layout
 
@@ -16,8 +15,8 @@ The encoded folder is `--` + the working folder with its leading separator remov
 `/`, `\` and `:` replaced by `-`, + `--`. Example:
 
 ```
-cwd    /home/ubuntu/workspace/.vibe-worktrees/agenttail/issue-52-pi-harness
-folder --home-ubuntu-workspace-.vibe-worktrees-agenttail-issue-52-pi-harness--
+cwd    /home/dev/work/my-app
+folder --home-dev-work-my-app--
 ```
 
 A session id is normally a UUID; `pi --session-id` can supply another id. The file name is
@@ -130,11 +129,11 @@ Pinned known-good: **1.4.0**. npm `latest` at survey time: **1.4.0**. `pi --vers
 just the version (`1.4.0`).
 
 `harness-ci` has a Pi path that runs the real npm CLI against the local mock model server in
-`--mode json`, tails the session file with `agenttail`, and fails on a wrong firm status or an
+`--mode json`, tails the session file with `agent-tail`, and fails on a wrong firm status or an
 unexpected event shape. It runs for pinned 1.4.0 and npm latest, on Linux and macOS, so a
 new release fails loudly instead of being skipped. The Pi path is transcript/status based,
-not PTY-screen scored; Pi's TUI screen reader is not part of this spike. See
-`harness-ci/README.md#a7-pi-real-harness-spike-and-scenarios-2026-10-25`.
+not PTY-screen scored; Pi's TUI screen reader is not part of this path. See
+`harness-ci/README.md`.
 
 ## Branches
 

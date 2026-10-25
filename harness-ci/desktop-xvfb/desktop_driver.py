@@ -3,7 +3,7 @@
 
 The chooser is either Jev through OpenRouter (the production path) or a small
 scenario-scripted chooser used only by the desktop stand-in smoke test.  There is
-no writer LLM here: our code performs every click/keystroke, and `agenttail`
+no writer LLM here: our code performs every click/keystroke, and `agent-tail`
 scores the disk artifact.  A screenshot is kept as evidence but is never used as
 the scorer.
 """
@@ -69,7 +69,7 @@ _DOM_CACHE: dict[str, Any] = {"port": None, "at": 0.0, "candidates": []}
 COMPOSER_EXPRESSION = r"""
 (() => {
   const found = [];
-  window.__agenttailCdp = [];
+  window.__agent_tail_cdp = [];
   const seen = new Set();
   function clean(value) {
     return String(value || "").replace(/\s+/g, " ").trim().slice(0, 80);
@@ -101,8 +101,8 @@ COMPOSER_EXPRESSION = r"""
     const role = el.getAttribute("role");
     const button = !textbox && (el.tagName === "BUTTON" || role === "button");
     if (!textbox && !button) return;
-    const index = window.__agenttailCdp.length;
-    window.__agenttailCdp.push(el);
+    const index = window.__agent_tail_cdp.length;
+    window.__agent_tail_cdp.push(el);
     found.push({
       kind: textbox ? "textbox" : "button",
       name: textbox ? textboxName(el) : clean(el.getAttribute("aria-label") || el.getAttribute("title") || ""),
@@ -235,13 +235,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--target", choices=["standin", "claude-desktop"], default="standin")
     parser.add_argument("--chooser", choices=["scripted", "jev"], default=None)
     parser.add_argument("--probe-only", action="store_true", help="launch and observe, do not drive")
-    parser.add_argument("--out", type=Path, default=Path(os.environ.get("AGENTTAIL_OUT", "/out")))
+    parser.add_argument("--out", type=Path, default=Path(os.environ.get("AGENT_TAIL_OUT", "/out")))
     parser.add_argument("--home", type=Path, default=Path(os.environ.get("HOME", "/home/claude")))
-    parser.add_argument("--agenttail", type=Path, default=Path(os.environ.get("AGENTTAIL_BIN", "/repo/target/release/agenttail")))
-    parser.add_argument("--mock-server", type=Path, default=Path(os.environ.get("AGENTTAIL_MOCK_SERVER", "/repo/harness-ci/target/release/mock-server")))
+    parser.add_argument("--agent-tail", type=Path, default=Path(os.environ.get("AGENT_TAIL_BIN", "/repo/target/release/agent-tail")))
+    parser.add_argument("--mock-server", type=Path, default=Path(os.environ.get("AGENT_TAIL_MOCK_SERVER", "/repo/harness-ci/target/release/mock-server")))
     parser.add_argument("--mock-scenario", type=Path, default=None)
     parser.add_argument("--mock-addr", default="127.0.0.1:8765")
-    parser.add_argument("--agents", default=None, help="agenttail harness ids to score (default: scenario or claude_desktop)")
+    parser.add_argument("--agents", default=None, help="agent-tail harness ids to score (default: scenario or claude_desktop)")
     parser.add_argument("--window-title", default=None)
     parser.add_argument("--goal", default=None)
     parser.add_argument("--prompt", default=None)
@@ -251,9 +251,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--confidence",
         type=float,
         default=None,
-        help="Jev confidence floor. Env AGENTTAIL_JEV_CONFIDENCE, else the scenario, else 0.55.",
+        help="Jev confidence floor. Env AGENT_TAIL_JEV_CONFIDENCE, else the scenario, else 0.55.",
     )
-    parser.add_argument("--jev-model", default=os.environ.get("AGENTTAIL_JEV_MODEL", JEV_MODEL))
+    parser.add_argument("--jev-model", default=os.environ.get("AGENT_TAIL_JEV_MODEL", JEV_MODEL))
     return parser.parse_args(argv)
 
 
@@ -267,12 +267,12 @@ def scenario_value(
 def resolve_confidence(args: argparse.Namespace, scenario: dict[str, Any]) -> float:
     if args.confidence is not None:
         return float(args.confidence)
-    raw = os.environ.get("AGENTTAIL_JEV_CONFIDENCE", "").strip()
+    raw = os.environ.get("AGENT_TAIL_JEV_CONFIDENCE", "").strip()
     if raw:
         try:
             return float(raw)
         except ValueError as error:
-            raise DriverError(f"AGENTTAIL_JEV_CONFIDENCE must be a number, got {raw!r}") from error
+            raise DriverError(f"AGENT_TAIL_JEV_CONFIDENCE must be a number, got {raw!r}") from error
     if scenario.get("confidence") is not None:
         return float(scenario["confidence"])
     return DEFAULT_CONFIDENCE
@@ -315,17 +315,17 @@ def resolve_mock_scenario(mock_scenario: str | Path) -> Path | None:
 def desktop_cdp_port(args: argparse.Namespace) -> int | None:
     if args.target != "claude-desktop":
         return None
-    raw = os.environ.get("AGENTTAIL_CDP_PORT", "").strip()
+    raw = os.environ.get("AGENT_TAIL_CDP_PORT", "").strip()
     if not raw or raw == "0":
         return None
     try:
         port = int(raw)
     except ValueError as error:
-        raise DriverError(f"AGENTTAIL_CDP_PORT must be an integer, got {raw!r}") from error
+        raise DriverError(f"AGENT_TAIL_CDP_PORT must be an integer, got {raw!r}") from error
     if port == 0:
         return None
     if port < 1 or port > 65535:
-        raise DriverError(f"AGENTTAIL_CDP_PORT is out of range: {port}")
+        raise DriverError(f"AGENT_TAIL_CDP_PORT is out of range: {port}")
     return port
 
 
@@ -1121,7 +1121,7 @@ def focus_expression(index: int, click: bool) -> str:
     click_js = "try { el.click(); } catch (e) {}" if click else ""
     return (
         "(() => {"
-        f" const el = (window.__agenttailCdp || [])[{index}];"
+        f" const el = (window.__agent_tail_cdp || [])[{index}];"
         " if (!el) return false;"
         " try { el.scrollIntoView({block: 'center'}); } catch (e) {}"
         " try { el.focus(); } catch (e) {}"
@@ -1361,8 +1361,8 @@ def choose_jev(
         headers={
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/tsconfigdotjson/agenttail",
-            "X-Title": "agenttail desktop-xvfb",
+            "HTTP-Referer": "https://github.com/tsconfigdotjson/agent-tail",
+            "X-Title": "agent-tail desktop-xvfb",
         },
         method="POST",
     )
@@ -1520,11 +1520,11 @@ def act(choice: Choice, out: Path) -> dict[str, Any]:
     return record
 
 
-def poll_agenttail(
+def poll_agent_tail(
     binary: Path, home: Path, agents: str = "claude_desktop", timeout: float = 15.0
 ) -> tuple[list[dict[str, Any]], str | None]:
     if not binary.exists():
-        return [], f"agenttail binary not found at {binary}; build it with `cargo build --release -p agenttail-cli`"
+        return [], f"agent-tail binary not found at {binary}; build it with `cargo build --release -p agent-tail-cli`"
     env = os.environ.copy()
     env["HOME"] = str(home)
     try:
@@ -1536,9 +1536,9 @@ def poll_agenttail(
             env=env,
         )
     except Exception as error:
-        return [], f"agenttail ls failed: {error}"
+        return [], f"agent-tail ls failed: {error}"
     if result.returncode != 0:
-        return [], f"agenttail ls exited {result.returncode}: {result.stderr.strip()[:1000]}"
+        return [], f"agent-tail ls exited {result.returncode}: {result.stderr.strip()[:1000]}"
     sessions: list[dict[str, Any]] = []
     for line in result.stdout.splitlines():
         try:
@@ -1579,7 +1579,7 @@ def start_process(command: list[str], env: dict[str, str], log_path: Path) -> su
     log_path.parent.mkdir(parents=True, exist_ok=True)
     handle = log_path.open("wb")
     process = subprocess.Popen(command, stdout=handle, stderr=subprocess.STDOUT, env=env, start_new_session=True)
-    process._agenttail_log = handle  # type: ignore[attr-defined]
+    process._agent_tail_log = handle  # type: ignore[attr-defined]
     return process
 
 
@@ -1689,7 +1689,7 @@ def run_probe(args: argparse.Namespace, scenario: dict[str, Any], out: Path, hom
     if args.target == "claude-desktop":
         mock, mock_error = start_mock(args, scenario, out, env)
     process = launch_target(args, scenario, out, home, env)
-    window_title = args.window_title or scenario.get("window_title") or ("agenttail desktop stand-in" if args.target == "standin" else "Claude")
+    window_title = args.window_title or scenario.get("window_title") or ("agent-tail desktop stand-in" if args.target == "standin" else "Claude")
     startup = float(scenario_value(scenario, args, "startup_timeout_s", 45.0))
     try:
         observation, error = wait_for_window(window_title, startup, process, out, cdp_port)
@@ -1742,7 +1742,7 @@ def run_scenario(args: argparse.Namespace, scenario: dict[str, Any], out: Path, 
         if mock_error and mock is None:
             raise DriverError(mock_error)
     process = launch_target(args, scenario, out, home, env)
-    window_title = args.window_title or scenario.get("window_title") or ("agenttail desktop stand-in" if args.target == "standin" else "Claude")
+    window_title = args.window_title or scenario.get("window_title") or ("agent-tail desktop stand-in" if args.target == "standin" else "Claude")
     goal = args.goal or scenario.get("goal") or "Drive the desktop and finish the task."
     prompt = args.prompt or scenario.get("prompt") or "say hello"
     timeout = float(scenario_value(scenario, args, "timeout_s", 45.0, "timeout"))
@@ -1794,7 +1794,7 @@ def run_scenario(args: argparse.Namespace, scenario: dict[str, Any], out: Path, 
                 sleep(POLL_SECONDS)
                 continue
 
-            sessions, poll_error = poll_agenttail(args.agenttail, home, agents)
+            sessions, poll_error = poll_agent_tail(args.agent_tail, home, agents)
             if poll_error:
                 error = poll_error
                 break
@@ -1870,7 +1870,7 @@ def run_scenario(args: argparse.Namespace, scenario: dict[str, Any], out: Path, 
         "actions": history,
         "mock_error": mock_error,
         "claude_desktop_version": desktop_version(),
-        "agenttail_bin": str(args.agenttail),
+        "agent_tail_bin": str(args.agent_tail),
         "agents": agents,
         "home": str(home),
         "app_log_tail": tail(out / f"{args.target}.log", 3000),

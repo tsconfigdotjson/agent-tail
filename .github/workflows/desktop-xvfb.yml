@@ -1,11 +1,11 @@
-# Desktop Xvfb nightly and manual lanes (issue #87).
+# Desktop Xvfb nightly and manual lanes.
 #
 # The nightly schedule runs only the offline stand-in observe/act/score job.
-# It installs no Claude Desktop package, reads no repository secret and cannot
-# reach OpenRouter. The Desktop launch probe and the live Jev lane stay
-# workflow_dispatch-only; the live lane also requires OPENROUTER_API_KEY and is
-# never part of the nightly or the PR matrix. The stand-in is an offline
-# plumbing test, not a claim that Claude Desktop is CI-verified.
+# It installs no Claude Desktop package and reads no repository secret. The
+# Desktop launch probe and the live Jev lane stay workflow_dispatch-only; the
+# live lane requires OPENROUTER_API_KEY and is never part of the nightly or the
+# PR matrix. The stand-in is an offline plumbing test, not a claim that Claude
+# Desktop is CI-verified.
 name: Desktop Xvfb (nightly)
 
 on:
@@ -19,7 +19,7 @@ on:
         type: boolean
         default: false
       run_live_jev:
-        description: "Run the live Jev Desktop lane (spends OpenRouter credits; needs the OPENROUTER_API_KEY secret)"
+        description: "Run the live Jev Desktop lane (requires the OPENROUTER_API_KEY secret)"
         type: boolean
         default: false
 
@@ -44,8 +44,8 @@ jobs:
           rustup default 1.88.0
           rustc --version
 
-      - name: Build agenttail
-        run: cargo build --release --locked -p agenttail-cli
+      - name: Build agent-tail
+        run: cargo build --release --locked -p agent-tail-cli
 
       - name: Run offline stand-in scenario
         env:
@@ -75,8 +75,8 @@ jobs:
           rustup default 1.88.0
           rustc --version
 
-      - name: Build agenttail
-        run: cargo build --release --locked -p agenttail-cli
+      - name: Build agent-tail
+        run: cargo build --release --locked -p agent-tail-cli
 
       - name: Probe the 3P welcome screen under Xvfb
         env:
@@ -93,7 +93,7 @@ jobs:
           retention-days: 7
 
   live-key:
-    name: Check OpenRouter secret for live Jev
+    name: Check live-lane credentials
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_live_jev }}
     runs-on: ubuntu-latest
     outputs:
@@ -106,14 +106,14 @@ jobs:
         run: |
           if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
-            echo "OPENROUTER_API_KEY is set; the live Jev lane will run and spend credits." >> "$GITHUB_STEP_SUMMARY"
+            echo "OPENROUTER_API_KEY is set; the live Jev lane will run." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "OPENROUTER_API_KEY is not set; skipping the live Jev lane." >> "$GITHUB_STEP_SUMMARY"
           fi
 
   desktop-live:
-    name: Live Jev Desktop (opt-in, spends credits)
+    name: Live Jev Desktop (opt-in)
     needs: live-key
     if: ${{ needs.live-key.outputs.enabled == 'true' }}
     runs-on: ubuntu-latest
@@ -127,13 +127,13 @@ jobs:
           rustup default 1.88.0
           rustc --version
 
-      - name: Build agenttail
-        run: cargo build --release --locked -p agenttail-cli
+      - name: Build agent-tail
+        run: cargo build --release --locked -p agent-tail-cli
 
       - name: Run live Jev Desktop scenario
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          AGENTTAIL_JEV_MODEL: typesafe/jev-1.14
+          AGENT_TAIL_JEV_MODEL: typesafe/jev-1.14
           INSTALL_CLAUDE_DESKTOP: "1"
         run: harness-ci/desktop-xvfb/run.sh desktop
 

@@ -58,7 +58,7 @@ continues.
   with no `permission.requested` is firm `RunningTool` / `tool_call_pending`, not the shared
   20 s approval inference.
 - **Approval pending:** `permission.requested` is **firm** `AwaitingApproval` /
-  `approval_requested`, joined by `toolCallId`. This verifies the prior-art claim. The
+  `approval_requested`, joined by `toolCallId`. This matches the observed 1.0.103 behavior. The
   observed `permissionMode` is `manual`.
 - **Approval completed:** `permission.completed` clears the firm approval. An approved
   request is followed by the tool run; a denied request is followed by a failed tool result.
@@ -106,7 +106,7 @@ The mock's OpenAI **Chat Completions** route is enough. Scenarios:
 The CI matrix installs pinned **1.0.103** and npm **latest** on Linux and macOS. A latest
 failure is a failing job, not a silent skip. The committed fixtures are under
 `fixtures/copilot/1.0.103/linux/` (`plain-qa`, `tool`, `permission-denied`), captured from
-the real CLI through the mock and redacted by `agenttail fixture capture`. The
+the real CLI through the mock and redacted by `agent-tail fixture capture`. The
 `permission-approved` and `permission-user-denied` fixtures are **hand-made** from the
 1.0.103 event/result shapes, not captured from a TUI; they are not additional CI
 scenarios.

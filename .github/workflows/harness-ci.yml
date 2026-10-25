@@ -81,7 +81,7 @@ jobs:
           rustc --version
 
       - name: Scan fixtures for secrets and home paths
-        run: cargo run --locked -p agenttail-cli -- fixture scan fixtures
+        run: cargo run --locked -p agent-tail-cli -- fixture scan fixtures
 
   first-read:
     name: First read time and RSS budget
@@ -681,7 +681,7 @@ jobs:
       - name: Run offline transcript/status fixtures (including Cursor)
         # The CLI chat path is backend-gated, so these are the transcript/status scenarios
         # the live matrix cannot drive. They still exercise the Cursor adapter end to end.
-        run: cargo test --locked -p agenttail --test status_fixtures
+        run: cargo test --locked -p agent-tail --test status_fixtures
 
       - name: Upload Cursor smoke output
         if: always()
@@ -888,13 +888,13 @@ jobs:
           path: ${{ runner.temp }}/artifacts
 
       - name: Build the fixture redaction tool
-        run: cargo build --locked -p agenttail-cli --release
+        run: cargo build --locked -p agent-tail-cli --release
 
       - name: Compare shapes and capture redacted fixtures
         id: compare
         shell: bash
         env:
-          AGENTTAIL_BIN: ${{ github.workspace }}/target/release/agenttail
+          AGENT_TAIL_BIN: ${{ github.workspace }}/target/release/agent-tail
         run: |
           set +e
           python3 harness-ci/ci/nightly.py --artifacts "$RUNNER_TEMP/artifacts"
@@ -907,7 +907,7 @@ jobs:
           exit "$status"
 
       - name: Scan captured fixtures for secrets and home paths
-        run: target/release/agenttail fixture scan fixtures
+        run: target/release/agent-tail fixture scan fixtures
 
       - name: Open a drift PR when shape changed
         if: steps.compare.outcome == 'success'

@@ -1,3 +1,3 @@
-# Dense, as tvdash is written: short functions read better on fewer, longer lines.
+# Dense formatting: short functions read better on fewer, longer lines.
 max_width = 120
 use_small_heuristics = "Max"

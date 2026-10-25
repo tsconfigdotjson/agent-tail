@@ -1,5 +1,5 @@
 # OpenCode discovery, as observed in 1.19.4. This file is embedded by
-# crates/agenttail/build.rs. OpenCode keeps sessions in SQLite, not transcript files.
+# crates/agent-tail/build.rs. OpenCode keeps sessions in SQLite, not transcript files.
 schema = 1
 harness = "opencode"
 name = "OpenCode"
@@ -7,7 +7,7 @@ name = "OpenCode"
 [roots]
 # XDG data root, on every OS. The database sits directly below it.
 default = ".local/share/opencode"
-evidence = "docs/formats/opencode.md#paths-and-layout; https://opencode.ai/docs/troubleshooting/; harness-ci/README.md#opencode-real-harness-spike-and-scenarios-2026-10-25"
+evidence = "docs/formats/opencode.md#paths-and-layout; https://opencode.ai/docs/troubleshooting/; harness-ci/README.md"
 
 [[roots.env]]
 # XDG_DATA_HOME moves the data root; OpenCode appends opencode/.
@@ -23,19 +23,19 @@ evidence = "https://opencode.ai/docs/troubleshooting/; packages/core/src/global.
 max_depth = 1
 session_pattern = "*.db"
 day_folders = false
-evidence = "docs/formats/opencode.md#paths-and-layout; crates/agenttail/src/opencode.rs"
+evidence = "docs/formats/opencode.md#paths-and-layout; crates/agent-tail/src/opencode.rs"
 
 [project]
 source = "session.directory (an absolute cwd); assistant message path.cwd updates it when the session moves"
 encoding = "no project-folder encoding; cwd is recorded directly"
-evidence = "docs/formats/opencode.md#database-catalogue-1-19-4; harness-ci/README.md#opencode-real-harness-spike-and-scenarios-2026-10-25"
+evidence = "docs/formats/opencode.md#database-catalogue-1-19-4; harness-ci/README.md"
 
 [timestamps]
 field = "time_created / time_updated (integer milliseconds)"
 format = "unix milliseconds"
 timezone = "UTC epoch"
 fallback = "the database file's mtime for rows without a time"
-evidence = "docs/formats/opencode.md#database-catalogue-1-19-4; crates/agenttail/src/opencode.rs"
+evidence = "docs/formats/opencode.md#database-catalogue-1-19-4; crates/agent-tail/src/opencode.rs"
 
 [asks_user]
 # The tool ids OpenCode 1.19.4 offers. `question` asks the user; `plan_exit` asks whether
@@ -68,17 +68,17 @@ evidence = "packages/core/src/database/database.ts in anomalyco/opencode v1.19.4
 [[quirks]]
 id = "database-not-transcript"
 summary = "Sessions live in `opencode.db`, not append-only JSONL; the reader snapshots the database and rebuilds a session from its `session`, `message` and `part` rows."
-evidence = "docs/formats/opencode.md#database-catalogue-1-19-4; crates/agenttail/src/opencode.rs"
+evidence = "docs/formats/opencode.md#database-catalogue-1-19-4; crates/agent-tail/src/opencode.rs"
 
 [[quirks]]
 id = "legacy-tables-in-use"
 summary = "1.19.4 has both the legacy `message`/`part` tables and the v2 `session_message` table; `opencode run` wrote the legacy tables and left `session_message` empty."
-evidence = "docs/formats/opencode.md#database-catalogue-1-19-4; harness-ci/README.md#opencode-real-harness-spike-and-scenarios-2026-10-25"
+evidence = "docs/formats/opencode.md#database-catalogue-1-19-4; harness-ci/README.md"
 
 [[quirks]]
 id = "approval-requests-not-persisted"
 summary = "`permission.asked`/`permission.v2.asked` are ephemeral events; only a tool part with state pending/running is on disk, so a pending approval remains inferred after the stall threshold."
-evidence = "docs/formats/opencode.md#status-signals; packages/core/src/permission.ts in anomalyco/opencode v1.19.4; docs/prior-art.md#opencode"
+evidence = "docs/formats/opencode.md#status-signals; packages/core/src/permission.ts in anomalyco/opencode v1.19.4"
 
 [[quirks]]
 id = "part-state-is-mutable"
@@ -88,4 +88,4 @@ evidence = "docs/formats/opencode.md#status-signals; packages/core/src/session/m
 [[quirks]]
 id = "title-request"
 summary = "`opencode run` asks the model for a title on a separate request whose system prompt starts `You are a title generator.`; the harness mock answers it without consuming a scenario step."
-evidence = "harness-ci/README.md#opencode-real-harness-spike-and-scenarios-2026-10-25; harness-ci/mock-server/src/lib.rs"
+evidence = "harness-ci/README.md; harness-ci/mock-server/src/lib.rs"

@@ -1,67 +1,38 @@
-# Claude Desktop scenario stub
+# Claude Desktop scenario status
 
-**There is no CI Desktop scenario here.** The nightly job is only the offline stand-in from
-[`../desktop-xvfb/`](../desktop-xvfb/README.md); it does not install Desktop. The local
-stopgap is the same Docker + Xvfb harness: it can install the Linux Desktop package, render
-its standard sign-in and 3P gateway welcome screens, and expose them over AT-SPI for an
-observe/Jev/act loop. The stand-in scenario in that folder passes locally. A
-live Jev call reached the Chat UI and the mock probe. Desktop `3.6556.2` then refused
-`--remote-debugging-port`, and with that switch off AT-SPI still had no editable (push
-buttons and `document web` only). A later run typed the prompt with `xdotool` and
-hung on `mousemove --sync` before Send. Pointer motion no longer uses `--sync`, and a
-failed Send click still presses Enter. That path is unit-tested and has not scored a
-live turn, so this is still a stub for matrix purposes. The `claude_desktop` discovery spec
-and adapter read local-agent-mode
-`audit.jsonl` files; their handmade fixtures are under `fixtures/claude-desktop/`. The
-evidence is in [`docs/formats/claude-desktop.md`](../../docs/formats/claude-desktop.md).
+This directory is a placeholder for a future Claude Desktop scenario. There is no scored
+Desktop lane in the normal PR matrix.
 
-## Why it is still a stub
+The current coverage is:
 
-The mock/PTY rig drives terminal CLIs. Claude Desktop is a GUI application, and the planned
-driver is a Jev computer-use loop, not a PTY prompt:
+- the `claude_desktop` discovery spec and adapter, with handmade fixtures under
+  `fixtures/claude-desktop/`;
+- an offline Xvfb stand-in that tests the observe/act/score plumbing without Desktop;
+- a manual launch probe that installs the Linux beta Desktop package and renders its sign-in
+  and 3P gateway welcome screens without an account.
 
-- Jev chooses a typed action; our code observes the screen/accessibility tree and performs
-  the click or keystroke.
-- `agenttail` scores the resulting session from disk. It is not a screenshot/VLM scorer.
-- The reference `typesafe-computer-use` agent is macOS-first and needs Screen Recording and
-  Accessibility permissions.
-- Jev is called through **OpenRouter** by default (`OPENROUTER_API_KEY`, model
-  `typesafe/jev-1.14` or `~typesafe/jev-latest`), not a separate TypeSafe console key. Code
-  that still reads `TYPESAFE_*` needs `TYPESAFE_API_KEY="$OPENROUTER_API_KEY"` and
-  `TYPESAFE_BASE_URL=https://openrouter.ai/api` so the key and endpoint stay paired.
+The adapter is **ported-unverified**: no real Desktop artifact or scored Desktop turn exists
+yet. See [`docs/formats/claude-desktop.md`](../../docs/formats/claude-desktop.md) for the
+record shape and fixture details, and
+[`../desktop-xvfb/`](../desktop-xvfb/README.md) for the headless harness.
 
-The Xvfb container launches the real Linux Desktop package. A live Jev run got past the 3P
-welcome screen into Chat and hit the mock with a `"."` probe. A later run accepted that
-probe and still could not type: the app rejects `--remote-debugging-port`, and the
-composer is not an AT-SPI editable. No run has written a Desktop disk artifact. Source
-inspection of `typesafe-computer-use` shows its bare
-`TypeSafeClient()` inherits `TYPESAFE_BASE_URL` from `typesafe-sdk` 0.6.0, but that handoff
-has not been run.
+## Why this is not in the PTY matrix
 
-## Candidate lanes
+The mock/PTY rig drives terminal CLIs. Claude Desktop is a GUI application, so a Desktop lane
+needs a display server, accessibility observation, and UI actions. The Xvfb harness is the
+current path for that work.
 
-| lane | what it would prove | blocker |
-|---|---|---|
-| macOS manual/scripted | Desktop can be observed and driven by a Jev choice loop; Code/Cowork artifacts appear where expected | OpenRouter key + credits, Desktop install, screen/accessibility permission |
-| Linux + Xvfb, Code/Chat UI | the same loop on Linux | **container + AT-SPI driver written**; one live Jev run reached Chat and stopped before a scored turn |
-| Linux + Xvfb, Cowork | Cowork transcript scoring on Linux | KVM/QEMU (about 25 GB disk, 8 GB RAM) is often unavailable; not passed by the Xvfb compose file |
-| 3P gateway + mock, no computer use | Desktop can talk to the Anthropic Messages mock and write scoreable Code/Cowork artifacts | root-owned 3P settings and welcome screen proven under Xvfb; the mock saw the gateway probe, not a say-hello turn |
-
-The gateway path needs `inferenceProvider: gateway`, `inferenceGatewayBaseUrl`, and an API
-key sent as Bearer or `x-api-key`. The gateway must implement `POST /v1/messages` with
-streaming and tool use; `GET /v1/models` is optional. On Linux the managed settings file is
-root-owned at `/etc/claude-desktop/managed-settings.json`. See the vendor gateway and
-data-storage pages linked from the format note.
-
-## Artifacts a future scenario must distinguish
+## Artifacts a real scenario must distinguish
 
 - **Code tab:** Desktop metadata below app-data `claude-code-sessions/`; the transcript is a
   Claude Code transcript under `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`.
 - **Cowork / agent / Chat (local agent mode):** app-data
   `local-agent-mode-sessions/…/local_<id>.json` plus `local_<id>/audit.jsonl` or
-  `<first-8-hex>/audit.jsonl` (HMAC-chained). This is **not** `~/.claude/projects`. The
-  `claude_desktop` adapter reads both folder shapes today; the committed fixtures are
-  handmade from prior art, so support stays **ported-unverified**.
+  `<first-8-hex>/audit.jsonl` (HMAC-chained). This is **not** `~/.claude/projects`.
+
+The `claude_desktop` adapter reads both local-agent-mode folder shapes. The committed
+fixtures are handmade from the public Claude Agent SDK shape, so support stays
+**ported-unverified** until a real capture is added.
 
 3P app-data roots are documented as `Claude-3p` (macOS `~/Library/Application Support`,
 Linux `~/.config`, Windows `%LOCALAPPDATA%`). Consumer builds commonly use `Claude` without
@@ -69,10 +40,6 @@ Linux `~/.config`, Windows `%LOCALAPPDATA%`). Consumer builds commonly use `Clau
 
 ## Before adding a job
 
-The offline stand-in is scheduled nightly in
-[`.github/workflows/desktop-xvfb.yml`](../../.github/workflows/desktop-xvfb.yml), with no push
-or PR trigger. The Desktop install/probe and live Jev lanes are manual `workflow_dispatch`
-inputs; the live lane requires `OPENROUTER_API_KEY` and spends credits only when explicitly
-requested. No scheduled run has gone green yet. Add a real Desktop scenario to the normal
-matrix only after a live run produces a redacted artifact and a readable status checkpoint.
-Until then the support matrix says **ported-unverified**, not CI-verified.
+Add a Desktop scenario to the normal matrix only after a live run produces a redacted artifact
+and a readable status checkpoint. Until then the support matrix says **ported-unverified**,
+not CI-verified.

@@ -73,13 +73,13 @@ present.
   `prompt_sent`. The opening prompt is the fallback title.
 - **Tool call:** only a completed call reaches disk. The adapter emits the call and its
   result together, so the session is `Thinking` / `tool_result_in`, not `RunningTool`, while
-  the tool runs. This confirms the prior-art claim: pending and `awaiting_approval` tool
+  the tool runs. This confirms the observed behavior: pending and `awaiting_approval` tool
   states never reach the journal in 0.65.0.
 - **Approval:** the journal records neither the `--approval-mode` value nor a pending
   permission request. A normal Gemini run therefore cannot produce a firm
   `AwaitingApproval`. The adapter still recognises a future
   `toolCalls[].status == "awaiting_approval"` as firm evidence, because that status would be
-  explicit on disk; it was only a synthetic prior-art case, not observed here.
+  explicit on disk; it was only a synthetic case in earlier notes, not observed here.
 - **Turn end:** a `gemini` message with text and no `toolCalls` is the completed answer:
   firm `Done` / `turn_ended`. A tool-call message is followed by a function response and
   another model message, so it is not an end.
@@ -130,7 +130,7 @@ cargo run -p harness-driver -- --scenario driver/scenarios/gemini_tool.json
 
 Committed fixtures are under `fixtures/gemini/0.65.0/linux/`: `plain-qa` and `tool`. They
 were captured from the real CLI through the mock, then redacted by
-`agenttail fixture capture`.
+`agent-tail fixture capture`.
 
 ## Open questions and limits
 

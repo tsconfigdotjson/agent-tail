@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/tsconfigdotjson/agenttail/spec/schema/status.schema.json",
-  "title": "agenttail status checkpoint (v0.1)",
+  "$id": "https://github.com/tsconfigdotjson/agent-tail/spec/schema/status.schema.json",
+  "title": "agent-tail status checkpoint (v0.1)",
   "description": "One line of a fixture expected/status.jsonl: a timing instruction and an optional expected status.",
   "$defs": {
     "activity": {

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/tsconfigdotjson/agenttail/spec/schema/event.schema.json",
-  "title": "agenttail event (v0.1)",
-  "description": "One normalized event as printed by `agenttail events`, one JSON object per line.",
+  "$id": "https://github.com/tsconfigdotjson/agent-tail/spec/schema/event.schema.json",
+  "title": "agent-tail event (v0.1)",
+  "description": "One normalized event as printed by `agent-tail events`, one JSON object per line.",
   "$defs": {
     "common": {
       "type": "object",

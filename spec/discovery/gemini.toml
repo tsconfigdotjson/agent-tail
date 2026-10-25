@@ -1,5 +1,5 @@
 # Gemini CLI discovery, as observed in 0.65.0. This file is embedded by
-# crates/agenttail/build.rs. Gemini's chat files are JSONL journals below a project folder.
+# crates/agent-tail/build.rs. Gemini's chat files are JSONL journals below a project folder.
 schema = 1
 harness = "gemini"
 name = "Gemini CLI"
@@ -7,7 +7,7 @@ name = "Gemini CLI"
 [roots]
 # The project registry lives here; each project has its own short-id folder below it.
 default = ".gemini/tmp"
-evidence = "docs/formats/gemini.md#paths-and-layout; harness-ci/README.md#gemini-cli-real-harness-2026-10-25"
+evidence = "docs/formats/gemini.md#paths-and-layout; harness-ci/README.md"
 
 [[roots.env]]
 # GEMINI_CLI_HOME replaces the home directory Gemini uses, so .gemini/tmp moves with it.
@@ -25,7 +25,7 @@ max_depth = 3
 session_pattern = "*.jsonl"
 sessions_in = "chats"
 day_folders = false
-evidence = "docs/formats/gemini.md#paths-and-layout; crates/agenttail/src/adapters/gemini.rs"
+evidence = "docs/formats/gemini.md#paths-and-layout; crates/agent-tail/src/adapters/gemini.rs"
 
 [project]
 # The initial journal record has no cwd, only a projectHash. The project short-id folder is
@@ -35,7 +35,7 @@ encoding = "project folders are short ids from projects.json, not a reversible e
 evidence = "docs/formats/gemini.md#paths-and-layout; packages/core/dist/src/utils/paths.js and chatRecordingService in google-gemini/gemini-cli 0.65.0"
 
 [[project.examples]]
-cwd = "/home/ubuntu/workspace/example"
+cwd = "/home/dev/work/example"
 folder = "example"
 
 [timestamps]
@@ -49,13 +49,13 @@ evidence = "docs/formats/gemini.md#journal-records; fixtures/gemini/0.65/linux/p
 # 0.65.0 offered no ask-the-user tool in the captured tool catalogue. Do not guess at a
 # future or extension-provided tool name.
 match = "exact"
-evidence = "docs/formats/gemini.md#status-signals; harness-ci/README.md#gemini-cli-real-harness-2026-10-25"
+evidence = "docs/formats/gemini.md#status-signals; harness-ci/README.md"
 values = []
 
 [never_prompt]
 # Approval mode is not persisted in the journal, and tool calls are written only after they
 # complete, so no tool name is known to be never-prompt from disk evidence.
-evidence = "docs/formats/gemini.md#status-signals; docs/prior-art.md#gemini-cli"
+evidence = "docs/formats/gemini.md#status-signals"
 values = []
 
 [modes]
@@ -72,7 +72,7 @@ evidence = "docs/formats/gemini.md#status-signals; recordCompletedToolCalls in p
 [[quirks]]
 id = "approval-mode-not-recorded"
 summary = "The journal has no approval-mode field, so a pending approval cannot be made firm or ruled out from the transcript."
-evidence = "docs/formats/gemini.md#status-signals; docs/prior-art.md#gemini-cli"
+evidence = "docs/formats/gemini.md#status-signals"
 
 [[quirks]]
 id = "journal-upserts-and-patches"

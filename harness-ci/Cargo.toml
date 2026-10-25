@@ -6,6 +6,7 @@ members = ["mock-server", "driver"]
 version = "0.0.0"
 edition = "2024"
 rust-version = "1.88"
+license = "MIT"
 publish = false
 
 [workspace.dependencies]

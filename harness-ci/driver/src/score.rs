@@ -1,5 +1,5 @@
 use crate::screen::ScreenState;
-use agenttail::{
+use agent_tail::{
     Activity, Certainty, ChunkCtx, Harness, ParseMode, PermissionMode, Reason, ReducerOptions, SessionReducer,
     SessionState, Timestamp,
 };

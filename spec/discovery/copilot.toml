@@ -1,12 +1,12 @@
 # GitHub Copilot CLI discovery, as observed in 1.0.103. This file is embedded by
-# crates/agenttail/build.rs. A session is an append-only events.jsonl in its own folder.
+# crates/agent-tail/build.rs. A session is an append-only events.jsonl in its own folder.
 schema = 1
 harness = "copilot"
 name = "GitHub Copilot CLI"
 
 [roots]
 default = ".copilot/session-state"
-evidence = "docs/formats/copilot.md#paths-and-layout; harness-ci/README.md#github-copilot-cli-real-harness-2026-10-25"
+evidence = "docs/formats/copilot.md#paths-and-layout; harness-ci/README.md"
 
 [[roots.env]]
 var = "COPILOT_HOME"
@@ -20,7 +20,7 @@ evidence = "docs/formats/copilot.md#paths-and-layout; copilot help environment i
 max_depth = 2
 session_pattern = "*.jsonl"
 day_folders = false
-evidence = "docs/formats/copilot.md#paths-and-layout; crates/agenttail/src/adapters/copilot.rs"
+evidence = "docs/formats/copilot.md#paths-and-layout; crates/agent-tail/src/adapters/copilot.rs"
 
 [project]
 source = "session.start.data.context.cwd; the last one read wins"
@@ -28,7 +28,7 @@ encoding = "cwd is recorded directly, with no project-folder encoding"
 evidence = "docs/formats/copilot.md#event-catalogue; fixtures/copilot/1.0/linux/plain-qa/input/session.jsonl"
 
 [[project.examples]]
-cwd = "/home/ubuntu/work/app"
+cwd = "/home/dev/work/app"
 folder = "app"
 
 [timestamps]
@@ -42,7 +42,7 @@ evidence = "docs/formats/copilot.md#event-catalogue; fixtures/copilot/1.0/linux/
 # The tool catalogue mentions an ask_user tool in some modes, but no ask-user event was
 # observed. Keep the list empty rather than claiming a name from a prompt fragment.
 match = "exact"
-evidence = "docs/formats/copilot.md#status-signals; harness-ci/README.md#github-copilot-cli-real-harness-2026-10-25"
+evidence = "docs/formats/copilot.md#status-signals; harness-ci/README.md"
 values = []
 
 [never_prompt]
@@ -66,12 +66,12 @@ evidence = "docs/formats/copilot.md#status-signals; fixtures/copilot/1.0/linux/p
 [[quirks]]
 id = "unattended-fallback-denial"
 summary = "In prompt mode with no interactive user, Copilot writes permission.requested then permission.completed with result kind denied-no-approval-rule-and-could-not-request-from-user; the tool is not run."
-evidence = "docs/formats/copilot.md#status-signals; harness-ci/README.md#github-copilot-cli-real-harness-2026-10-25"
+evidence = "docs/formats/copilot.md#status-signals; harness-ci/README.md"
 
 [[quirks]]
 id = "per-model-turn-boundaries"
 summary = "assistant.turn_start/turn_end wrap each model call, not the whole user interaction; a turn_end after a tool request does not finish the session."
-evidence = "docs/formats/copilot.md#event-catalogue; crates/agenttail/src/adapters/copilot.rs"
+evidence = "docs/formats/copilot.md#event-catalogue; crates/agent-tail/src/adapters/copilot.rs"
 
 [[quirks]]
 id = "byok-mock-provider"

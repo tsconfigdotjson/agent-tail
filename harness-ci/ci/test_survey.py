@@ -95,7 +95,7 @@ class ShapeSurveyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             run = write_transcript(root, base_records())
-            fake = root / "agenttail"
+            fake = root / "agent-tail"
             fake.write_text(
                 "#!/bin/sh\n"
                 "report=''\n"
@@ -109,7 +109,7 @@ class ShapeSurveyTests(unittest.TestCase):
                 encoding="utf-8",
             )
             fake.chmod(0o755)
-            with mock.patch.dict(os.environ, {"AGENTTAIL_BIN": str(fake)}):
+            with mock.patch.dict(os.environ, {"AGENT_TAIL_BIN": str(fake)}):
                 target = survey.capture_fixture(run, root / "fixtures", "claude_code", "1.0.0", "linux")
             self.assertIsNotNone(target)
             self.assertEqual((target / "input" / "session.jsonl").read_text(encoding="utf-8"), '{"redacted":true}\n')

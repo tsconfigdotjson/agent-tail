@@ -1,4 +1,4 @@
-# Pi discovery, as observed. This file is embedded by crates/agenttail/build.rs.
+# Pi discovery, as observed. This file is embedded by crates/agent-tail/build.rs.
 schema = 1
 harness = "pi"
 name = "Pi"
@@ -14,7 +14,7 @@ var = "PI_CODING_AGENT_DIR"
 append = "sessions"
 absolute = true
 semantics = "agent config directory; sessions/ below it holds sessions; relative values are resolved by Pi against its cwd, while the tracker uses only absolute values"
-evidence = "docs/formats/pi.md#paths-and-layout; https://github.com/tsconfigdotjson/agenttail/issues/52"
+evidence = "docs/formats/pi.md#paths-and-layout"
 
 [[roots.env]]
 # A custom session directory replaces the whole sessions/<encoded-cwd>/ layout: files sit
@@ -23,7 +23,7 @@ var = "PI_CODING_AGENT_SESSION_DIR"
 append = ""
 absolute = true
 semantics = "session storage directory, replacing sessions/ below the agent dir; files may sit directly in it; relative values are ignored by the tracker"
-evidence = "docs/formats/pi.md#paths-and-layout; https://github.com/tsconfigdotjson/agenttail/issues/52"
+evidence = "docs/formats/pi.md#paths-and-layout"
 
 [layout]
 # Default: <encoded-cwd>/<timestamp>_<session-id>.jsonl. A custom session directory may
@@ -31,18 +31,18 @@ evidence = "docs/formats/pi.md#paths-and-layout; https://github.com/tsconfigdotj
 max_depth = 2
 session_pattern = "*.jsonl"
 day_folders = false
-evidence = "docs/formats/pi.md#paths-and-layout; crates/agenttail/src/adapters/pi.rs"
+evidence = "docs/formats/pi.md#paths-and-layout; crates/agent-tail/src/adapters/pi.rs"
 
 [project]
 # The session header records the working folder directly. A custom session directory has
 # no project folder to decode.
 source = "session header cwd; the last record with cwd wins"
 encoding = "default folders are --<cwd without its leading separator, with /, \\ and : replaced by ->--; a custom session directory has no encoded folder"
-evidence = "docs/formats/pi.md#paths-and-layout; https://github.com/tsconfigdotjson/agenttail/issues/52"
+evidence = "docs/formats/pi.md#paths-and-layout"
 
 [[project.examples]]
-cwd = "/home/ubuntu/workspace/.vibe-worktrees/agenttail/issue-52-pi-harness"
-folder = "--home-ubuntu-workspace-.vibe-worktrees-agenttail-issue-52-pi-harness--"
+cwd = "/home/dev/work/my-app"
+folder = "--home-dev-work-my-app--"
 
 [timestamps]
 field = "timestamp"
@@ -55,52 +55,52 @@ evidence = "docs/formats/pi.md#record-catalogue; fixtures/pi/1.4/linux/plain-qa/
 # Pi's built-in tools do not ask the user. Extensions can add tools, but none were observed,
 # so this stays empty rather than guessing at extension names.
 match = "exact"
-evidence = "docs/formats/pi.md#status-signals; https://github.com/tsconfigdotjson/agenttail/issues/52"
+evidence = "docs/formats/pi.md#status-signals"
 values = []
 
 [never_prompt]
 # Pi never asks before a tool call: its built-in bash/read/edit/write/grep/find/ls tools run
 # with the OS user's permissions. This is a harness-level fact, not a per-mode tool list.
-evidence = "docs/formats/pi.md#status-signals; docs/security.md in Pi 1.4.0 ('it does not ask for approval before every tool call'); https://github.com/tsconfigdotjson/agenttail/issues/52"
+evidence = "docs/formats/pi.md#status-signals; docs/security.md in Pi 1.4.0 ('it does not ask for approval before every tool call')"
 values = []
 
 [modes]
 # Pi records no permission/approval mode. The adapter leaves SessionState.permission None;
 # Session::can_ask_human is false for Pi because the harness has no approval prompt.
-evidence = "docs/formats/pi.md#status-signals; crates/agenttail/src/session.rs"
+evidence = "docs/formats/pi.md#status-signals; crates/agent-tail/src/session.rs"
 values = []
 
 [[quirks]]
 id = "no-approval-prompt"
 summary = "Pi does not ask before tool calls, so a pending tool is RunningTool/firm, never AwaitingApproval. There is no permission-mode record."
-evidence = "docs/formats/pi.md#status-signals; https://github.com/tsconfigdotjson/agenttail/issues/52"
+evidence = "docs/formats/pi.md#status-signals"
 
 [[quirks]]
 id = "session-tree"
 summary = "Entries form an id/parentId tree. Pi appends the active branch, so the latest entry is the leaf; abandoned branches remain in the file but do not move status, usage, recent activity or title. parse_lines emits them with Event::off_chain."
-evidence = "docs/formats/pi.md#branches; fixtures/pi/1.4/linux/branched; https://github.com/tsconfigdotjson/agenttail/issues/66"
+evidence = "docs/formats/pi.md#branches; fixtures/pi/1.4/linux/branched"
 
 [[quirks]]
 id = "session-name-title"
 summary = "A session_info entry's name is the user-visible title; without one the opening prompt's first line is used. An empty name clears it."
-evidence = "docs/formats/pi.md#status-signals; crates/agenttail/src/adapters/pi.rs"
+evidence = "docs/formats/pi.md#status-signals; crates/agent-tail/src/adapters/pi.rs"
 
 [[quirks]]
 id = "custom-session-dir-flattens-layout"
 summary = "PI_CODING_AGENT_SESSION_DIR or --session-dir replaces sessions/<encoded-cwd>/; session files can sit directly in the custom directory."
-evidence = "docs/formats/pi.md#paths-and-layout; https://github.com/tsconfigdotjson/agenttail/issues/52"
+evidence = "docs/formats/pi.md#paths-and-layout"
 
 [[quirks]]
 id = "no-builtin-subagents"
 summary = "Pi 1.4.0 ships no sub-agent or background-helper transcript. Extensions can add agent tools, but no helper files were observed."
-evidence = "docs/formats/pi.md#status-signals; Pi 1.4.0 README ('skips features like sub-agents'); https://github.com/tsconfigdotjson/agenttail/issues/52"
+evidence = "docs/formats/pi.md#status-signals; Pi 1.4.0 README ('skips features like sub-agents')"
 
 [[quirks]]
 id = "cost-is-per-call"
 summary = "Assistant and usage entries carry per-call usage and cost.total; the session total is their sum, unlike Claude's cumulative cost-state."
-evidence = "docs/formats/pi.md#record-catalogue; crates/agenttail/src/adapters/pi.rs"
+evidence = "docs/formats/pi.md#record-catalogue; crates/agent-tail/src/adapters/pi.rs"
 
 [[quirks]]
 id = "compaction-has-no-trigger"
 summary = "A compaction entry records summary, firstKeptEntryId, tokensBefore and optional usage, but not whether it was manual, threshold or overflow; trigger stays None."
-evidence = "docs/formats/pi.md#record-catalogue; https://github.com/tsconfigdotjson/agenttail/issues/52"
+evidence = "docs/formats/pi.md#record-catalogue"
