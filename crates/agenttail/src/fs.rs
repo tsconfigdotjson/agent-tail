@@ -1015,6 +1015,50 @@ mod tests {
     }
 
     #[test]
+    fn tracker_agents_killed_ends_a_followed_helper() {
+        let home = tempfile::tempdir().unwrap();
+        let project = home.path().join(".claude/projects/-w-site");
+        std::fs::create_dir_all(project.join("s/subagents")).unwrap();
+        let parent = project.join("s.jsonl");
+        std::fs::write(
+            &parent,
+            jsonl(&[
+                claude_prompt("/w/site", "delegate", 5.0),
+                json!({"type": "assistant", "timestamp": at(3.0),
+                       "message": {"id": "m1", "stop_reason": "end_turn", "usage": {"output_tokens": 1},
+                                   "content": [{"type": "text", "text": "done"}]}}),
+                json!({"type": "system", "subtype": "turn_duration", "timestamp": at(2.0),
+                       "pendingBackgroundAgentCount": 1}),
+                json!({"type": "system", "subtype": "agents_killed", "timestamp": at(0.5)}),
+            ]),
+        )
+        .unwrap();
+        let helper = project.join("s/subagents/agent-a1.jsonl");
+        std::fs::write(
+            &helper,
+            jsonl(&[json!({"type": "assistant", "isSidechain": true, "timestamp": at(1.0),
+                           "message": {"id": "h1", "stop_reason": "tool_use", "usage": {"output_tokens": 1},
+                                       "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "sleep 9"}}]}})]),
+        )
+        .unwrap();
+
+        let mut t = Tracker::new(home.path(), hours(1.0));
+        let state = &t.poll(wall())[0].1;
+        assert_eq!((state.activity, state.background.len()), (crate::Activity::Done, 0));
+
+        // The tracker re-feeds the helper file later; the kill still wins.
+        append(
+            &helper,
+            &jsonl(&[json!({"type": "assistant", "isSidechain": true, "timestamp": at(0.4),
+                            "message": {"id": "h2", "stop_reason": "tool_use", "usage": {"output_tokens": 1},
+                                        "content": [{"type": "tool_use", "name": "Bash",
+                                                     "input": {"command": "sleep 9"}}]}})]),
+        );
+        let state = &t.poll(wall())[0].1;
+        assert_eq!((state.activity, state.background.len()), (crate::Activity::Done, 0));
+    }
+
+    #[test]
     fn tracker_links_an_async_agent_to_its_helper_and_meta_end() {
         let home = tempfile::tempdir().unwrap();
         let project = home.path().join(".claude/projects/-w-site");

@@ -9,7 +9,7 @@ use crate::state::{Activity, Certainty, Diagnostics, HelperState, Reason, Sessio
 use crate::time::Timestamp;
 use serde_json::Value;
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -96,6 +96,10 @@ pub struct SessionReducer {
     /// A helper's `.meta.json`, keyed like `helpers`: `finished`/`stoppedByUser` is the
     /// firm end that a transcript's `end_turn` alone isn't.
     helper_meta: HashMap<String, HelperMeta>,
+    /// Helpers ended by an explicit parent count of zero (`agents_killed`, or a
+    /// `turn_duration` with no pending helpers). They stay ended if their files are fed
+    /// again, until the parent records a new launch linked to them.
+    helpers_killed: HashSet<String>,
     /// This reducer is following a helper transcript, whose records are `isSidechain`.
     helper: bool,
 }
@@ -125,6 +129,7 @@ impl SessionReducer {
             diagnostics: Diagnostics::default(),
             helpers: HashMap::new(),
             helper_meta: HashMap::new(),
+            helpers_killed: HashSet::new(),
             helper: false,
         }
     }
@@ -198,7 +203,11 @@ impl SessionReducer {
     /// the transcript mtime, as [`feed`](Self::feed) does. Sidechain events are ignored
     /// here; a helper transcript belongs to [`feed_helper`](Self::feed_helper).
     pub fn feed_event(&mut self, event: &crate::Event) {
+        let kills = self.session.background_kills;
         self.session.apply_event(event);
+        if self.session.background_kills > kills {
+            self.kill_helpers();
+        }
     }
 
     /// Apply a batch of events, in order.
@@ -212,6 +221,7 @@ impl SessionReducer {
     pub fn state(&self, now: Timestamp) -> SessionState {
         let mut state = self.session.state(now, &self.options, self.diagnostics);
         let mut background = Vec::new();
+        let mut followed = HashSet::new();
         for (id, helper) in &self.helpers {
             // `.meta.json` finished/stopped is firmer than the helper's own last entry; a
             // notification or metadata that ended the parent's launch also ends it here.
@@ -219,6 +229,13 @@ impl SessionReducer {
             let launch_ended =
                 self.session.launched_helpers.values().any(|launch| launch.ended && launch.matches_helper(id));
             if meta_ended || launch_ended {
+                continue;
+            }
+            // A killed helper stays ended even if its file is fed again. A new launch that
+            // names it is the only thing that can bring it back.
+            let live_launch =
+                self.session.launched_helpers.values().any(|launch| !launch.ended && launch.matches_helper(id));
+            if self.helpers_killed.contains(id) && !live_launch {
                 continue;
             }
             let helper = helper.state(now);
@@ -229,6 +246,7 @@ impl SessionReducer {
             ) {
                 continue;
             }
+            followed.insert(id.clone());
             background.push(HelperState {
                 id: id.clone(),
                 activity: helper.activity,
@@ -241,7 +259,14 @@ impl SessionReducer {
         // An async launch is known before its file is read. Once the helper's own transcript
         // is followed, that transcript (and its metadata) is the more precise state.
         for launch in self.session.launched_helpers.values().filter(|launch| !launch.ended) {
-            if self.helpers.keys().any(|id| launch.matches_helper(id)) {
+            // A followed helper's own transcript is more precise than the synthetic launch.
+            // The exception is a helper killed by the parent: if it is still listed it wins,
+            // but a finished one must not hide a new launch that reuses its id.
+            let superseded = self
+                .helpers
+                .keys()
+                .any(|id| launch.matches_helper(id) && (!self.helpers_killed.contains(id) || followed.contains(id)));
+            if superseded {
                 continue;
             }
             let since = (launch.since > 0.0).then(|| Timestamp::from_secs_f64(launch.since));
@@ -272,13 +297,31 @@ impl SessionReducer {
     pub fn feed_helper(&mut self, id: &str, bytes: &[u8], ctx: ChunkCtx<'_>) -> Result<(), Error> {
         let harness = self.session.harness;
         let options = self.options.clone();
+        let is_new = !self.helpers.contains_key(id);
         let helper = self.helpers.entry(id.to_string()).or_insert_with(|| {
             let mut reducer = SessionReducer::new(harness, options);
             reducer.helper = true;
             reducer.session.is_helper = true;
             reducer
         });
-        helper.feed(bytes, ctx)
+        let result = helper.feed(bytes, ctx);
+        if result.is_ok() && is_new && self.session.background_kills > 0 && !self.helpers_killed.contains(id) {
+            // A helper discovered after the kill is stale if all of its own entries predate
+            // the kill. A genuinely new helper (even one the parent didn't link) has newer
+            // activity and is left alone.
+            let live_launch =
+                self.session.launched_helpers.values().any(|launch| !launch.ended && launch.matches_helper(id));
+            let last = self.helpers.get(id).map_or(0.0, |helper| helper.session.last_at);
+            if !live_launch && last <= self.session.background_killed_at {
+                self.helpers_killed.insert(id.to_string());
+            }
+        }
+        result
+    }
+
+    /// Mark every helper followed so far ended by an explicit parent count of zero.
+    fn kill_helpers(&mut self) {
+        self.helpers_killed.extend(self.helpers.keys().cloned());
     }
 
     /// Feed a helper's `.meta.json` (Claude Code's `agent-<id>.meta.json`), keyed by the same
@@ -349,12 +392,16 @@ impl SessionReducer {
             return Ok(());
         }
         let mut data = std::mem::take(&mut self.pending);
+        let kills = self.session.background_kills;
         let (mode, diag, session) = (self.options.mode, &mut self.diagnostics, &mut self.session);
         let used = if last {
             complete_lines(&data, mode, diag, |e| session.apply(&e))
         } else {
             whole_lines(&data, mode, diag, |e| session.apply(&e))
         };
+        if self.session.background_kills > kills {
+            self.kill_helpers();
+        }
         self.consumed += used as u64;
         data.drain(..used);
         self.pending = data;
@@ -750,6 +797,224 @@ mod tests {
         let offset = s.consumed();
         s.feed(note.as_bytes(), ctx(offset)).unwrap();
         assert_eq!(s.state(Timestamp::from_secs_f64(NOW)).activity, Activity::Done);
+    }
+
+    #[test]
+    fn agents_killed_ends_a_running_helper() {
+        // The reproduction from issue #50: the parent closes with a pending helper, then
+        // says the session exited with its helpers. The already-fed helper must not win.
+        let parent = concat!(
+            r#"{"type":"assistant","timestamp":"2026-10-23T10:00:02Z","message":{"id":"m1","stop_reason":"end_turn","usage":{"output_tokens":1},"content":[{"type":"text","text":"done"}]}}"#,
+            "\n",
+            r#"{"type":"system","subtype":"turn_duration","timestamp":"2026-10-23T10:00:03Z","pendingBackgroundAgentCount":1}"#,
+            "\n",
+            r#"{"type":"system","subtype":"agents_killed","timestamp":"2026-10-23T10:00:04Z"}"#,
+            "\n",
+        );
+        let helper = concat!(
+            r#"{"type":"assistant","isSidechain":true,"timestamp":"2026-10-23T10:00:01Z","message":{"id":"h1","stop_reason":"tool_use","usage":{"output_tokens":1},"content":[{"type":"tool_use","name":"Bash","input":{"command":"sleep 99"}}]}}"#,
+            "\n",
+        );
+        let now = Timestamp::parse_rfc3339("2026-10-23T10:00:10Z").unwrap();
+        let mut s = SessionReducer::new(Harness::ClaudeCode, ReducerOptions::default());
+        s.feed(parent.as_bytes(), ctx(0)).unwrap();
+        s.feed_helper("/h/.claude/projects/-w-app/s/subagents/agent-a1.jsonl", helper.as_bytes(), ctx(0)).unwrap();
+        let st = s.state(now);
+        assert_eq!((st.activity, st.certainty, st.reason), (Activity::Done, Certainty::Firm, Reason::TurnEnded));
+        assert!(st.background.is_empty(), "{:?}", st.background);
+    }
+
+    #[test]
+    fn a_killed_helper_stays_ended_when_its_file_is_fed_again() {
+        let parent = jsonl(&[
+            json!({"type": "assistant", "timestamp": crate::testutil::at(3.0),
+                   "message": {"id": "m1", "stop_reason": "end_turn", "usage": {"output_tokens": 1},
+                               "content": [{"type": "text", "text": "done"}]}}),
+            json!({"type": "system", "subtype": "turn_duration", "timestamp": crate::testutil::at(2.0),
+                   "pendingBackgroundAgentCount": 1}),
+        ]);
+        let mut s = SessionReducer::new(Harness::ClaudeCode, ReducerOptions::default());
+        s.feed(parent.as_bytes(), ctx(0)).unwrap();
+        let helper = running_helper();
+        s.feed_helper("agent-a1", helper.as_bytes(), ctx(0)).unwrap();
+        assert_eq!(s.state(Timestamp::from_secs_f64(NOW)).activity, Activity::BackgroundWork);
+
+        let kill = jsonl(&[json!({"type": "system", "subtype": "agents_killed",
+                                  "timestamp": crate::testutil::at(0.5)})]);
+        let offset = s.consumed();
+        s.feed(kill.as_bytes(), ctx(offset)).unwrap();
+        let st = s.state(Timestamp::from_secs_f64(NOW));
+        assert_eq!((st.activity, st.background.len()), (Activity::Done, 0));
+
+        // The tracker can re-read the helper after the kill. Even a newer entry does not
+        // resurrect it: only a new parent launch can.
+        let later = jsonl(&[json!({"type": "assistant", "isSidechain": true, "timestamp": crate::testutil::at(0.4),
+                                   "message": {"id": "h2", "stop_reason": "tool_use", "usage": {"output_tokens": 1},
+                                               "content": [{"type": "tool_use", "name": "Bash",
+                                                            "input": {"command": "sleep 99"}}]}})]);
+        s.feed_helper("agent-a1", later.as_bytes(), ctx(helper.len() as u64)).unwrap();
+        let st = s.state(Timestamp::from_secs_f64(NOW));
+        assert_eq!((st.activity, st.background.len()), (Activity::Done, 0));
+    }
+
+    #[test]
+    fn sidechain_zero_counts_do_not_kill_the_parents_helpers() {
+        let (mut s, output) = linked_parent();
+        s.feed_helper(&output, running_helper().as_bytes(), ctx(0)).unwrap();
+        assert_eq!(s.state(Timestamp::from_secs_f64(NOW)).activity, Activity::BackgroundWork);
+
+        // Sidechain rows belong to a helper conversation even when they sit in the parent
+        // transcript. Their zero counts must not become the parent's kill signal.
+        let sidechain = jsonl(&[
+            json!({"type": "system", "isSidechain": true, "subtype": "turn_duration",
+                   "timestamp": crate::testutil::at(0.4), "pendingBackgroundAgentCount": 0}),
+            json!({"type": "system", "isSidechain": true, "subtype": "agents_killed",
+                   "timestamp": crate::testutil::at(0.3)}),
+        ]);
+        let offset = s.consumed();
+        s.feed(sidechain.as_bytes(), ctx(offset)).unwrap();
+        let st = s.state(Timestamp::from_secs_f64(NOW));
+        assert_eq!((st.activity, st.background.len()), (Activity::BackgroundWork, 1));
+        assert_eq!(st.background[0].id, output);
+
+        // The same rows through the public event layer are ignored as well.
+        let events = crate::event::parse_events(Harness::ClaudeCode, 0, sidechain.as_bytes(), ParseMode::Full);
+        assert!(events.iter().all(|event| event.sidechain));
+        s.feed_events(&events);
+        let st = s.state(Timestamp::from_secs_f64(NOW));
+        assert_eq!((st.activity, st.background.len()), (Activity::BackgroundWork, 1));
+
+        // The parent's own kill still wins.
+        let kill = jsonl(&[json!({"type": "system", "subtype": "agents_killed",
+                                  "timestamp": crate::testutil::at(0.2)})]);
+        let offset = s.consumed();
+        s.feed(kill.as_bytes(), ctx(offset)).unwrap();
+        let st = s.state(Timestamp::from_secs_f64(NOW));
+        assert_eq!((st.activity, st.background.len()), (Activity::Done, 0));
+    }
+
+    #[test]
+    fn a_new_launch_after_a_kill_can_show_background_work() {
+        let (mut s, old_output) = linked_parent();
+        s.feed_helper(&old_output, running_helper().as_bytes(), ctx(0)).unwrap();
+        let kill = jsonl(&[json!({"type": "system", "subtype": "agents_killed",
+                                  "timestamp": crate::testutil::at(0.5)})]);
+        let offset = s.consumed();
+        s.feed(kill.as_bytes(), ctx(offset)).unwrap();
+        assert_eq!(s.state(Timestamp::from_secs_f64(NOW)).activity, Activity::Done);
+
+        // A later async launch is a new generation: it is visible even though the old
+        // helper was killed, and the old helper does not come back with it.
+        let new_output = "/h/.claude/projects/-w-app/s/subagents/agent-a2.jsonl";
+        let launch = jsonl(&[
+            json!({"type": "user", "timestamp": crate::testutil::at(0.3),
+                   "sourceToolUseID": "toolu_2",
+                   "toolUseResult": {"status": "async_launched", "isAsync": true,
+                                     "agentId": "a2", "outputFile": new_output,
+                                     "backgroundTaskId": "task-a2"},
+                   "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_2",
+                                            "content": "launched"}]}}),
+            json!({"type": "assistant", "timestamp": crate::testutil::at(0.2),
+                   "message": {"id": "m3", "stop_reason": "end_turn", "usage": {"output_tokens": 1},
+                               "content": [{"type": "text", "text": "launched in background"}]}}),
+        ]);
+        let offset = s.consumed();
+        s.feed(launch.as_bytes(), ctx(offset)).unwrap();
+        s.feed_helper(new_output, running_helper().as_bytes(), ctx(0)).unwrap();
+        let st = s.state(Timestamp::from_secs_f64(NOW));
+        assert_eq!((st.activity, st.background.len()), (Activity::BackgroundWork, 1));
+        assert_eq!(st.background[0].id, new_output);
+    }
+
+    #[test]
+    fn a_new_launch_can_reuse_a_killed_helpers_id_without_duplicating_it() {
+        let (mut s, output) = linked_parent();
+        s.feed_helper(&output, running_helper().as_bytes(), ctx(0)).unwrap();
+        let kill = jsonl(&[json!({"type": "system", "subtype": "agents_killed",
+                                  "timestamp": crate::testutil::at(0.5)})]);
+        let offset = s.consumed();
+        s.feed(kill.as_bytes(), ctx(offset)).unwrap();
+
+        // Reusing the same agent id is unusual, but a new launch must revive exactly one
+        // entry rather than showing the killed transcript and the synthetic launch twice.
+        let relaunch = jsonl(&[
+            json!({"type": "user", "timestamp": crate::testutil::at(0.3), "sourceToolUseID": "toolu_9",
+                   "toolUseResult": {"status": "async_launched", "isAsync": true, "agentId": "a1",
+                                     "outputFile": output, "backgroundTaskId": "task-a1b"},
+                   "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_9",
+                                            "content": "launched"}]}}),
+            json!({"type": "assistant", "timestamp": crate::testutil::at(0.2),
+                   "message": {"id": "m3", "stop_reason": "end_turn", "usage": {"output_tokens": 1},
+                               "content": [{"type": "text", "text": "launched again"}]}}),
+        ]);
+        let offset = s.consumed();
+        s.feed(relaunch.as_bytes(), ctx(offset)).unwrap();
+        let st = s.state(Timestamp::from_secs_f64(NOW));
+        assert_eq!((st.activity, st.background.len()), (Activity::BackgroundWork, 1));
+        assert_eq!(st.background[0].id, output);
+    }
+
+    #[test]
+    fn agents_killed_without_helpers_is_just_done() {
+        let parent = jsonl(&[
+            json!({"type": "assistant", "timestamp": crate::testutil::at(3.0),
+                   "message": {"id": "m1", "stop_reason": "end_turn", "usage": {"output_tokens": 1},
+                               "content": [{"type": "text", "text": "done"}]}}),
+            json!({"type": "system", "subtype": "turn_duration", "timestamp": crate::testutil::at(2.0),
+                   "pendingBackgroundAgentCount": 1}),
+            json!({"type": "system", "subtype": "agents_killed", "timestamp": crate::testutil::at(0.5)}),
+        ]);
+        let mut s = SessionReducer::new(Harness::ClaudeCode, ReducerOptions::default());
+        s.feed(parent.as_bytes(), ctx(0)).unwrap();
+        let st = s.state(Timestamp::from_secs_f64(NOW));
+        assert_eq!((st.activity, st.background.len()), (Activity::Done, 0));
+    }
+
+    #[test]
+    fn a_turn_duration_zero_also_ends_stale_helpers() {
+        let parent = jsonl(&[
+            json!({"type": "assistant", "timestamp": crate::testutil::at(4.0),
+                   "message": {"id": "m1", "stop_reason": "end_turn", "usage": {"output_tokens": 1},
+                               "content": [{"type": "text", "text": "done"}]}}),
+            json!({"type": "system", "subtype": "turn_duration", "timestamp": crate::testutil::at(3.0),
+                   "pendingBackgroundAgentCount": 1}),
+        ]);
+        let mut s = SessionReducer::new(Harness::ClaudeCode, ReducerOptions::default());
+        s.feed(parent.as_bytes(), ctx(0)).unwrap();
+        s.feed_helper("agent-a1", running_helper().as_bytes(), ctx(0)).unwrap();
+        assert_eq!(s.state(Timestamp::from_secs_f64(NOW)).activity, Activity::BackgroundWork);
+
+        let closed = jsonl(&[json!({"type": "system", "subtype": "turn_duration",
+                                    "timestamp": crate::testutil::at(0.5),
+                                    "pendingBackgroundAgentCount": 0})]);
+        let offset = s.consumed();
+        s.feed(closed.as_bytes(), ctx(offset)).unwrap();
+        let st = s.state(Timestamp::from_secs_f64(NOW));
+        assert_eq!((st.activity, st.background.len()), (Activity::Done, 0));
+    }
+
+    #[test]
+    fn agents_killed_ends_parallel_helpers() {
+        let parent = jsonl(&[
+            json!({"type": "assistant", "timestamp": crate::testutil::at(4.0),
+                   "message": {"id": "m1", "stop_reason": "end_turn", "usage": {"output_tokens": 1},
+                               "content": [{"type": "text", "text": "done"}]}}),
+            json!({"type": "system", "subtype": "turn_duration", "timestamp": crate::testutil::at(3.0),
+                   "pendingBackgroundAgentCount": 2}),
+        ]);
+        let mut s = SessionReducer::new(Harness::ClaudeCode, ReducerOptions::default());
+        s.feed(parent.as_bytes(), ctx(0)).unwrap();
+        for id in ["agent-a1", "agent-a2"] {
+            s.feed_helper(id, running_helper().as_bytes(), ctx(0)).unwrap();
+        }
+        assert_eq!(s.state(Timestamp::from_secs_f64(NOW)).background.len(), 2);
+
+        let kill = jsonl(&[json!({"type": "system", "subtype": "agents_killed",
+                                  "timestamp": crate::testutil::at(0.5)})]);
+        let offset = s.consumed();
+        s.feed(kill.as_bytes(), ctx(offset)).unwrap();
+        let st = s.state(Timestamp::from_secs_f64(NOW));
+        assert_eq!((st.activity, st.background.len()), (Activity::Done, 0));
     }
 
     #[test]

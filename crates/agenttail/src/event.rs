@@ -605,7 +605,7 @@ impl Session {
                     TurnEndReason::Error => self.set_error(error.as_deref().unwrap_or("error"), t),
                 }
                 if let Some(n) = background_agents {
-                    self.set_background_agents(*n);
+                    self.set_background_agents(*n, t);
                 }
             }
             EventKind::Usage { reported, message_id, cumulative, .. } => {
