@@ -1300,9 +1300,19 @@ mod tests {
         let mut t = Tracker::new(home.path(), hours(1.0));
         assert_eq!(polled(&mut t), [("app".into(), "may need approval".into())], "alone, a stalled tool call");
 
-        let sub = main.parent().unwrap().join("subagents/s1.jsonl");
+        let dir = main.parent().unwrap();
+        let sub = dir.join("subagents/s1.jsonl");
+        // A coarse filesystem (whole seconds, say) can leave this folder's mtime at the stamp
+        // the last poll cached even though subagents/ was just created in it: the new folder
+        // would go unseen between sweeps (issue #41). Put the stamp back there deliberately,
+        // so the test reproduces that case on every filesystem, then move it past the cached
+        // stamp instead of sleeping for a finer clock: a session folder's mtime is what tells
+        // the walk to look inside it.
+        let cached = std::fs::metadata(dir).unwrap().modified().unwrap();
         std::fs::create_dir_all(sub.parent().unwrap()).unwrap();
         std::fs::write(&sub, cursor_line(cursor_tool("Grep"))).unwrap();
+        File::open(dir).unwrap().set_modified(cached).unwrap();
+        File::open(dir).unwrap().set_modified(cached + Duration::from_secs(2)).unwrap();
         assert_eq!(polled(&mut t), [("app".into(), "working".into())], "its subagent's writes count as its own");
         let v = t.poll(wall());
         assert_eq!(
