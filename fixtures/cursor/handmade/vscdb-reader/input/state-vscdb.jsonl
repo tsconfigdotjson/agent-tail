@@ -1,0 +1,9 @@
+{"key":"composerData:composer-1","value":{"name":"Add a health check","status":"completed","lastUpdatedAt":1792756800000,"createdAt":1792756000000,"generatingBubbleIds":[],"_v":18}}
+{"key":"bubbleId:composer-1:bubble-1","value":{"type":2,"toolFormerData":{"name":"run_terminal_command_v2","status":"completed","userDecision":"accepted","result":"{\"output\":\"ok\"}"}}}
+{"key":"bubbleId:composer-1:bubble-2","value":{"type":2,"toolFormerData":{"name":"ask_question","status":"loading","additionalData":{"status":"loading","userDecision":"pending"}}}}
+{"key":"composerData:composer-2","value":{"name":"Live one","status":"generating","lastUpdatedAt":1792756800000,"createdAt":1792756000000,"generatingBubbleIds":["bubble-3"],"_v":18}}
+{"key":"bubbleId:composer-2:bubble-3","value":{"type":2,"toolFormerData":{"name":"read_file_v2","status":"loading"}}}
+{"key":"composerData:composer-3","value":{"status":"aborted","lastUpdatedAt":1792756800000,"_v":18}}
+{"key":"composerData:composer-4","value":{"status":"none","generatingBubbleIds":[],"_v":18}}
+{"key":"composerData:broken","value":"not json"}
+{"key":"bubbleId:composer-9:other-bubble","value":{"type":2,"toolFormerData":{"name":"read_file_v2","status":"completed"}}}

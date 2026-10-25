@@ -1,0 +1,6 @@
+harness = "cursor"
+version = "unknown"
+os = "any"
+capture = "handmade"
+date = "2026-10-24"
+description = "Synthetic cursorDiskKV rows for the state.vscdb reader: composer statuses (completed/generating/aborted/none), names, generatingBubbleIds, one malformed row, and toolFormerData with status/userDecision. Not captured from a live approval wait; none of anyone's content."

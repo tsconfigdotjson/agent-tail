@@ -307,6 +307,18 @@ impl SessionReducer {
         self.session.set_index_title(title);
     }
 
+    /// Use a title from Cursor's `state.vscdb` (`composerData.name`); it wins over prompts
+    /// and Codex's index title, and the transcript remains the fallback when it goes away.
+    pub fn set_composer_title(&mut self, title: Option<&str>) {
+        self.session.set_db_title(title);
+    }
+
+    /// Use a status from Cursor's `state.vscdb`, dated when Cursor wrote it. `None` returns
+    /// to the transcript rules. A status older than the last transcript entry is ignored.
+    pub fn set_composer_status(&mut self, status: Option<(Activity, Timestamp)>) {
+        self.session.set_db_status(status.map(|(activity, at)| (activity, at.as_secs_f64())));
+    }
+
     /// When the session was last seen at work: its transcript's last write, or a helper's.
     #[cfg(feature = "fs")]
     pub(crate) fn active_at(&self) -> f64 {

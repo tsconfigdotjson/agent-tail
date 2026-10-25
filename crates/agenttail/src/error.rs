@@ -15,6 +15,9 @@ pub enum Error {
     ///
     /// [`SessionReducer::received`]: crate::SessionReducer::received
     OffsetMismatch { expected: u64, got: u64 },
+    /// Cursor's `state.vscdb` could not be copied, opened read-only, or read.
+    #[cfg(feature = "sqlite")]
+    Sqlite { path: std::path::PathBuf, message: String },
 }
 
 impl fmt::Display for Error {
@@ -25,6 +28,8 @@ impl fmt::Display for Error {
                 write!(f, "no agent \"{id}\" (there are: {})", ids.join(", "))
             }
             Error::OffsetMismatch { expected, got } => write!(f, "expected offset {expected}, got {got}"),
+            #[cfg(feature = "sqlite")]
+            Error::Sqlite { path, message } => write!(f, "{}: {message}", path.display()),
         }
     }
 }

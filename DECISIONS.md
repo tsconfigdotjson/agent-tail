@@ -356,3 +356,45 @@ baseline's Codex/Cursor content types map to a richer event or `Meta`.
 
 **`agenttail events [--agent ID] <path>` prints the stream as JSONL.** It infers the
 harness from the path first, then from the record shapes, and `--agent` overrides both.
+
+## Phase B9: Cursor `state.vscdb` and the A5 decision (2026-10-24)
+
+**A5: Cursor stays out of the mock/PTY rig for v0.1.** `cursor-agent` 2026.10.01-e373342
+honours `--endpoint`/`CURSOR_API_ENDPOINT`, but the endpoint is not a model API: the CLI
+exchanges an API key at `/auth/exchange_user_api_key`, calls Cursor's Connect/protobuf
+`aiserver.v1.*` services for config and models, then opens a streaming Cursor RPC rather than
+Anthropic Messages or OpenAI Responses. A hand-made local endpoint got as far as the model
+catalogue, then failed the chat RPC (`ERR_HTTP2_ERROR`). Cursor therefore ships through
+donated fixtures, with a budget-capped real run only if a key is available later; the IDE was
+already out of CI scope. The exact request sequence is in `harness-ci/README.md` and the
+format notes.
+
+**The `sqlite` feature snapshots, never opens the live database.** `read_state_vscdb` copies
+`state.vscdb` plus `-wal` and `-shm` into a private temp folder (mode 0700, files 0600),
+opens the copy `SQLITE_OPEN_READ_ONLY`, and removes the folder with an RAII guard. The WAL
+copy is required because live Cursor writes land there. The tracker checks the three files'
+stamps every poll but copies them at most every 30 s, and only when a Cursor session is in
+the window; a first poll with no Cursor session never opens the database.
+
+**Cursor titles and turn states come from `composerData`.** `name` is the title (B7), winning
+over the opening prompt and Codex's index title, with the prompt restored if the name
+disappears. `status: completed` is firm `Done`, `aborted` firm `Interrupted`, and
+`generating` (or a non-empty `generatingBubbleIds` when the status is `none`) firm
+`Thinking`. The database time must be at least as new as the transcript's last entry, so a
+throttled read cannot rewind newer transcript activity. `Reason::ComposerStatus` says when the
+database decided the state. Stale generating ids do not override `completed`.
+
+**`toolFormerData` is read but not yet a status signal.** Bubbles give the tool name,
+`status` (`loading`/`completed`/`error`/`cancelled`), `userDecision`
+(`accepted`/`rejected`/`pending`) and `error`, from the shape documented by Cursor's public
+storage/export code and prior-art snapshots. The missing fact is what those fields show
+**while** Cursor is waiting for approval. A copy captured while Cursor is idle cannot answer
+it, so the manual capture is deferred to Lee (the SQL is in
+`docs/formats/cursor.md`). Until then Cursor keeps the shared 20 s `AwaitingApproval`
+inference; turning `userDecision` into firm approval without that capture would be a guess.
+
+**Fixtures.** `fixtures/cursor/handmade/vscdb-reader/` holds synthetic `cursorDiskKV` rows
+(no real content): completed/generating/aborted/none composers, names, generating ids, a
+malformed row and `toolFormerData` with both decision locations. The tests build a real
+SQLite database from it, leave the rows in the WAL, and read them back; a separate fs test
+checks the title/status override, the throttle, and that no Cursor session means no read.
