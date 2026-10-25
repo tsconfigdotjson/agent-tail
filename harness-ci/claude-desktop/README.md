@@ -6,9 +6,10 @@ package, render its standard sign-in and 3P gateway welcome screens, and expose 
 AT-SPI for an observe/Jev/act loop. The stand-in scenario in that folder passes locally. A
 live Jev call reached the Chat UI and the mock probe. Desktop `3.6556.2` then refused
 `--remote-debugging-port`, and with that switch off AT-SPI still had no editable (push
-buttons and `document web` only). The driver clicks that document with `xdotool` and
-presses Enter; that path is unit-tested and has not scored a live turn, so this is still
-a stub for matrix purposes. The `claude_desktop` discovery spec
+buttons and `document web` only). A later run typed the prompt with `xdotool` and
+hung on `mousemove --sync` before Send. Pointer motion no longer uses `--sync`, and a
+failed Send click still presses Enter. That path is unit-tested and has not scored a
+live turn, so this is still a stub for matrix purposes. The `claude_desktop` discovery spec
 and adapter read local-agent-mode
 `audit.jsonl` files; their handmade fixtures are under `fixtures/claude-desktop/`. The
 evidence is in [`docs/formats/claude-desktop.md`](../../docs/formats/claude-desktop.md).

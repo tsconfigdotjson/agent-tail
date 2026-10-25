@@ -466,12 +466,14 @@ replacement for a future GHA Desktop regression lane.
   `idle_no_session`. A re-run after that fix confirmed the probe allowlist, and
   Desktop `3.6556.2` refused to start with `--remote-debugging-port`. With the
   switch off, AT-SPI was still push buttons plus `document web`, so the prompt
-  was not typed. The driver now clicks that document with `xdotool` and presses
-  Enter; the default launch does not pass the rejected switch. See
+  was not typed. The next run typed `say hello` with `xdotool` and then hung on
+  `mousemove --sync` before Send. Pointer motion no longer uses `--sync`, and a
+  failed Send click still presses Return and `KP_Enter`. The default launch does
+  not pass the rejected switch. See
   [`desktop-xvfb/README.md`](desktop-xvfb/README.md) for the probe allowlist, the
   `../` mock path, the document-web type path, and the `--iptables=false`
-  bridge-DNS note (`AGENTTAIL_DOCKER_NETWORK=host`). Neither live run is a scored
-  turn, and neither changed the support matrix.
+  bridge-DNS note (`AGENTTAIL_DOCKER_NETWORK=host`). None of the live runs is a
+  scored turn, and none changed the support matrix.
 - Cowork is out of scope: the compose file does not pass `/dev/kvm`, and the box lacks the
   required ~8 GB RAM / ~25 GB disk headroom for the Linux Cowork VM. Chromium GPU-process
   warnings and a missing FUSE document portal are known Xvfb noise; they did not stop the

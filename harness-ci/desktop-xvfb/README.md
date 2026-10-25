@@ -15,8 +15,11 @@ and mock path are in tree and worked on a later box re-run. That re-run also
 showed `3.6556.2` refuses to start when the command line includes
 `--remote-debugging-port`, and with that switch omitted the tree is still push
 buttons plus `document web` — no editable — so the turn stayed
-`idle_no_session`. This tree types by clicking that document and pressing Enter
-with `xdotool`. The default launch does not pass the rejected debugging switch.
+`idle_no_session`. A later run typed `say hello` through that document with
+`xdotool`, then hung: `mousemove --sync` on the Send click never returned, so
+the prompt was not submitted. Pointer moves no longer use `--sync`. Each move
+and click has a 2s timeout, and a failed Send click still presses Return and
+`KP_Enter`. The default launch does not pass the rejected debugging switch.
 **A scored Chat turn has not been re-run.** The adapter matrix remains
 **ported-unverified**, not CI-verified. Do not spend OpenRouter credits in CI;
 the live Jev path stays manual.
@@ -102,8 +105,11 @@ paths.
    in the path; the driver also scrubs those variables from the app environment.
 3. **Act** — AT-SPI `doAction` first, with an `xdotool` click/type fallback from
    the candidate's screen bounds. The document-web composer is node-less: the
-   driver clicks the type point, then `xdotool type` writes the scenario prompt,
-   and `Send prompt` is `xdotool key Return`. Our code owns every action.
+   driver moves the pointer and clicks the type point, then `xdotool type` writes
+   the scenario prompt, and `Send prompt` presses Return. `mousemove` does not
+   use `--sync` (`--sync` hangs under Xvfb once the pointer is already on the
+   point). Move and click each time out after 2s. If that click fails, Send
+   still presses Return and then `KP_Enter`. Our code owns every action.
    `--remote-debugging-port` is not part of the default launch. Claude Desktop
    `3.6556.2` refuses to start when that switch is present. Set
    `AGENTTAIL_CDP_PORT` to a positive port only for a build that still accepts
@@ -201,8 +207,14 @@ not passed to the container. No GitHub Actions run was made.
   `AGENTTAIL_CDP_PORT=0` the app reached New chat (16 clicks, about $0.0014)
   and AT-SPI was push buttons plus `document web` only, so nothing was typed.
   `seen=['idle_no_session']` at 150s. The xdotool composer above is the
-  follow-up for that tree. It has unit tests with fake accessibility nodes and
-  has not been re-run live.
+  follow-up for that tree.
+- Re-run on main `d203154` (same box, host network, `AGENTTAIL_CDP_PORT=0`,
+  `typesafe/jev-1.14`): typing worked. `method=xdotool-type`, text length 9,
+  composer estimate `[796,487,28,28]`. Jev then chose Send (0.66) and
+  `xdotool mousemove --sync 810 501 click` raised `TimeoutExpired` at 10s.
+  No `score.json`. About $0.00007. That is why pointer motion is unsynchronized
+  and a failed Send click still presses Return and `KP_Enter`. This click
+  change has not been re-run live.
 
 Known noise that did not block the probes: Chromium logs repeated GPU-process
 launch failures under Xvfb, and xdg-desktop-portal reports that the document

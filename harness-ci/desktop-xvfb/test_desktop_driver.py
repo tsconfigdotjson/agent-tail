@@ -2,6 +2,7 @@ import importlib.util
 import json
 import os
 import socket
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -481,23 +482,110 @@ class ComposerFallbackTests(unittest.TestCase):
         self.assertEqual(send_choice.candidate.input_key, "Return")
         calls = []
 
-        def run(cmd, **_kwargs):
-            calls.append(list(cmd))
+        def run(cmd, **kwargs):
+            calls.append((list(cmd), kwargs.get("timeout")))
+            self.assertNotIn("--sync", cmd)
             return mock.Mock(returncode=0)
 
-        with tempfile.TemporaryDirectory() as temp, mock.patch.object(driver.subprocess, "run", side_effect=run):
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(driver.subprocess, "run", side_effect=run), mock.patch.object(
+            driver, "sleep"
+        ):
             typed = driver.act(typed_choice, Path(temp))
             sent = driver.act(send_choice, Path(temp))
         x, y, width, height = typed_choice.candidate.bounds
+        point = [str(x + width // 2), str(y + height // 2)]
         self.assertEqual(typed["method"], "xdotool-type")
         self.assertEqual(typed["text_length"], len("say hello"))
-        self.assertEqual(calls[0][:3], ["xdotool", "mousemove", "--sync"])
-        self.assertEqual(calls[0][3:5], [str(x + width // 2), str(y + height // 2)])
-        self.assertEqual(calls[1], ["xdotool", "type", "--clearmodifiers", "--delay", "20", "--", "say hello"])
+        self.assertEqual(calls[0], (["xdotool", "mousemove", *point], driver.POINTER_TIMEOUT_SECONDS))
+        self.assertEqual(calls[1], (["xdotool", "click", "1"], driver.POINTER_TIMEOUT_SECONDS))
+        self.assertEqual(calls[2][0], ["xdotool", "type", "--clearmodifiers", "--delay", "20", "--", "say hello"])
         self.assertEqual(sent["method"], "xdotool-key")
-        self.assertEqual(sent["key"], "Return")
-        self.assertEqual(calls[3], ["xdotool", "key", "--clearmodifiers", "Return"])
+        self.assertEqual(sent["keys"], ["Return"])
+        self.assertNotIn("click_error", sent)
+        self.assertEqual(calls[5], (["xdotool", "key", "--clearmodifiers", "Return"], driver.POINTER_TIMEOUT_SECONDS))
+        self.assertNotIn("KP_Enter", [cmd[-1] for cmd, _timeout in calls])
         self.assertFalse(any("remote-debugging" in arg for arg in driver.desktop_launch_command(None)))
+
+    def test_pointer_click_does_not_wait_for_motion(self):
+        calls = []
+
+        def run(cmd, **kwargs):
+            calls.append((list(cmd), kwargs.get("timeout")))
+            return mock.Mock(returncode=0)
+
+        with mock.patch.object(driver.subprocess, "run", side_effect=run), mock.patch.object(driver, "sleep") as settle:
+            driver.click_center([796, 487, 28, 28])
+        self.assertEqual(
+            calls,
+            [
+                (["xdotool", "mousemove", "810", "501"], driver.POINTER_TIMEOUT_SECONDS),
+                (["xdotool", "click", "1"], driver.POINTER_TIMEOUT_SECONDS),
+            ],
+        )
+        settle.assert_called_once_with(driver.POINTER_SETTLE_SECONDS)
+        self.assertLessEqual(driver.POINTER_TIMEOUT_SECONDS, 2.0)
+
+    def test_send_presses_enter_when_the_pointer_times_out(self):
+        send = driver.Candidate(
+            id="c-send",
+            role="push button",
+            name="Send prompt",
+            description="",
+            actions=["click"],
+            bounds=[796, 487, 28, 28],
+            node=None,
+            input_key="Return",
+        )
+        calls = []
+
+        def run(cmd, **kwargs):
+            calls.append(list(cmd))
+            self.assertNotIn("--sync", cmd)
+            self.assertLessEqual(kwargs["timeout"], driver.POINTER_TIMEOUT_SECONDS)
+            if cmd[1] == "mousemove":
+                raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+            return mock.Mock(returncode=0)
+
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(driver.subprocess, "run", side_effect=run):
+            record = driver.act(driver.Choice(send, "click", None, "jev"), Path(temp))
+        self.assertEqual(record["method"], "xdotool-key")
+        self.assertEqual(record["keys"], ["Return", "KP_Enter"])
+        self.assertIn("mousemove", record["click_error"])
+        self.assertNotIn("click", [cmd[1] for cmd in calls])
+        self.assertEqual(
+            [cmd for cmd in calls if cmd[1] == "key"],
+            [
+                ["xdotool", "key", "--clearmodifiers", "Return"],
+                ["xdotool", "key", "--clearmodifiers", "KP_Enter"],
+            ],
+        )
+
+    def test_keypad_enter_still_submits_when_return_times_out(self):
+        send = driver.Candidate(
+            id="c-send",
+            role="push button",
+            name="Send prompt",
+            description="",
+            actions=["click"],
+            bounds=[796, 487, 28, 28],
+            node=None,
+            input_key="Return",
+        )
+        calls = []
+
+        def run(cmd, **kwargs):
+            calls.append(list(cmd))
+            if cmd[1] in {"mousemove", "click"} or cmd[-1] == "Return":
+                raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+            return mock.Mock(returncode=0)
+
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(driver.subprocess, "run", side_effect=run), mock.patch.object(
+            driver, "sleep"
+        ):
+            record = driver.act(driver.Choice(send, "click", None, "jev"), Path(temp))
+        self.assertEqual(record["keys"], ["KP_Enter"])
+        self.assertIn("key_error", record)
+        self.assertEqual(calls[-1], ["xdotool", "key", "--clearmodifiers", "KP_Enter"])
 
     def test_opt_in_devtools_composer_wins_over_the_estimate(self):
         frame = TreeNode(

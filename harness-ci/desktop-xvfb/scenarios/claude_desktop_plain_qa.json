@@ -1,6 +1,6 @@
 {
   "name": "claude_desktop_plain_qa",
-  "description": "Live Claude Desktop through the Jev/OpenRouter choose loop and the 3P Anthropic Messages mock. Requires OPENROUTER_API_KEY. The mock scenario allows Desktop's \".\" gateway probe without consuming the say-hello step. Typing uses an AT-SPI editable when one is exposed. On Desktop 3.6556.2 the composer is only a document web node, so the driver clicks that field with xdotool and presses Enter. The launch does not pass --remote-debugging-port.",
+  "description": "Live Claude Desktop through the Jev/OpenRouter choose loop and the 3P Anthropic Messages mock. Requires OPENROUTER_API_KEY. The mock scenario allows Desktop's \".\" gateway probe without consuming the say-hello step. Typing uses an AT-SPI editable when one is exposed. On Desktop 3.6556.2 the composer is only a document web node, so the driver clicks that field with xdotool and presses Enter. Pointer motion does not use xdotool --sync; if the Send click times out, Return and KP_Enter are still pressed. The launch does not pass --remote-debugging-port.",
   "target": "claude-desktop",
   "chooser": "jev",
   "window_title": "Claude",
