@@ -4,14 +4,23 @@
 //!       One poll of this machine's sessions, printed as JSON lines, most urgent first.
 //!   agenttail watch [--hours N] [--agents …]
 //!       Polls every second and prints each change of a session's activity, with its reason.
-//!   agenttail events [--agent ID] <path>
-//!       Prints one transcript's normalized events, one JSON object per line.
+//!   agenttail events [--agent ID] <input-dir|transcript>
+//!       Prints one transcript's normalized events as canonical JSON lines.
+//!   agenttail status [--agent ID] <input-dir|transcript> --checkpoints <file>
+//!       Runs fixture status checkpoints and prints canonical JSON; fails on a mismatch.
+//!   agenttail survey [--drift] [PATH…]
+//!       Surveys transcript shape, optionally diffing against `spec/baseline/`.
+//!   agenttail support-matrix [--check]
+//!       Regenerates `docs/support-matrix.md` from specs, fixtures and CI scenarios.
 //!   agenttail fixture redact|capture|scan …
 //!       Makes, redacts and checks offline fixtures (see `fixture --help`).
 
+mod conformance;
 mod fixture;
+mod matrix;
+mod survey;
 
-use agenttail::{Filter, Harness, ParseMode, SessionKey, SessionState, Timestamp, Tracker, parse_lines};
+use agenttail::{Filter, Harness, SessionKey, SessionState, Timestamp, Tracker};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::Write;
@@ -21,21 +30,27 @@ use std::time::{Duration, SystemTime};
 
 const USAGE: &str = "usage: agenttail ls [--hours N] [--agents ID,…]
        agenttail watch [--hours N] [--agents ID,…]
-       agenttail events [--agent ID] <path>
+       agenttail events [--agent ID] <input-dir|transcript>
+       agenttail status [--agent ID] <input-dir|transcript> --checkpoints <file>
+       agenttail survey [--drift] [--strict-removals] [--strict-fields] [--baseline DIR] [--agent ID] [--out FILE] [PATH…]
+       agenttail support-matrix [--root DIR] [--out FILE] [--check]
        agenttail fixture redact [--lorem] [--in-place] [--report FILE] <input> [output]
        agenttail fixture capture [--session PATH|ID] [--scenario NAME] [--out DIR]
        agenttail fixture scan [PATH…]
 
-  --hours N     sessions written in the last N hours (default 24)
-  --agents IDS  only these harnesses: claude_code, codex, cursor, pi, opencode (default: all)
-  --agent ID    the harness for an events path when it can't be told from the path
-  events <path> prints normalized events as JSON lines
-  fixture       redact|capture|scan manage fixtures without network access";
+  --hours N       sessions written in the last N hours (default 24)
+  --agents IDS    only these harnesses: claude_code, codex, cursor, pi, opencode (default: all)
+  --agent ID      the harness for events/status when it can't be told from the path
+  events          prints normalized events as canonical JSON lines
+  status          runs status checkpoints; --checkpoints is the timing and expected file
+  survey          records transcript shape; --drift fails on new shapes against spec/baseline
+  support-matrix  generates docs/support-matrix.md; --check fails when it is stale
+  fixture         redact|capture|scan manage fixtures without network access";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match run(&args) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(e) => {
             eprintln!("agenttail: {e}\n\n{USAGE}");
             ExitCode::from(2)
@@ -43,7 +58,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(args: &[String]) -> Result<(), String> {
+fn run(args: &[String]) -> Result<ExitCode, String> {
     let (command, rest) = args.split_first().ok_or("no command")?;
     match command.as_str() {
         "ls" | "watch" => {
@@ -54,46 +69,22 @@ fn run(args: &[String]) -> Result<(), String> {
                 for (key, state) in tracker.poll(now()) {
                     println!("{}", session(&key, &state));
                 }
-                Ok(())
+                Ok(ExitCode::SUCCESS)
             } else {
-                watch(&mut tracker)
+                watch(&mut tracker).map(|()| ExitCode::SUCCESS)
             }
         }
-        "events" => events(rest),
-        "fixture" => fixture(rest),
+        "events" => conformance::events(rest).map(|()| ExitCode::SUCCESS),
+        "status" => conformance::status(rest),
+        "survey" => survey::run(rest),
+        "support-matrix" => matrix::run(rest),
+        "fixture" => fixture(rest).map(|()| ExitCode::SUCCESS),
         "-h" | "--help" | "help" => {
             println!("{USAGE}");
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         other => Err(format!("no command \"{other}\"")),
     }
-}
-
-/// `agenttail events [--agent ID] <path>`: a transcript's events as JSON lines.
-fn events(args: &[String]) -> Result<(), String> {
-    let mut agent = None;
-    let mut path = None;
-    let mut args = args.iter();
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--agent" => {
-                let id = args.next().ok_or("--agent needs a value")?;
-                agent = Some(id.parse::<Harness>().map_err(|e| e.to_string())?);
-            }
-            other if other.starts_with('-') => return Err(format!("no option \"{other}\"")),
-            other if path.is_some() => return Err(format!("events takes one path, not \"{other}\"")),
-            other => path = Some(PathBuf::from(other)),
-        }
-    }
-    let path = path.ok_or("events needs a path")?;
-    let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let harness = agent.or_else(|| harness_for(&path)).or_else(|| harness_from_bytes(&bytes)).ok_or_else(|| {
-        format!("can't tell which harness wrote {}; pass --agent claude_code|codex|cursor|pi|opencode", path.display())
-    })?;
-    for event in parse_lines(harness, &bytes, ParseMode::Full) {
-        println!("{}", serde_json::to_string(&event).map_err(|e| e.to_string())?);
-    }
-    Ok(())
 }
 
 /// `agenttail fixture …`: offline fixture capture, redaction and scanning.
@@ -347,7 +338,7 @@ fn count_files(dir: &Path) -> Result<usize, String> {
 /// Tell a harness from the path conventions each one uses. A file name or path segment
 /// with the harness's name is enough for fixture dumps; real paths match their roots first,
 /// so a project folder named `codex` under `.claude` is still a Claude transcript.
-fn harness_for(path: &std::path::Path) -> Option<Harness> {
+pub(crate) fn harness_for(path: &std::path::Path) -> Option<Harness> {
     let text = path.to_string_lossy().to_ascii_lowercase().replace('\\', "/");
     let file = path.file_name()?.to_string_lossy().to_ascii_lowercase();
     if text.contains("/.cursor/") || text.contains("/agent-transcripts/") {
@@ -381,7 +372,7 @@ fn first_record_is_pi(bytes: &[u8]) -> bool {
     record["type"] == "session" && record["version"].is_u64() && record["id"].is_string() && record["cwd"].is_string()
 }
 
-fn harness_from_bytes(bytes: &[u8]) -> Option<Harness> {
+pub(crate) fn harness_from_bytes(bytes: &[u8]) -> Option<Harness> {
     let text = String::from_utf8_lossy(&bytes[..bytes.len().min(64 << 10)]);
     if text.contains(r#""table":"session""#) || text.contains(r#""table": "session""#) {
         Some(Harness::OpenCode)

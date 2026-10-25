@@ -30,7 +30,8 @@ They were already scrubbed of prose when copied from tvdash; `agenttail fixture 
 then replaced their fake placeholder usernames (`dev`, `sam`) with canonical
 `/home/<user>` and `/Users/<user>` paths. `expected/events.jsonl` is checked byte for
 byte by `crates/agenttail-cli/tests/events.rs`; regenerate it with `agenttail events` after
-an intentional input change.
+an intentional input change. The command also accepts the scenario or `input/` directory and
+writes canonical JSON (sorted keys) for the conformance runner.
 
 A status checkpoint is one JSON object per line:
 
@@ -40,8 +41,11 @@ A status checkpoint is one JSON object per line:
 
 `after_line` counts entries read after feeding `input/session.jsonl` from the top. `now` for
 that check is the checkpoint line's own timestamp plus `now_offset_s` (so a pending tool is
-checked 30 s after its call). Optional `permission`, `sandbox` and `title` fields are
-compared when present. `crates/agenttail/tests/status_fixtures.rs` runs every scenario.
+checked 30 s after its call). Optional `permission`, `sandbox`, `title` and `error` fields
+are compared when present. `crates/agenttail/tests/status_fixtures.rs` runs every scenario,
+and `agenttail status <input-dir> --checkpoints <file>` runs the same file as the
+language-neutral conformance command (canonical JSON; see
+[docs/conformance.md](../docs/conformance.md)).
 
 Helpers live under `input/subagents/<agent>.jsonl` with optional
 `input/subagents/<agent>.meta.json`. A checkpoint can feed them, in order, before it checks:
