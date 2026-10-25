@@ -8,6 +8,8 @@
 //! [`SWEEP_EVERY`].
 
 use crate::harness::{Harness, Role};
+#[cfg(feature = "sqlite")]
+use crate::opencode::{self, OpenCodeState};
 use crate::reducer::{ChunkCtx, ReducerOptions, SessionReducer};
 #[cfg(feature = "sqlite")]
 use crate::sqlite::{self, CursorState};
@@ -104,6 +106,12 @@ pub struct Tracker {
     /// The last snapshot of it, and when it was read.
     #[cfg(feature = "sqlite")]
     cursor_db: Option<CursorDatabase>,
+    /// OpenCode's database snapshot. Its rows are rebuilt when the file stamp changes.
+    #[cfg(feature = "sqlite")]
+    opencode_db: Option<OpenCodeDatabase>,
+    /// Whether `OPENCODE_DB` may move the database path (only `from_env`).
+    #[cfg(feature = "sqlite")]
+    opencode_env: bool,
 }
 
 /// A transcript being followed.
@@ -124,16 +132,25 @@ struct Folder {
 #[cfg(feature = "sqlite")]
 struct CursorDatabase {
     path: PathBuf,
-    stamp: CursorDbStamp,
+    stamp: DbStamp,
     read_at: Timestamp,
     state: CursorState,
 }
 
-/// The mtimes and lengths of `state.vscdb`, `-wal` and `-shm`. A changed sidecar is a
-/// changed database even when the main file's mtime hasn't moved.
+/// An OpenCode database snapshot. Its rows are a mutable state, not an append log, so a
+/// changed stamp means every session in the window is rebuilt from its current rows.
+#[cfg(feature = "sqlite")]
+struct OpenCodeDatabase {
+    path: PathBuf,
+    stamp: DbStamp,
+    state: OpenCodeState,
+}
+
+/// The mtimes and lengths of a database, `-wal` and `-shm`. A changed sidecar is a changed
+/// database even when the main file's mtime hasn't moved.
 #[cfg(feature = "sqlite")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct CursorDbStamp {
+struct DbStamp {
     main: Option<FileStamp>,
     wal: Option<FileStamp>,
     shm: Option<FileStamp>,
@@ -171,6 +188,7 @@ impl Tracker {
         let tracker = {
             let mut tracker = tracker;
             tracker.cursor_db_path = Some(sqlite::state_vscdb_path(home));
+            tracker.opencode_env = true;
             tracker
         };
         tracker
@@ -215,6 +233,10 @@ impl Tracker {
             cursor_db_path: None,
             #[cfg(feature = "sqlite")]
             cursor_db: None,
+            #[cfg(feature = "sqlite")]
+            opencode_db: None,
+            #[cfg(feature = "sqlite")]
+            opencode_env: false,
         }
     }
 
@@ -286,7 +308,7 @@ impl Tracker {
         if ids.is_empty() {
             return;
         }
-        let stamp = cursor_db_stamp(&path);
+        let stamp = db_stamp(&path);
         if stamp.main.is_none() {
             self.cursor_db = None;
             return;
@@ -316,6 +338,72 @@ impl Tracker {
                     self.cursor_db = Some(CursorDatabase { path, stamp, read_at: now, state: CursorState::default() });
                 }
             }
+        }
+    }
+
+    /// The OpenCode database path: `OPENCODE_DB` (absolute, or relative to the data root),
+    /// else `opencode.db`, else the newest channel database (`opencode-*.db`).
+    #[cfg(feature = "sqlite")]
+    fn opencode_db_path(&self) -> Option<PathBuf> {
+        let (_, root) = self.roots.iter().find(|(harness, _)| *harness == Harness::OpenCode)?;
+        let database = Harness::OpenCode.discovery().database.as_ref()?;
+        if self.opencode_env
+            && let Some(var) = database.env
+            && let Some(value) = std::env::var_os(var)
+        {
+            let path = PathBuf::from(value);
+            if path == Path::new(":memory:") {
+                return None;
+            }
+            if !path.as_os_str().is_empty() {
+                return Some(if path.is_absolute() { path } else { root.join(path) });
+            }
+        }
+        let default = root.join(database.file);
+        if default.is_file() {
+            return Some(default);
+        }
+        let prefix = database.channel_pattern.split('*').next().unwrap_or("opencode-");
+        let suffix = database.channel_pattern.split('*').nth(1).unwrap_or(".db");
+        let mut candidates: Vec<_> = std::fs::read_dir(root)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(prefix) && name.ends_with(suffix) && path.is_file())
+            })
+            .collect();
+        candidates.sort_by_key(|path| std::fs::metadata(path).and_then(|meta| meta.modified()).ok());
+        candidates.pop()
+    }
+
+    /// Snapshot OpenCode's database when its stamp changes. Rows are rewritten in place, so
+    /// there is no append offset to follow; each changed snapshot rebuilds the sessions.
+    #[cfg(feature = "sqlite")]
+    fn refresh_opencode_db(&mut self) {
+        if !self.filter.shows(Harness::OpenCode) {
+            return;
+        }
+        let Some(path) = self.opencode_db_path() else {
+            self.opencode_db = None;
+            return;
+        };
+        let stamp = db_stamp(&path);
+        if stamp.main.is_none() {
+            self.opencode_db = None;
+            return;
+        }
+        if self.opencode_db.as_ref().is_some_and(|database| database.path == path && database.stamp == stamp) {
+            return;
+        }
+        match opencode::read_opencode_db(&path) {
+            Ok(state) => self.opencode_db = Some(OpenCodeDatabase { path, stamp, state }),
+            // A database we can no longer read must not keep showing the last good state:
+            // that would turn schema drift into a silent old snapshot.
+            Err(_) => self.opencode_db = None,
         }
     }
 
@@ -466,6 +554,7 @@ impl Tracker {
         {
             self.refresh_cursor_db(now);
             self.apply_cursor_db(now);
+            self.refresh_opencode_db();
         }
 
         let mut views: Vec<_> = self
@@ -476,6 +565,39 @@ impl Tracker {
                 (f.reducer.active_at(), key, f.reducer.state(now))
             })
             .collect();
+        #[cfg(feature = "sqlite")]
+        if let Some(database) = &self.opencode_db {
+            let sessions = &database.state.sessions;
+            for session in sessions.iter().filter(|session| session.parent_id.is_none()) {
+                let own = session.updated_at.map(|at| at.as_secs_f64()).unwrap_or(0.0);
+                let child = sessions
+                    .iter()
+                    .filter(|child| child.parent_id.as_deref() == Some(session.id.as_str()))
+                    .filter_map(|child| child.updated_at.map(|at| at.as_secs_f64()))
+                    .fold(0.0, f64::max);
+                let updated = own.max(child);
+                if updated < epoch(cutoff) {
+                    continue;
+                }
+                let path = database.path.join(&session.id);
+                let mut reducer = SessionReducer::new(Harness::OpenCode, self.options.clone());
+                reducer.set_path(&path);
+                if let Some(at) = session.updated_at {
+                    reducer.transcript_written(at);
+                }
+                session.feed(&mut reducer);
+                for child in sessions.iter().filter(|child| child.parent_id.as_deref() == Some(session.id.as_str())) {
+                    let child_path = database.path.join(&child.id);
+                    let child_at = child.updated_at.unwrap_or(now);
+                    let bytes = child.to_jsonl();
+                    let ctx = ChunkCtx { offset: 0, mtime: child_at, path: &child_path };
+                    let _ = reducer.feed_helper(&child_path.to_string_lossy(), bytes.as_bytes(), ctx);
+                }
+                let state = reducer.state(now);
+                let active = state.last_write.map_or(updated, |at| at.as_secs_f64());
+                views.push((active, SessionKey { harness: Harness::OpenCode, path }, state));
+            }
+        }
         views.sort_by(|(ma, ka, a), (mb, kb, b)| {
             a.activity.class().cmp(&b.activity.class()).then(mb.total_cmp(ma)).then_with(|| ka.cmp(kb))
         });
@@ -490,7 +612,9 @@ impl Tracker {
         let mut files = Vec::new();
         let mut walk =
             Walk { since, before: std::mem::take(&mut self.folders), after: HashMap::new(), out: &mut files };
-        for (harness, root) in self.roots.iter().filter(|(h, _)| self.filter.shows(*h)) {
+        for (harness, root) in
+            self.roots.iter().filter(|(h, _)| self.filter.shows(*h) && h.discovery().database.is_none())
+        {
             walk.harness(root, *harness);
         }
         self.folders = walk.after;
@@ -526,12 +650,8 @@ fn cursor_composer_id(path: &Path) -> Option<&str> {
 }
 
 #[cfg(feature = "sqlite")]
-fn cursor_db_stamp(path: &Path) -> CursorDbStamp {
-    CursorDbStamp {
-        main: file_stamp(path),
-        wal: file_stamp(&cursor_sidecar(path, "-wal")),
-        shm: file_stamp(&cursor_sidecar(path, "-shm")),
-    }
+fn db_stamp(path: &Path) -> DbStamp {
+    DbStamp { main: file_stamp(path), wal: file_stamp(&sidecar(path, "-wal")), shm: file_stamp(&sidecar(path, "-shm")) }
 }
 
 #[cfg(feature = "sqlite")]
@@ -541,7 +661,7 @@ fn file_stamp(path: &Path) -> Option<FileStamp> {
 }
 
 #[cfg(feature = "sqlite")]
-fn cursor_sidecar(path: &Path, suffix: &str) -> PathBuf {
+fn sidecar(path: &Path, suffix: &str) -> PathBuf {
     let mut name = path.as_os_str().to_os_string();
     name.push(suffix);
     PathBuf::from(name)

@@ -1,0 +1,169 @@
+{
+  "format": 1,
+  "files": [
+    {
+      "format": 1,
+      "file": "session.jsonl",
+      "lorem": false,
+      "lines": 11,
+      "bytes_before": 4857,
+      "bytes_after": 4715,
+      "replacements": {
+        "home_path": 5,
+        "secret_entropy": 6
+      },
+      "offsets": [
+        {
+          "line": 1,
+          "before_start": 0,
+          "before_end": 375,
+          "after_start": 0,
+          "after_end": 375,
+          "delta": 0
+        },
+        {
+          "line": 2,
+          "before_start": 375,
+          "before_end": 721,
+          "after_start": 375,
+          "after_end": 721,
+          "delta": 0
+        },
+        {
+          "line": 3,
+          "before_start": 721,
+          "before_end": 989,
+          "after_start": 721,
+          "after_end": 989,
+          "delta": 0
+        },
+        {
+          "line": 4,
+          "before_start": 989,
+          "before_end": 1723,
+          "after_start": 989,
+          "after_end": 1706,
+          "delta": -17
+        },
+        {
+          "line": 5,
+          "before_start": 1723,
+          "before_end": 2029,
+          "after_start": 1706,
+          "after_end": 1985,
+          "delta": -44
+        },
+        {
+          "line": 6,
+          "before_start": 2029,
+          "before_end": 2604,
+          "after_start": 1985,
+          "after_end": 2560,
+          "delta": -44
+        },
+        {
+          "line": 7,
+          "before_start": 2604,
+          "before_end": 3051,
+          "after_start": 2560,
+          "after_end": 2980,
+          "delta": -71
+        },
+        {
+          "line": 8,
+          "before_start": 3051,
+          "before_end": 3779,
+          "after_start": 2980,
+          "after_end": 3691,
+          "delta": -88
+        },
+        {
+          "line": 9,
+          "before_start": 3779,
+          "before_end": 4085,
+          "after_start": 3691,
+          "after_end": 3970,
+          "delta": -115
+        },
+        {
+          "line": 10,
+          "before_start": 4085,
+          "before_end": 4416,
+          "after_start": 3970,
+          "after_end": 4301,
+          "delta": -115
+        },
+        {
+          "line": 11,
+          "before_start": 4416,
+          "before_end": 4857,
+          "after_start": 4301,
+          "after_end": 4715,
+          "delta": -142
+        }
+      ],
+      "findings": [
+        {
+          "line": 1,
+          "kind": "home_path",
+          "placeholder": "<user>"
+        },
+        {
+          "line": 4,
+          "kind": "home_path",
+          "placeholder": "<user>"
+        },
+        {
+          "line": 4,
+          "kind": "home_path",
+          "placeholder": "<user>"
+        },
+        {
+          "line": 4,
+          "kind": "secret_entropy",
+          "placeholder": "<secret-0001>"
+        },
+        {
+          "line": 5,
+          "kind": "secret_entropy",
+          "placeholder": "<secret-0002>"
+        },
+        {
+          "line": 7,
+          "kind": "secret_entropy",
+          "placeholder": "<secret-0002>"
+        },
+        {
+          "line": 8,
+          "kind": "home_path",
+          "placeholder": "<user>"
+        },
+        {
+          "line": 8,
+          "kind": "home_path",
+          "placeholder": "<user>"
+        },
+        {
+          "line": 8,
+          "kind": "secret_entropy",
+          "placeholder": "<secret-0001>"
+        },
+        {
+          "line": 9,
+          "kind": "secret_entropy",
+          "placeholder": "<secret-0002>"
+        },
+        {
+          "line": 11,
+          "kind": "secret_entropy",
+          "placeholder": "<secret-0002>"
+        }
+      ],
+      "malformed_lines": []
+    }
+  ],
+  "replacements": {
+    "home_path": 5,
+    "secret_entropy": 6
+  }
+}

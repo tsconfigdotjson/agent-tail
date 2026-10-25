@@ -1,6 +1,6 @@
 //! `agenttail`: the library on the command line, for debugging what a dashboard shows.
 //!
-//!   agenttail ls [--hours N] [--agents claude_code,codex,cursor,pi]
+//!   agenttail ls [--hours N] [--agents claude_code,codex,cursor,pi,opencode]
 //!       One poll of this machine's sessions, printed as JSON lines, most urgent first.
 //!   agenttail watch [--hours N] [--agents …]
 //!       Polls every second and prints each change of a session's activity, with its reason.
@@ -27,7 +27,7 @@ const USAGE: &str = "usage: agenttail ls [--hours N] [--agents ID,…]
        agenttail fixture scan [PATH…]
 
   --hours N     sessions written in the last N hours (default 24)
-  --agents IDS  only these harnesses: claude_code, codex, cursor, pi (default: all)
+  --agents IDS  only these harnesses: claude_code, codex, cursor, pi, opencode (default: all)
   --agent ID    the harness for an events path when it can't be told from the path
   events <path> prints normalized events as JSON lines
   fixture       redact|capture|scan manage fixtures without network access";
@@ -88,7 +88,7 @@ fn events(args: &[String]) -> Result<(), String> {
     let path = path.ok_or("events needs a path")?;
     let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let harness = agent.or_else(|| harness_for(&path)).or_else(|| harness_from_bytes(&bytes)).ok_or_else(|| {
-        format!("can't tell which harness wrote {}; pass --agent claude_code|codex|cursor|pi", path.display())
+        format!("can't tell which harness wrote {}; pass --agent claude_code|codex|cursor|pi|opencode", path.display())
     })?;
     for event in parse_lines(harness, &bytes, ParseMode::Full) {
         println!("{}", serde_json::to_string(&event).map_err(|e| e.to_string())?);
@@ -354,6 +354,8 @@ fn harness_for(path: &std::path::Path) -> Option<Harness> {
         Some(Harness::Cursor)
     } else if text.contains("/.pi/") || text.contains("/pi/agent/sessions/") {
         Some(Harness::Pi)
+    } else if text.contains("/opencode/") || text.contains("opencode.db") {
+        Some(Harness::OpenCode)
     } else if text.contains("/.codex/") || text.contains("/sessions/") && file.starts_with("rollout-") {
         Some(Harness::Codex)
     } else if text.contains("/.claude/") {
@@ -381,7 +383,9 @@ fn first_record_is_pi(bytes: &[u8]) -> bool {
 
 fn harness_from_bytes(bytes: &[u8]) -> Option<Harness> {
     let text = String::from_utf8_lossy(&bytes[..bytes.len().min(64 << 10)]);
-    if text.contains(r#""type":"session_meta""#) || text.contains(r#""type": "session_meta""#) {
+    if text.contains(r#""table":"session""#) || text.contains(r#""table": "session""#) {
+        Some(Harness::OpenCode)
+    } else if text.contains(r#""type":"session_meta""#) || text.contains(r#""type": "session_meta""#) {
         Some(Harness::Codex)
     } else if first_record_is_pi(bytes) {
         Some(Harness::Pi)

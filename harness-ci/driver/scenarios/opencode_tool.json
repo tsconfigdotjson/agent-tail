@@ -1,0 +1,31 @@
+{
+  "name": "opencode_tool",
+  "description": "A bash tool runs long enough to be sampled as RunningTool, then the turn ends Done.",
+  "harness": "opencode",
+  "mock": "../../mock-server/scenarios/opencode_tool.json",
+  "command": [
+    "opencode",
+    "run",
+    "--format",
+    "json",
+    "--auto",
+    "-m",
+    "test/test-model",
+    "run",
+    "the",
+    "tool"
+  ],
+  "run_for_ms": 25000,
+  "expected_activity": [
+    {
+      "activity": "running_tool",
+      "when": "ever",
+      "certainty": "firm"
+    },
+    {
+      "activity": "done",
+      "when": "end",
+      "certainty": "firm"
+    }
+  ]
+}

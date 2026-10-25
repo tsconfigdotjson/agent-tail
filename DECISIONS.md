@@ -490,7 +490,6 @@ builds `agenttail-cli` and sets it) the captured fixture is re-redacted by the R
 The workflow then runs `agenttail fixture scan fixtures` before it commits or opens the
 drift PR, so an incomplete redaction fails closed instead of publishing a fixture.
 
-
 ## Phase A7: Pi harness (2026-10-25)
 
 **Pi joins as a fourth harness, from real 1.4.0 artifacts.** The CLI writes JSONL sessions
@@ -517,3 +516,40 @@ activities. The GHA matrix installs pinned 1.4.0 and npm latest on Linux and mac
 not soft-skipped. The missing piece is branch-aware reduction: Pi stores a tree, and like the
 other adapters this spike folds file order, so abandoned-branch activity/usage remains in the
 log. That is documented, not claimed.
+
+## Phase D: OpenCode 1.19.4 (2026-10-25)
+
+**OpenCode is a database harness, not a transcript-file harness.** 1.19.4 keeps sessions in
+`$XDG_DATA_HOME/opencode/opencode.db` (default `~/.local/share/opencode/opencode.db`) and
+rewrites rows as a turn progresses. The tracker snapshots the database with its WAL/SHM
+sidecars when the stamp changes, then rebuilds each session in the window from all of its
+rows. It does not pretend there is an append offset to follow, and it does not open the live
+database.
+
+**The record stream is an explicit row export.** Each row becomes
+`{"table": "session" | "message" | "part", "row": {…}}`; that is what the adapter,
+`parse_lines(Harness::OpenCode, …)`, the driver's transcript dumps and the committed fixtures
+all consume. This keeps the event layer testable without making a SQLite file a fixture input
+or leaking a binary format into the redactor. The 1.19.4 runs wrote the legacy
+`message`/`part` tables; the v2 `session_message` table existed but was empty and is left as
+`Unknown` for a future version rather than guessed at.
+
+**Approvals remain inferred.** `permission.asked` / `permission.v2.asked` are ephemeral
+events, not rows. A pending/running tool part is the only on-disk evidence, so OpenCode keeps
+the shared 20 s `AwaitingApproval` inference; `question` and `plan_exit` are firm
+`AwaitingAnswer` tools. The session's `permission` column is a ruleset, not a mode string, so
+the reader does not invent a mode or a never-prompt list.
+
+**Live child sessions are helpers, not extra top-level cards.** A child session has
+`session.parent_id`; the tracker feeds direct children as helpers of the parent, so a child
+still working after the parent's turn is `BackgroundWork`. Nested grandchildren are left for
+later, as are the v2 event log and a real interactive approval capture.
+
+**Pinned and latest both run.** Harness CI installs OpenCode **1.19.4** for reproducible row
+fixtures and npm **latest** for drift. The latest job is allowed to fail loudly; a
+latest-only failure means upstream changed the database or turn vocabulary, not that the
+pinned behaviour should be ignored. The mock gained OpenAI Chat Completions and answers
+OpenCode's separate title request without consuming a scenario step. Fixtures are exported,
+redacted rows under `fixtures/opencode/1.19.4/linux/` (complete text turn, completed tool
+turn, and a live running-tool snapshot).
+

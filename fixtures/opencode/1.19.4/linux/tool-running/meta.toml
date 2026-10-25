@@ -1,0 +1,7 @@
+harness = "opencode"
+version = "1.19.4"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-25"
+description = "A real snapshot taken while `opencode run` was executing a bash tool (`sleep 8`): the tool part is `running` in SQLite. The second checkpoint shows the 20 s stall inference; approval requests themselves are not persisted."
+redaction = "redaction.json"

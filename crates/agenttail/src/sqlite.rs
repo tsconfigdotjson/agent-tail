@@ -1,4 +1,5 @@
 //! Cursor's `state.vscdb`: a read-only snapshot of the IDE's `cursorDiskKV` composer data.
+//! OpenCode's database reader lives in `opencode.rs` and uses the same snapshot helper.
 //!
 //! Cursor keeps every IDE composer in
 //! `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` (macOS) or
@@ -259,18 +260,24 @@ fn sqlite_error(path: &Path, error: impl std::fmt::Display) -> Error {
 }
 
 /// A private copy of the database and its sidecars, removed when dropped.
-struct Snapshot {
+pub(crate) struct Snapshot {
     dir: PathBuf,
-    path: PathBuf,
+    pub(crate) path: PathBuf,
 }
 
 impl Snapshot {
     fn copy(source: &Path) -> Result<Self, Error> {
+        Self::copy_as(source, "state.vscdb", "agenttail-vscdb")
+    }
+
+    /// Copy `source` and its `-wal`/`-shm` sidecars into a private folder, under
+    /// `file_name`, removing the folder when dropped. `prefix` names the private folder.
+    pub(crate) fn copy_as(source: &Path, file_name: &str, prefix: &str) -> Result<Self, Error> {
         if !source.is_file() {
-            return Err(sqlite_error(source, "state.vscdb does not exist"));
+            return Err(sqlite_error(source, format!("{file_name} does not exist")));
         }
-        let dir = private_temp_dir(source)?;
-        let snapshot = Snapshot { path: dir.join("state.vscdb"), dir };
+        let dir = private_temp_dir(source, prefix)?;
+        let snapshot = Snapshot { path: dir.join(file_name), dir };
         for suffix in ["", "-wal", "-shm"] {
             let from = if suffix.is_empty() { source.to_path_buf() } else { sidecar(source, suffix) };
             if !from.is_file() {
@@ -281,7 +288,7 @@ impl Snapshot {
             private_file(&to).map_err(|error| sqlite_error(&to, error))?;
         }
         if !snapshot.path.is_file() {
-            return Err(sqlite_error(source, "state.vscdb was not copied"));
+            return Err(sqlite_error(source, format!("{file_name} was not copied")));
         }
         Ok(snapshot)
     }
@@ -295,10 +302,10 @@ impl Drop for Snapshot {
 
 static NEXT_SNAPSHOT: AtomicU64 = AtomicU64::new(0);
 
-fn private_temp_dir(source: &Path) -> Result<PathBuf, Error> {
+fn private_temp_dir(source: &Path, prefix: &str) -> Result<PathBuf, Error> {
     loop {
         let n = NEXT_SNAPSHOT.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("agenttail-vscdb-{}-{n}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("{prefix}-{}-{n}", std::process::id()));
         match create_private_dir(&dir) {
             Ok(()) => return Ok(dir),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,

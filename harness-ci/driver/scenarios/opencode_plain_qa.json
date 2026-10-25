@@ -1,0 +1,25 @@
+{
+  "name": "opencode_plain_qa",
+  "description": "One OpenCode run prompt, one text answer, the database ends at a firm Done.",
+  "harness": "opencode",
+  "mock": "../../mock-server/scenarios/plain_qa.json",
+  "command": [
+    "opencode",
+    "run",
+    "--format",
+    "json",
+    "--auto",
+    "-m",
+    "test/test-model",
+    "say",
+    "hello"
+  ],
+  "run_for_ms": 30000,
+  "expected_activity": [
+    {
+      "activity": "done",
+      "when": "end",
+      "certainty": "firm"
+    }
+  ]
+}

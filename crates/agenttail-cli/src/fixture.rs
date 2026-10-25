@@ -1064,6 +1064,11 @@ pub struct SessionCandidate {
 pub fn sessions(home: &Path) -> Result<Vec<SessionCandidate>, String> {
     let mut out = Vec::new();
     for harness in Harness::ALL {
+        // OpenCode keeps sessions in SQLite, not files. The harness driver exports its rows
+        // as JSONL for CI; `fixture capture` doesn't copy a live database yet.
+        if harness == Harness::OpenCode {
+            continue;
+        }
         let root = harness_root(harness, home);
         if root.is_dir() {
             walk_sessions(harness, &root, &root, 0, &mut out)?;
@@ -1095,6 +1100,7 @@ fn harness_root(harness: Harness, home: &Path) -> PathBuf {
                     .map(|dir| dir.join("sessions"))
             })
             .unwrap_or_else(|| home.join(".pi/agent/sessions")),
+        Harness::OpenCode => home.join(".local/share/opencode"),
         _ => home.join(harness.layout().root),
     }
 }
@@ -1218,6 +1224,7 @@ pub fn version_of(candidate: &SessionCandidate) -> String {
             Harness::Cursor => record.get("version").and_then(Value::as_str),
             // Pi's session header version is the file-format version, not the CLI version.
             Harness::Pi => None,
+            Harness::OpenCode => record.pointer("/row/version").and_then(Value::as_str),
             _ => None,
         };
         if let Some(version) = version {

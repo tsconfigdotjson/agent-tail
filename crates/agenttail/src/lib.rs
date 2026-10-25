@@ -1,5 +1,5 @@
 //! What every coding agent on this machine is doing right now, read from the transcripts
-//! the agents write: Claude Code, Codex, Cursor and Pi.
+//! the agents write: Claude Code, Codex, Cursor, Pi and OpenCode.
 //!
 //! The core is sans-IO. A [`SessionReducer`] takes one transcript's bytes, a chunk at a
 //! time, with where they came from ([`ChunkCtx`]), and says what that session is doing as
@@ -39,6 +39,8 @@ mod event;
 mod fs;
 mod harness;
 mod lean;
+#[cfg(feature = "sqlite")]
+mod opencode;
 mod reducer;
 mod session;
 #[cfg(feature = "sqlite")]
@@ -49,7 +51,7 @@ mod testutil;
 mod time;
 
 pub use discovery::{
-    AskMatch, Discovery, EnvRoot, ModeRule, NeverPrompt, ProjectExample, ProjectRule, Quirk, Registry, Roots,
+    AskMatch, Database, Discovery, EnvRoot, ModeRule, NeverPrompt, ProjectExample, ProjectRule, Quirk, Registry, Roots,
     TimestampRule,
 };
 pub use error::Error;
@@ -60,6 +62,8 @@ pub use event::{
 #[cfg(feature = "fs")]
 pub use fs::{Filter, READ_CHUNK, SWEEP_EVERY, SessionKey, Tracker, read_from};
 pub use harness::{Harness, HelperOwner, Layout, Role};
+#[cfg(feature = "sqlite")]
+pub use opencode::{OpenCodeSession, OpenCodeState, read_opencode_db};
 pub use reducer::{ChunkCtx, ParseMode, ReducerOptions, SessionReducer};
 #[cfg(feature = "sqlite")]
 pub use sqlite::{

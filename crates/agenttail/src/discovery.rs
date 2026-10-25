@@ -95,6 +95,18 @@ pub struct Quirk {
     pub evidence: &'static str,
 }
 
+/// A harness that keeps sessions in a SQLite database instead of transcript files.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Database {
+    /// The default database file below the harness root.
+    pub file: &'static str,
+    /// Channel-specific database files (`opencode-<channel>.db`).
+    pub channel_pattern: &'static str,
+    /// The environment variable that names the database file.
+    pub env: Option<&'static str>,
+    pub evidence: &'static str,
+}
+
 /// What the Claude Code `sessions/<pid>.json` registry showed, and whether we read it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Registry {
@@ -122,6 +134,7 @@ pub struct Discovery {
     pub project: ProjectRule,
     pub quirks: &'static [Quirk],
     pub registry: Option<Registry>,
+    pub database: Option<Database>,
 }
 
 include!(concat!(env!("OUT_DIR"), "/discovery_generated.rs"));

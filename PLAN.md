@@ -106,7 +106,7 @@ report the reason.
 | 1 | Codex CLI | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (older: `.jsonl.zst`) | day folders by local start date; a resumed session appends to its old file |
 | 1 | Cursor agent (IDE and CLI) | `~/.cursor/projects/<enc-path>/agent-transcripts/<id>/<id>.jsonl` | no timestamps (mtime, plus prompts' `<timestamp>` block, #192); `<user_query>` wrappers |
 | 1 | Cursor `state.vscdb` (SQLite) | `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`, `cursorDiskKV` `composerData:%`/`bubbleId:%` | data exists on Lee's Mac; read from a temp snapshot with `-wal`/`-shm`, never the live DB (`rusqlite`, bundled) |
-| 1b (v0.1, after Claude Code's harness CI works) | Gemini CLI, OpenCode | per their docs, confirmed in CI | open source and pointable at a mock server, so CI captures real artifacts; no local data needed |
+| 1b (v0.1, after Claude Code's harness CI works) | Gemini CLI, OpenCode | per their docs, confirmed in CI | open source and pointable at a mock server, so CI captures real artifacts; no local data needed. **OpenCode 1.19.4 now ships**: SQLite reader, discovery spec, offline row fixtures, pinned + latest harness-ci lane. Gemini remains. |
 | 2 (spike first) | Copilot CLI, Claude Desktop agent mode | | GitHub sign-in and desktop automation may block CI; ships when verified, via CI or donated fixtures |
 | 3 | Cline, Antigravity, Warp, Amp, Droid, Kiro, Codex desktop | | community, or donated fixtures |
 

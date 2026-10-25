@@ -7,6 +7,7 @@ use serde_json::Value;
 pub enum Api {
     Anthropic,
     OpenAi,
+    OpenAiChat,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -67,6 +68,39 @@ impl RequestView {
                             _ => {}
                         }
                     }
+                }
+                _ => {}
+            }
+        }
+        view
+    }
+
+    pub fn from_openai_chat(body: &Value) -> RequestView {
+        let mut view = RequestView::default();
+        let Some(messages) = body.get("messages").and_then(Value::as_array) else { return view };
+        for message in messages {
+            let role = message.get("role").and_then(Value::as_str).unwrap_or("");
+            match role {
+                "system" => append(&mut view.all_text, &content_text(message.get("content"))),
+                "user" => {
+                    let text = content_text(message.get("content"));
+                    append(&mut view.all_text, &text);
+                    append(&mut view.user_text, &text);
+                }
+                "assistant" => {
+                    let text = content_text(message.get("content"));
+                    append(&mut view.all_text, &text);
+                    for call in message.get("tool_calls").and_then(Value::as_array).into_iter().flatten() {
+                        if let Some(name) = call.pointer("/function/name").and_then(Value::as_str) {
+                            append(&mut view.all_text, name);
+                        }
+                    }
+                }
+                "tool" => {
+                    let call_id = message.get("tool_call_id").and_then(Value::as_str).unwrap_or("");
+                    let text = content_text(message.get("content"));
+                    append(&mut view.all_text, &text);
+                    view.tool_results.push(ToolResult { call_id: call_id.into(), text });
                 }
                 _ => {}
             }

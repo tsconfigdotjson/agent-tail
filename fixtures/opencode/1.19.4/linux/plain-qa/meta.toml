@@ -1,0 +1,7 @@
+harness = "opencode"
+version = "1.19.4"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-25"
+description = "A real `opencode run` turn against the mock (say hello): a prompt, one assistant text part, and a step-finish stop. Rows were exported from the session's SQLite database and redacted."
+redaction = "redaction.json"

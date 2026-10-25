@@ -8,7 +8,7 @@
 mod score;
 mod screen;
 
-use agenttail::{ChunkCtx, Harness, ReducerOptions, SessionReducer, SessionState, Timestamp};
+use agenttail::{ChunkCtx, Harness, ReducerOptions, SessionReducer, SessionState, Timestamp, read_opencode_db};
 use mock_server::{MockState, router, scenario::Scenario as MockScenario};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use score::{Sample, Score};
@@ -171,7 +171,7 @@ async fn run(args: Args) -> Result<(), String> {
     let scenario: DriverScenario =
         serde_json::from_str(&scenario_text).map_err(|e| format!("parse {}: {e}", scenario_path.display()))?;
     let harness: Harness = scenario.harness.parse().map_err(|e| format!("harness: {e}"))?;
-    if !matches!(harness, Harness::ClaudeCode | Harness::Codex | Harness::Pi) {
+    if !matches!(harness, Harness::ClaudeCode | Harness::Codex | Harness::Pi | Harness::OpenCode) {
         return Err(format!("{} harness is not wired up yet", harness.name()));
     }
     let mock_path = scenario_path.parent().unwrap_or(Path::new(".")).join(&scenario.mock);
@@ -628,6 +628,20 @@ fn drive_phase(drive: DrivePhase<'_>) -> Result<(), String> {
             builder.env("PI_SKIP_VERSION_CHECK", "1");
             builder.env("PI_TELEMETRY", "0");
         }
+        Harness::OpenCode => {
+            builder.env("XDG_CONFIG_HOME", home.join(".config"));
+            builder.env("XDG_DATA_HOME", home.join(".local/share"));
+            builder.env("XDG_STATE_HOME", home.join(".local/state"));
+            builder.env("XDG_CACHE_HOME", home.join(".cache"));
+            builder.env("OPENCODE_TEST_HOME", home);
+            builder.env("OPENCODE_CONFIG_CONTENT", opencode_config(addr));
+            builder.env("OPENCODE_DISABLE_PROJECT_CONFIG", "1");
+            builder.env("OPENCODE_PURE", "1");
+            builder.env("OPENCODE_DISABLE_AUTOUPDATE", "1");
+            builder.env("OPENCODE_DISABLE_AUTOCOMPACT", "1");
+            builder.env("OPENCODE_DISABLE_MODELS_FETCH", "1");
+            builder.env("OPENCODE_AUTH_CONTENT", "{}");
+        }
         _ => {}
     }
     builder.env("TERM", "xterm-256color");
@@ -864,9 +878,20 @@ fn kill_registry_pids(home: &Path) {
 }
 
 fn read_session_id(home: &Path, harness: Harness) -> Option<String> {
+    if harness == Harness::OpenCode {
+        return read_opencode_state(home)?.latest().map(|session| session.id.clone());
+    }
     let path = find_transcript(home, harness)?;
     let text = std::fs::read_to_string(path).ok()?;
     session_id_in(&text)
+}
+
+fn opencode_db(home: &Path) -> PathBuf {
+    home.join(".local/share/opencode/opencode.db")
+}
+
+fn read_opencode_state(home: &Path) -> Option<agenttail::OpenCodeState> {
+    read_opencode_db(&opencode_db(home)).ok()
 }
 
 fn session_id_in(jsonl: &str) -> Option<String> {
@@ -894,6 +919,14 @@ fn session_id_in(jsonl: &str) -> Option<String> {
 }
 
 fn collect_transcript_dumps(home: &Path, harness: Harness) -> Vec<score::TranscriptDump> {
+    if harness == Harness::OpenCode {
+        let Some(state) = read_opencode_state(home) else { return Vec::new() };
+        return state
+            .sessions
+            .into_iter()
+            .map(|session| score::TranscriptDump { name: format!("{}.jsonl", session.id), jsonl: session.to_jsonl() })
+            .collect();
+    }
     let mut found = Vec::new();
     walk_transcripts(&transcript_root(home, harness), 0, harness, &mut found);
     if harness == Harness::Codex {
@@ -970,8 +1003,52 @@ fn default_command(harness: Harness) -> Vec<String> {
             "--no-context-files".into(),
             "--no-mcp".into(),
         ],
+        Harness::OpenCode => vec![
+            "opencode".into(),
+            "run".into(),
+            "--format".into(),
+            "json".into(),
+            "--auto".into(),
+            "-m".into(),
+            "test/test-model".into(),
+        ],
         _ => vec![],
     }
+}
+
+/// OpenCode's isolated provider config. `--auto` approves tools that are not explicitly
+/// denied; bash/edit are allowed here too so the tool scenario never blocks on a prompt in a
+/// non-interactive `run`.
+fn opencode_config(addr: &str) -> String {
+    serde_json::json!({
+        "formatter": false,
+        "lsp": false,
+        "permission": {"bash": "allow", "edit": "allow"},
+        "provider": {
+            "test": {
+                "name": "Test",
+                "id": "test",
+                "env": [],
+                "npm": "@ai-sdk/openai-compatible",
+                "models": {
+                    "test-model": {
+                        "id": "test-model",
+                        "name": "Test Model",
+                        "attachment": false,
+                        "reasoning": false,
+                        "temperature": false,
+                        "tool_call": true,
+                        "release_date": "2025-01-01",
+                        "limit": {"context": 100_000, "output": 10_000},
+                        "cost": {"input": 0, "output": 0},
+                        "options": {}
+                    }
+                },
+                "options": {"apiKey": "test-key", "baseURL": format!("http://{addr}/v1")}
+            }
+        }
+    })
+    .to_string()
 }
 
 fn seed_harness(
@@ -985,6 +1062,7 @@ fn seed_harness(
         Harness::ClaudeCode => seed_claude(home, work, settings),
         Harness::Codex => seed_codex(home, mock_addr),
         Harness::Pi => seed_pi(home, mock_addr, settings),
+        Harness::OpenCode => Ok(()),
         _ => Err(format!("{} harness is not wired up yet", harness.name())),
     }
 }
@@ -1079,6 +1157,18 @@ fn seed_claude(home: &Path, work: &Path, extra: &serde_json::Map<String, serde_j
 }
 
 fn library_state(tail: &mut Option<Tail>, harness: Harness, home: &Path, now: Timestamp) -> Option<SessionState> {
+    if harness == Harness::OpenCode {
+        let state = read_opencode_state(home)?;
+        let session = state.latest()?;
+        let path = opencode_db(home).join(&session.id);
+        let mut reducer = SessionReducer::new(Harness::OpenCode, ReducerOptions::default());
+        reducer.set_path(&path);
+        if let Some(at) = session.updated_at {
+            reducer.transcript_written(at);
+        }
+        session.feed(&mut reducer);
+        return Some(reducer.state(now));
+    }
     let path = find_transcript(home, harness)?;
     let metadata = std::fs::metadata(&path).ok()?;
     let len = metadata.len();
@@ -1197,6 +1287,7 @@ fn transcript_root(home: &Path, harness: Harness) -> PathBuf {
         Harness::ClaudeCode => home.join(".claude").join("projects"),
         Harness::Codex => home.join(".codex").join("sessions"),
         Harness::Pi => home.join(".pi").join("agent").join("sessions"),
+        Harness::OpenCode => home.join(".local/share/opencode"),
         _ => home.join(".unwired"),
     }
 }
@@ -1209,6 +1300,10 @@ fn transcript_depth(harness: Harness) -> usize {
 }
 
 fn find_transcript(home: &Path, harness: Harness) -> Option<PathBuf> {
+    if harness == Harness::OpenCode {
+        let path = opencode_db(home);
+        return path.is_file().then_some(path);
+    }
     let root = transcript_root(home, harness);
     let mut best: Option<(SystemTime, PathBuf)> = None;
     walk(&root, 0, transcript_depth(harness), &mut best);
@@ -1805,6 +1900,46 @@ mod tests {
         assert!(config.contains("base_url = \"http://127.0.0.1:1234/v1\""), "{config}");
         assert!(config.contains("disable_paste_burst = true"), "{config}");
         assert!(config.contains("request_max_retries = 0"), "{config}");
+    }
+
+    #[test]
+    fn opencode_scenarios_parse_and_use_the_chat_mock() {
+        for name in ["opencode_plain_qa.json", "opencode_tool.json"] {
+            let driver = scenario(name);
+            assert_eq!(driver.harness, "opencode", "{name}");
+            assert!(driver.prompt.is_none(), "the prompt is in argv for non-interactive run");
+            assert!(driver.command.iter().any(|arg| arg == "--format"));
+            assert!(driver.command.iter().any(|arg| arg == "json"));
+            assert!(driver.command.iter().any(|arg| arg == "--auto"));
+            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scenarios").join(name);
+            let mock_path = path.parent().unwrap().join(&driver.mock);
+            let text = std::fs::read_to_string(&mock_path).unwrap();
+            let mock = mock_server::scenario::Scenario::parse(&text).unwrap();
+            assert!(!mock.steps.is_empty());
+        }
+        let tool = scenario("opencode_tool.json");
+        assert!(tool.expected_activity.iter().any(|expect| expect.expectation().activity == "running_tool"));
+        assert!(tool.expected_activity.iter().any(|expect| expect.expectation().activity == "done"));
+    }
+
+    #[test]
+    fn opencode_default_command_and_config_follow_the_spike() {
+        let command = resolve_command(&[], Harness::OpenCode, None).unwrap();
+        assert_eq!(&command[..3], ["opencode", "run", "--format"]);
+        assert!(command.iter().any(|arg| arg == "test/test-model"));
+        let config: serde_json::Value = serde_json::from_str(&opencode_config("127.0.0.1:1234")).unwrap();
+        assert_eq!(
+            config.pointer("/provider/test/options/baseURL").and_then(|value| value.as_str()),
+            Some("http://127.0.0.1:1234/v1")
+        );
+        assert_eq!(
+            config.pointer("/provider/test/npm").and_then(|value| value.as_str()),
+            Some("@ai-sdk/openai-compatible")
+        );
+        assert_eq!(config.pointer("/permission/bash").and_then(|value| value.as_str()), Some("allow"));
+        let home = tempfile::tempdir().unwrap();
+        seed_harness(home.path(), home.path(), Harness::OpenCode, "127.0.0.1:1234", &serde_json::Map::new()).unwrap();
+        assert!(!opencode_db(home.path()).exists(), "the database is created by OpenCode, not seeded");
     }
 
     #[test]

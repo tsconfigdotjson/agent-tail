@@ -86,6 +86,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.value }}
+      opencode_matrix: ${{ steps.opencode.outputs.value }}
     steps:
       - uses: actions/setup-node@v4
         with:
@@ -109,6 +110,25 @@ jobs:
           latest = sys.argv[1]
           entries = []
           for label, version in (("2.1.281", "2.1.281"), ("2.1.310", "2.1.310"), ("latest", latest)):
+              for os_name in ("ubuntu-latest", "macos-latest"):
+                  entries.append({"label": label, "version": version, "os": os_name})
+          print("value=" + json.dumps({"include": entries}, separators=(",", ":")))
+          PY
+
+      - name: Build the pinned + latest OpenCode matrix
+        id: opencode
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest="$(npm view opencode-ai version)"
+          echo "npm latest OpenCode: $latest"
+          python3 - "$latest" <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import sys
+
+          latest = sys.argv[1]
+          entries = []
+          for label, version in (("1.19.4", "1.19.4"), ("latest", latest)):
               for os_name in ("ubuntu-latest", "macos-latest"):
                   entries.append({"label": label, "version": version, "os": os_name})
           print("value=" + json.dumps({"include": entries}, separators=(",", ":")))
@@ -420,6 +440,87 @@ jobs:
         with:
           name: codex-${{ matrix.version }}-${{ runner.os }}
           path: ${{ runner.temp }}/codex-runs
+          if-no-files-found: warn
+          retention-days: 7
+
+  opencode:
+    name: OpenCode ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
+    needs: [unit, prepare]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.opencode_matrix) }}
+    env:
+      HARNESS_CI_REQUIRE_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.88
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustc --version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install OpenCode ${{ matrix.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          requested='${{ matrix.version }}'
+          echo "npm latest OpenCode: $(npm view opencode-ai version)"
+          prefix="$RUNNER_TEMP/opencode-$requested"
+          npm install --prefix "$prefix" --no-save --no-audit --no-fund "opencode-ai@$requested"
+          bin="$prefix/node_modules/.bin/opencode"
+          actual="$("$bin" --version | head -n1 | tr -d '[:space:]')"
+          test -n "$actual"
+          if [[ "$actual" != "$requested" ]]; then
+            echo "installed $actual, wanted $requested" >&2
+            exit 1
+          fi
+          echo "$prefix/node_modules/.bin" >> "$GITHUB_PATH"
+          echo "OPENCODE_VERSION=$actual" >> "$GITHUB_ENV"
+          echo "OPENCODE_BIN=$bin" >> "$GITHUB_ENV"
+          echo "Testing OpenCode $actual"
+
+      - name: Build harness-ci explicitly
+        working-directory: harness-ci
+        run: cargo build -p harness-driver --release --locked
+
+      - name: Run OpenCode scenarios offline
+        shell: bash
+        run: |
+          set -uo pipefail
+          runs="$RUNNER_TEMP/opencode-runs"
+          rm -rf "$runs"
+          mkdir -p "$runs"
+          failed=0
+          while IFS= read -r scenario; do
+            [[ -z "$scenario" || "$scenario" == \#* ]] && continue
+            echo "::group::$scenario ($OPENCODE_VERSION on ${{ runner.os }})"
+            if ! harness-ci/ci/offline-run.sh \
+              "$PWD/harness-ci/target/release/harness-driver" \
+              --scenario "$PWD/harness-ci/driver/scenarios/$scenario.json" \
+              --out "$runs/$scenario"; then
+              failed=1
+            fi
+            echo "::endgroup::"
+          done < harness-ci/ci/scenarios-opencode.txt
+          exit "$failed"
+
+      - name: Upload runs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-${{ matrix.label }}-${{ runner.os }}
+          path: ${{ runner.temp }}/opencode-runs
           if-no-files-found: warn
           retention-days: 7
 
