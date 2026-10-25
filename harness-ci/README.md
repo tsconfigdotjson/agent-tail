@@ -405,8 +405,9 @@ snapshot of the IDE's `state.vscdb`; the missing piece is the live approval-wait
 ## A9: Claude Desktop adapter + Jev computer-use spike (2026-10-25, adapter #78)
 
 **Decision: Claude Desktop's local agent mode is read by a ported-unverified adapter; the
-Jev driver is now a local Docker + Xvfb implementation, not a harness lane.** There is still
-no completed Desktop scenario, Desktop↔mock handshake or GHA job. The discovery/adapter
+Jev driver is now a Docker + Xvfb harness whose nightly GHA lane is only the offline
+stand-in.** There is still no completed Desktop scenario or Desktop↔mock handshake, and the
+scheduled job does not verify a real Desktop turn. The discovery/adapter
 evidence is in [`docs/formats/claude-desktop.md`](../docs/formats/claude-desktop.md); the
 container, driver and current gap checklist are in
 [`desktop-xvfb/README.md`](desktop-xvfb/README.md) and
@@ -438,18 +439,19 @@ container, driver and current gap checklist are in
   live-verified.
 - The Xvfb loop uses Jev only to choose a typed action; our code observes and acts, and
   `agenttail` scores the disk artifacts. No VLM is used as the scorer. One live OpenRouter
-  call was made from the Multibeast box (see A10); CI still must not spend those credits,
-  and no scored Desktop turn exists.
+  call was made from the Multibeast box (see A10); the scheduled and PR jobs still must
+  not spend those credits, and no scored Desktop turn exists.
 
-Do not schedule a Desktop GHA job until a real install has produced a redacted artifact and
-a live Jev-driven turn has completed. Billing for this month is already expended.
+The nightly Desktop workflow (below) runs only the offline stand-in. Keep the real Desktop
+probe and live Jev lane manual until a real install has produced a redacted artifact and a
+live Jev-driven turn has completed; the live lane needs the `OPENROUTER_API_KEY` secret.
 
 ## A10: Desktop Xvfb stopgap (2026-10-25, issue #80)
 
 **Decision: the current local Desktop verify path is Docker + Xvfb on the Multibeast box, not
-a Mac runner and not paid GHA minutes.** The implementation is
-[`desktop-xvfb/`](desktop-xvfb/README.md). It is a stopgap for the observe/Jev/act loop, not a
-replacement for a future GHA Desktop regression lane.
+a Mac runner. The GHA lane runs only the offline stand-in nightly, not a real Desktop turn.**
+The implementation is [`desktop-xvfb/`](desktop-xvfb/README.md). It is a stopgap for the
+observe/Jev/act loop, not a replacement for a future GHA Desktop regression lane.
 
 - The Ubuntu 24.04 image installs Anthropic's Linux beta package (pinned
   `3.6556.2` in the Dockerfile). Claude Desktop launches under Xvfb; the standard sign-in
@@ -485,10 +487,13 @@ replacement for a future GHA Desktop regression lane.
   warnings and a missing FUSE document portal are known Xvfb noise; they did not stop the
   launch probes.
 
-`.github/workflows/desktop-xvfb.yml` is committed as a `workflow_dispatch`-only stub with no
-push, PR or schedule trigger. It has not run. Do not claim CI-verified Desktop UI until a real
-redacted Desktop artifact and a green container run exist; the support matrix stays
-**ported-unverified**.
+`.github/workflows/desktop-xvfb.yml` runs the offline stand-in on the same `43 3 * * *`
+schedule as the harness nightly; it has no push or PR trigger. The nightly installs no
+Desktop package, reads no secret and cannot call OpenRouter. `run_desktop_probe` is manual,
+and the optional live Jev lane is manual-only: it checks `OPENROUTER_API_KEY` and spends
+credits only when explicitly dispatched with `run_live_jev`. No scheduled run has gone green
+yet, so do not claim CI-verified Desktop UI until a real redacted Desktop artifact and a
+green container run exist; the support matrix stays **ported-unverified**.
 
 ## OpenCode: real-harness spike and scenarios (2026-10-25)
 
@@ -608,6 +613,12 @@ explicitly. The root `cargo test` still does not build it.
   `agenttail fixture scan fixtures` before the PR step. Latest Codex/Pi/OpenCode artifacts
   are uploaded even when they fail; Cursor is fixture-backed until the backend-gated live path
   exists.
+- **Desktop nightly:** [`desktop-xvfb.yml`](../.github/workflows/desktop-xvfb.yml) has its own
+  `43 3 * * *` schedule, so a Desktop alarm runs beside harness-ci without adding Desktop to
+  push/PR. Its default job is the offline Xvfb stand-in only: no Desktop package, no secret,
+  no OpenRouter. The Desktop probe and live Jev lane are `workflow_dispatch` inputs; the live
+  one requires `OPENROUTER_API_KEY` and spends credits only when requested. This is plumbing,
+  not a CI-verified Desktop turn.
 - **Proof:** `drift/reports/claude-code-2.1.281-to-2.1.310.md` is the report from running the
   same suite on both versions locally. It catches the new `api-request*` records, `turnPosition`,
   `renderedRole`/`renderedBesideToolResult`, request fields and permission-decision fields.

@@ -1,6 +1,7 @@
 #!/bin/bash
 # Host-side wrapper: build agenttail and the existing mock once, then run one
-# Xvfb scenario. No GHA and no secrets are required for the stand-in smoke test.
+# Xvfb scenario. The stand-in smoke test needs no secret; it is also the nightly
+# GHA lane. Desktop probes and live Jev are manual.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)

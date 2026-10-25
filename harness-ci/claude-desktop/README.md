@@ -1,9 +1,10 @@
 # Claude Desktop scenario stub
 
-**There is no CI scenario or CI job here.** The current local stopgap is
-[`../desktop-xvfb/`](../desktop-xvfb/README.md): Docker + Xvfb can install the Linux Desktop
-package, render its standard sign-in and 3P gateway welcome screens, and expose them over
-AT-SPI for an observe/Jev/act loop. The stand-in scenario in that folder passes locally. A
+**There is no CI Desktop scenario here.** The nightly job is only the offline stand-in from
+[`../desktop-xvfb/`](../desktop-xvfb/README.md); it does not install Desktop. The local
+stopgap is the same Docker + Xvfb harness: it can install the Linux Desktop package, render
+its standard sign-in and 3P gateway welcome screens, and expose them over AT-SPI for an
+observe/Jev/act loop. The stand-in scenario in that folder passes locally. A
 live Jev call reached the Chat UI and the mock probe. Desktop `3.6556.2` then refused
 `--remote-debugging-port`, and with that switch off AT-SPI still had no editable (push
 buttons and `document web` only). A later run typed the prompt with `xdotool` and
@@ -68,9 +69,10 @@ Linux `~/.config`, Windows `%LOCALAPPDATA%`). Consumer builds commonly use `Clau
 
 ## Before adding a job
 
-Do not schedule a GitHub Actions Desktop job from this stub. This month's Actions billing is
-already expended. A `workflow_dispatch`-only stub exists at
-[`.github/workflows/desktop-xvfb.yml`](../../.github/workflows/desktop-xvfb.yml); it is ready
-for next month but has not run. Add a Desktop scenario to the normal matrix only after a real
-run produces a redacted artifact and a readable status checkpoint. Until then the support
-matrix says **ported-unverified**, not CI-verified.
+The offline stand-in is scheduled nightly in
+[`.github/workflows/desktop-xvfb.yml`](../../.github/workflows/desktop-xvfb.yml), with no push
+or PR trigger. The Desktop install/probe and live Jev lanes are manual `workflow_dispatch`
+inputs; the live lane requires `OPENROUTER_API_KEY` and spends credits only when explicitly
+requested. No scheduled run has gone green yet. Add a real Desktop scenario to the normal
+matrix only after a live run produces a redacted artifact and a readable status checkpoint.
+Until then the support matrix says **ported-unverified**, not CI-verified.
