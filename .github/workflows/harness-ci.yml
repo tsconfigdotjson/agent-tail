@@ -81,6 +81,22 @@ jobs:
       - name: Scan fixtures for secrets and home paths
         run: cargo run --locked -p agenttail-cli -- fixture scan fixtures
 
+  first-read:
+    name: First read time and RSS budget
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.88
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustc --version
+
+      - name: Enforce first-read budget
+        run: harness-ci/ci/first-read-budget.sh
+
   prepare:
     name: Resolve npm latest Claude Code and OpenCode
     runs-on: ubuntu-latest

@@ -38,10 +38,10 @@ repeated here when they're still open.
    `pending`/`received` and call `feed`. One difference to decide when wiring it: tvdash's
    remote frames have `mtime = 0` when the remote's `stat` failed and substitute the
    arrival time; the reducer expects the caller to do that (it can't read the clock).
-10. **Bench in CI.** `cargo bench --bench first_read` reads a synthetic 500 MB transcript
-    (numbers in the Phase 1a report). Peak RSS is measured from outside (`/usr/bin/time`);
-    a CI job would wrap it the same way and fail over budget. Wanted now, or with harness
-    CI?
+10. **Bench in CI.** Resolved (2026-10-25): the local Multibeast verify gate runs
+    `harness-ci/ci/first-read-budget.sh`, which fails over PLAN.md section 6.2's budget (Lean
+    under 3 s and peak RSS under 50 MB for a 500 MB synthetic transcript). A `first-read` GHA
+    job is committed ready for next month's billing; see DECISIONS.md and harness-ci/README.md.
 11. **Fixture layout.** Resolved: the seed fixtures now live under
     `fixtures/<harness>/<version>/<os>/<scenario>/` with `meta.toml`,
     `expected/events.jsonl` and `expected/status.jsonl`. `agenttail fixture redact|capture`

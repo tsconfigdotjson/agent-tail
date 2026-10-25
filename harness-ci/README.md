@@ -508,8 +508,37 @@ explicitly. The root `cargo test` still does not build it.
   same suite on both versions locally. It catches the new `api-request*` records, `turnPosition`,
   `renderedRole`/`renderedBesideToolResult`, request fields and permission-decision fields.
 - **Deferred:** Cursor's live mock/PTY chat remains out until its auth/protobuf/streaming backend
-  can be mocked. The `cargo bench --bench first_read` `/usr/bin/time` budget (QUESTIONS.md #10)
-  is not wired here; it belongs with the Phase C performance budget.
+  can be mocked. The first-read `/usr/bin/time` budget is no longer deferred; it is enforced by
+  the `first-read` job and the local script in A8.
+
+## A8: first-read performance budget (2026-10-25)
+
+**Decision (Multibeast, Oct 24):** enforce the `first_read` budget in the local verify gate now;
+the GitHub Actions job is committed ready for next month's billing.
+
+[`ci/first-read-budget.sh`](ci/first-read-budget.sh) builds `agenttail --bench first_read`, runs
+the emitted binary on a synthetic 500 MB Claude Code transcript under GNU `/usr/bin/time -v`,
+and exits non-zero when either budget is exceeded:
+
+| metric | budget | measured on Multibeast's Linux box (2026-10-25, rustc 1.88.0) |
+|---|---|---|
+| Lean first read | < 3.0 s | 0.76-1.95 s |
+| Peak RSS (whole bench process) | < 50 MB | 9.4-9.9 MB |
+| Full parse | reported, not budgeted | 1.29-3.75 s |
+
+```sh
+PATH="$HOME/.cargo/bin:$PATH" harness-ci/ci/first-read-budget.sh
+```
+
+`cargo bench --no-run` only builds the bench; the script then invokes the emitted executable
+directly. `/usr/bin/time -v cargo bench` reports cargo's own peak RSS (38.7 MB here), not the
+bench child's, so wrapping cargo would make the memory gate meaningless. The bench generates
+its transcript in memory, so there is no large scratch file. The script keeps its small build
+and run logs under `target/first-read-budget.*` and removes them on exit.
+
+The workflow's `first-read` job runs the same script on `ubuntu-latest`; it is Linux-only
+because the gate needs GNU time. It is committed ready but was not required to pass while this
+month's Actions billing was exhausted.
 
 ## A7: Pi real-harness spike and scenarios (2026-10-25)
 
