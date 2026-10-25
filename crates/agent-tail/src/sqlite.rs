@@ -89,18 +89,20 @@ impl CursorComposer {
     /// What this composer's own status says, without looking at the transcript. `None` means
     /// the status carries no activity (`none`/an unknown value) or no time to date it.
     ///
-    /// A finished or aborted turn wins over a bubble left behind from it. Otherwise a
-    /// persisted pending tool decision (the approval card, or an ask-user card) is firmer
-    /// than `generating`: Cursor writes the bubble before it waits, and the composer may still
-    /// say `generating` until the decision arrives.
+    /// A completed turn wins over a bubble left behind from it. Otherwise a persisted pending
+    /// tool decision (the approval card, or an ask-user card) is the firmest signal: Cursor
+    /// writes the bubble before it waits, and the composer may still say `generating` or even
+    /// `aborted` until the decision arrives. The committed 3.27.12 Mac waiting dump records
+    /// exactly that `aborted` + pending shape. An `aborted` composer with no pending bubble is
+    /// an interruption.
     ///
     /// `generatingBubbleIds` is used only when the status itself is `none`: old Cursor
     /// versions leave stale generating ids behind after a completed turn.
     pub fn activity(&self) -> Option<Activity> {
         match self.status {
             ComposerStatus::Completed => Some(Activity::Done),
-            ComposerStatus::Aborted => Some(Activity::Interrupted),
             _ if self.waiting_activity().is_some() => self.waiting_activity(),
+            ComposerStatus::Aborted => Some(Activity::Interrupted),
             ComposerStatus::Generating => Some(Activity::Thinking),
             ComposerStatus::None | ComposerStatus::Unknown(_) if self.generating_bubbles > 0 => {
                 Some(Activity::Thinking)
@@ -190,6 +192,46 @@ pub fn read_state_vscdb(path: &Path) -> Result<CursorState, Error> {
 /// and a poll only needs the tool data of the sessions in its window.
 pub fn read_state_vscdb_for(path: &Path, composer_ids: &[&str]) -> Result<CursorState, Error> {
     read_snapshot(path, Some(composer_ids))
+}
+
+/// Read a snapshot exported as `{"key": "...", "value": ...}` JSONL rows.
+///
+/// The committed `state-vscdb.jsonl` fixtures use this shape so the corpus stays text and
+/// reviewable. This builds a temporary database from those rows and runs the same
+/// [`read_state_vscdb`] path as a live snapshot; it is for fixture/conformance runners, not
+/// the tracker.
+pub fn read_state_vscdb_jsonl(rows: &[u8]) -> Result<CursorState, Error> {
+    let source = Path::new("state-vscdb.jsonl");
+    let dir = private_temp_dir(source, "agent-tail-vscdb-jsonl")?;
+    let path = dir.join("state.vscdb");
+    let result = (|| {
+        {
+            let connection = Connection::open(&path).map_err(|error| sqlite_error(source, error))?;
+            connection
+                .execute_batch("CREATE TABLE cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);")
+                .map_err(|error| sqlite_error(source, error))?;
+            for (index, line) in rows.split(|&byte| byte == b'\n').enumerate() {
+                let line = line.trim_ascii();
+                if line.is_empty() {
+                    continue;
+                }
+                let row: serde_json::Value = serde_json::from_slice(line)
+                    .map_err(|error| sqlite_error(source, format!("row {}: {error}", index + 1)))?;
+                let key = row
+                    .get("key")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| sqlite_error(source, format!("row {}: no string key", index + 1)))?;
+                let value = serde_json::to_string(row.get("value").unwrap_or(&serde_json::Value::Null))
+                    .map_err(|error| sqlite_error(source, error))?;
+                connection
+                    .execute("INSERT INTO cursorDiskKV (key, value) VALUES (?1, ?2)", params![key, value])
+                    .map_err(|error| sqlite_error(source, error))?;
+            }
+        }
+        read_state_vscdb(&path)
+    })();
+    let _ = fs::remove_dir_all(&dir);
+    result
 }
 
 fn read_snapshot(path: &Path, composer_ids: Option<&[&str]>) -> Result<CursorState, Error> {
@@ -461,6 +503,28 @@ mod tests {
                 [],
             )
             .unwrap();
+    }
+
+    #[test]
+    fn donated_mac_snapshots_read_as_waiting_approval_and_done() {
+        for (rows, want) in [
+            (
+                include_str!("../../../fixtures/cursor/3.27.12/macos/approval-wait/input/state-vscdb.jsonl"),
+                Some(Activity::AwaitingApproval),
+            ),
+            (
+                include_str!("../../../fixtures/cursor/3.27.12/macos/approval-approved/input/state-vscdb.jsonl"),
+                Some(Activity::Done),
+            ),
+            (
+                include_str!("../../../fixtures/cursor/3.27.12/macos/approval-denied/input/state-vscdb.jsonl"),
+                Some(Activity::Done),
+            ),
+        ] {
+            let state = read_state_vscdb_jsonl(rows.as_bytes()).unwrap();
+            let composer = state.composer("composer-1").unwrap();
+            assert_eq!(composer.activity(), want);
+        }
     }
 
     #[test]

@@ -26,6 +26,9 @@ The committed corpus lives in the versioned layout:
 | `cursor/unknown/any/seed-session` | a handmade Cursor transcript in the shape seen on a real Cursor install (October 2026) |
 | `cursor/unknown/any/awaiting-answer` | Hand-made Cursor transcript with a pending `AskUserQuestion`; the discovery spec's ask-user name makes it firm AwaitingAnswer |
 | `cursor/unknown/any/interrupted` | Hand-made Cursor transcript whose `turn_ended` error is the user-stop phrase `User aborted request`; checks interrupted rather than errored |
+| `cursor/3.27.12/macos/approval-wait` | Donated Cursor 3.27.12 Mac `state.vscdb` snapshot while a `run_terminal_command_v2` approval card was up: the bubble has `additionalData.status: pending` while `composerData.status: aborted`; checks firm awaiting-approval from the database |
+| `cursor/3.27.12/macos/approval-approved` | Donated Cursor 3.27.12 Mac snapshot after approving the same tool: the bubble records `success` and the composer is `completed`; checks firm done from the database |
+| `cursor/3.27.12/macos/approval-denied` | Donated Cursor 3.27.12 Mac snapshot after denying a second tool: the first stays `success`, the second records `rejected`, and the composer is `completed`; checks firm done from the database |
 | `pi/1.4/linux/plain-qa` | Pi 1.4.0 against the local mock: one prompt, one text answer, `stopReason: stop` |
 | `pi/1.4/linux/tool-call` | Pi 1.4.0: a `bash` tool call and result, then the final answer; proves a pending Pi tool is firm `running_tool`, not inferred approval |
 | `pi/1.4/linux/api-error` | Pi 1.4.0 with retries disabled: assistant `stopReason: error` and `errorMessage` |
@@ -138,7 +141,11 @@ scenario: `input/state-vscdb.jsonl` holds synthetic `cursorDiskKV` key/value row
 `crates/agent-tail/src/sqlite.rs` builds a real SQLite database from it (with the rows left in
 the WAL) to test the snapshot reader. It includes waiting, approved and denied tool-decision
 shapes derived from the Cursor 3.27 IDE source (`additionalData.status: pending` for the wait),
-plus the public `userDecision: pending` shape; it is not a live capture.
+plus the public `userDecision: pending` shape; it is not a live capture. The donated
+`cursor/3.27.12/macos/approval-*` scenarios use the same row shape with the real Mac smoke
+dumps. Database-only scenarios have no `input/session.jsonl` or `expected/events.jsonl`;
+`status_fixtures` and `agent-tail status` load the rows, apply Cursor's composer status, and
+check `expected/status.jsonl` at `after_line: 0`.
 
 OpenCode's fixtures are **database row exports**, not transcript lines. Each line is
 `{"table": "session" | "message" | "part", "row": {…columns…}}`, in the reader's feed order:

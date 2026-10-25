@@ -1,8 +1,9 @@
 //! Runs the `expected/status.jsonl` checkpoints under `fixtures/`. The checkpoint format is
-//! described by `fixtures/README.md`: `after_line` counts entries read so far, and `now` is
-//! the checkpoint line's timestamp plus `now_offset_s`.
+//! described by `fixtures/README.md`: `after_line` counts transcript entries read so far, and
+//! `now` is the checkpoint line's timestamp plus `now_offset_s`. Database-only Cursor
+//! snapshots (`input/state-vscdb.jsonl`) check at `after_line: 0`, dated from the composer.
 
-use agent_tail::{ChunkCtx, Harness, ReducerOptions, SessionReducer, Timestamp};
+use agent_tail::{ChunkCtx, Harness, ReducerOptions, SessionReducer, Timestamp, read_state_vscdb_jsonl};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -51,6 +52,10 @@ fn every_expected_status_checkpoint_holds() {
     for scenario in found {
         let harness = harness_for(&scenario, &root);
         let input = scenario.join("input");
+        if input.join("state-vscdb.jsonl").is_file() && !input.join("session.jsonl").is_file() {
+            check_database_snapshot(&scenario, &input);
+            continue;
+        }
         let files: Vec<_> = fs::read_dir(&input)
             .unwrap_or_else(|e| panic!("{}: {e}", input.display()))
             .flatten()
@@ -196,4 +201,62 @@ fn helper_files(input: &Path) -> HelperFiles {
         }
     }
     HelperFiles { transcripts, metas }
+}
+
+/// Cursor database-only fixtures have no transcript: `input/state-vscdb.jsonl` is the
+/// donated snapshot, and `expected/status.jsonl` asserts what the database reader says.
+fn check_database_snapshot(scenario: &Path, input: &Path) {
+    let path = input.join("state-vscdb.jsonl");
+    let bytes = fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let state = read_state_vscdb_jsonl(&bytes).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let composer = state.composers.first().unwrap_or_else(|| panic!("{}: no composers", path.display()));
+    let at = composer.updated_at().unwrap_or(Timestamp::EPOCH);
+    let mut reducer = SessionReducer::new(Harness::Cursor, ReducerOptions::default());
+    reducer.set_composer_title(composer.name.as_deref());
+    reducer.set_composer_status(composer.activity().map(|activity| (activity, at)));
+
+    let checkpoints: Vec<Value> = fs::read_to_string(scenario.join("expected/status.jsonl"))
+        .unwrap()
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let mut seen = vec![false; checkpoints.len()];
+    for (index, checkpoint) in checkpoints.iter().enumerate() {
+        if checkpoint["after_line"].as_u64() != Some(0) {
+            continue;
+        }
+        seen[index] = true;
+        let now = at + std::time::Duration::from_secs_f64(checkpoint["now_offset_s"].as_f64().unwrap());
+        let state = serde_json::to_value(reducer.state(now)).unwrap();
+        for key in [
+            "activity",
+            "certainty",
+            "reason",
+            "permission",
+            "sandbox",
+            "title",
+            "cost_usd",
+            "out_tokens",
+            "usage",
+            "recent",
+            "background",
+        ] {
+            let Some(want) = checkpoint.get(key) else { continue };
+            let got = if key == "title" {
+                state.get("title").or_else(|| state.get("meta").and_then(|meta| meta.get("title")))
+            } else {
+                state.get(key)
+            };
+            assert_eq!(got, Some(want), "{} after database row: {key}", scenario.display());
+        }
+    }
+    for (index, checkpoint) in checkpoints.iter().enumerate() {
+        assert!(
+            seen[index],
+            "{}: checkpoint after_line {} was never reached",
+            scenario.display(),
+            checkpoint["after_line"]
+        );
+    }
 }

@@ -4,3 +4,5 @@ Prompt: shell echo to /tmp (run_terminal_command_v2).
 waiting: additionalStatus=pending, composer.status=aborted while card up
 after-approve: additionalStatus=success, composer.status=completed
 after-deny: second tool additionalStatus=rejected (same composer also kept first success)
+
+Promoted to fixtures/cursor/3.27.12/macos/ (approval-wait,-approved,-denied).

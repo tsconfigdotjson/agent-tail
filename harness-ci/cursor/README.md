@@ -25,7 +25,9 @@ automated Linux capture is ever wanted, that auth step is still the blocker.
 The reader already treats a persisted pending decision as firm `AwaitingApproval` (see
 `crates/agent-tail/src/sqlite.rs`); the committed Cursor 3.27.12 Mac dumps under
 [`mac-smoke-dumps/`](mac-smoke-dumps/) confirm Cursor's exact field paths and the composer
-status during the wait.
+status during the wait. They are also promoted to donated fixtures under
+`fixtures/cursor/3.27.12/macos/`, where `status_fixtures` checks the waiting, approved and
+denied states.
 
 ## Commands
 
