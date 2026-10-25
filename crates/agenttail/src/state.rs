@@ -77,7 +77,22 @@ pub enum Activity {
 }
 
 impl Activity {
-    /// The coarse class a dashboard might group by. The wording is yours.
+    /// The coarse class a dashboard groups by: the tracker's sort key, with no wording.
+    ///
+    /// The mapping is fixed for v0.1:
+    ///
+    /// | `Activity` | `StatusClass` |
+    /// |---|---|
+    /// | `AwaitingAnswer`, `AwaitingApproval` | `NeedsYou` |
+    /// | `RunningTool`, `Thinking`, `BackgroundWork` | `Working` |
+    /// | `Done`, `Interrupted`, `Errored` | `Done` |
+    /// | `Idle`, `Unknown` | `Idle` |
+    ///
+    /// `StatusClass` derives `Ord` with `NeedsYou < Working < Done < Idle`, so sorting by
+    /// class puts the sessions that need a human first. Both the mapping and that order are
+    /// a public stability promise for compatible releases. A new `Activity` variant must
+    /// choose its class explicitly: `class()` matches exhaustively, and the
+    /// `status_class_is_pinned_for_every_activity_variant` test pins the chosen bucket.
     pub fn class(self) -> StatusClass {
         match self {
             Activity::AwaitingAnswer | Activity::AwaitingApproval => StatusClass::NeedsYou,
@@ -88,7 +103,11 @@ impl Activity {
     }
 }
 
-/// Four coarse classes, most urgent first (they sort that way).
+/// Four coarse classes, most urgent first: `NeedsYou < Working < Done < Idle`.
+///
+/// The order is part of the public contract (the tracker sorts by it); variants keep their
+/// relative order in compatible releases. The library supplies no labels: consumers choose
+/// their own wording for each class.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum StatusClass {
@@ -307,4 +326,39 @@ pub struct Diagnostics {
     pub unparsed: u64,
     /// Lines with long strings cut short before parsing ([`ParseMode::Lean`](crate::ParseMode::Lean)).
     pub cut: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_class_is_pinned_for_every_activity_variant() {
+        // Keep this table in step with `Activity`. The exhaustive match in `class()` makes a
+        // new variant a compile error; this test then forces a deliberate bucket choice.
+        let cases = [
+            (Activity::AwaitingAnswer, StatusClass::NeedsYou),
+            (Activity::AwaitingApproval, StatusClass::NeedsYou),
+            (Activity::RunningTool, StatusClass::Working),
+            (Activity::Thinking, StatusClass::Working),
+            (Activity::BackgroundWork, StatusClass::Working),
+            (Activity::Done, StatusClass::Done),
+            (Activity::Interrupted, StatusClass::Done),
+            (Activity::Errored, StatusClass::Done),
+            (Activity::Idle, StatusClass::Idle),
+            (Activity::Unknown, StatusClass::Idle),
+        ];
+        assert_eq!(cases.len(), 10, "one case per Activity variant");
+        for (activity, want) in cases {
+            assert_eq!(activity.class(), want, "{activity:?}");
+        }
+    }
+
+    #[test]
+    fn status_classes_sort_most_urgent_first() {
+        let mut classes = [StatusClass::Idle, StatusClass::Done, StatusClass::NeedsYou, StatusClass::Working];
+        classes.sort();
+        assert_eq!(classes, [StatusClass::NeedsYou, StatusClass::Working, StatusClass::Done, StatusClass::Idle]);
+        assert_eq!(serde_json::to_value(classes).unwrap(), serde_json::json!(["needs-you", "working", "done", "idle"]));
+    }
 }

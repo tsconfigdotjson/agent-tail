@@ -423,6 +423,57 @@ mod tests {
     }
 
     #[test]
+    fn canonical_event_and_state_timestamps_round_trip_milliseconds() {
+        let input = concat!(
+            r#"{"type":"user","timestamp":"2026-10-23T10:00:00.123Z","cwd":"/w/app","message":{"content":"go"}}"#,
+            "\n",
+            r#"{"type":"assistant","timestamp":"2026-10-23T10:00:00.987Z","message":{"id":"m1","stop_reason":"end_turn","usage":{"output_tokens":1},"content":[{"type":"text","text":"done"}]}}"#,
+            "\n",
+        );
+        let wanted = [
+            Timestamp::parse_rfc3339("2026-10-23T10:00:00.123Z").unwrap(),
+            Timestamp::parse_rfc3339("2026-10-23T10:00:00.987Z").unwrap(),
+        ];
+        let events: Vec<_> = parse_lines(Harness::ClaudeCode, input.as_bytes(), ParseMode::Full).collect();
+        for at in wanted {
+            let event =
+                events.iter().find(|event| event.at == Some(at)).unwrap_or_else(|| panic!("no event at {at:?}"));
+            let value = serde_json::to_value(event).unwrap();
+            assert_eq!(value["at"].as_f64(), Some(at.as_secs_f64()));
+            let text = serde_json::to_string(&canonical(&value)).unwrap();
+            let at_text = serde_json::to_string(&canonical(&value)["at"]).unwrap();
+            assert!(!at_text.contains(['e', 'E']), "no exponent drift: {at_text}");
+            let back: Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(back["at"].as_f64(), Some(at.as_secs_f64()), "canonical JSON round trip");
+        }
+
+        let mut reducer = SessionReducer::new(Harness::ClaudeCode, ReducerOptions::default());
+        let path = Path::new("/h/.claude/projects/-w-app/s.jsonl");
+        let written = wanted[1];
+        reducer.feed(input.as_bytes(), ChunkCtx { offset: 0, mtime: written, path }).unwrap();
+        let state = serde_json::to_value(reducer.state(written)).unwrap();
+        for field in ["last_at", "since", "last_write"] {
+            assert_eq!(state[field].as_f64(), Some(written.as_secs_f64()), "{field}");
+            let text = serde_json::to_string(&canonical(&state[field])).unwrap();
+            assert!(!text.contains(['e', 'E']), "{field} has no exponent drift: {text}");
+            assert_eq!(text, serde_json::to_string(&written.as_secs_f64()).unwrap());
+        }
+        let text = serde_json::to_string(&canonical(&state)).unwrap();
+        let back: Value = serde_json::from_str(&text).unwrap();
+        for field in ["last_at", "since", "last_write"] {
+            assert_eq!(back[field].as_f64(), Some(written.as_secs_f64()), "{field} round trip");
+        }
+
+        let checkpoint = json!({"after_line": 2, "now_offset_s": 0.123});
+        let status = status_object(&state, &checkpoint);
+        let text = serde_json::to_string(&canonical(&status)).unwrap();
+        let back: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(back["now_offset_s"].as_f64(), Some(0.123), "status checkpoint times keep milliseconds");
+        let offset_text = serde_json::to_string(&back["now_offset_s"]).unwrap();
+        assert!(!offset_text.contains(['e', 'E']), "no exponent drift: {offset_text}");
+    }
+
+    #[test]
     fn absent_optional_fields_equal_null_but_false_does_not() {
         assert!(equivalent(&json!({"a": 1}), &json!({"a": 1, "b": null})));
         assert!(equivalent(&json!({"sidechain": null}), &json!({})));

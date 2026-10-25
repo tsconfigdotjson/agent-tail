@@ -57,7 +57,8 @@ pub struct ChunkCtx<'a> {
     /// Its byte offset in the transcript.
     pub offset: u64,
     /// The transcript's mtime when it was read: when entries that carry no time of their own
-    /// happened (Cursor's). Use the time the chunk arrived if the mtime is unknown.
+    /// happened (Claude Code and Codex lines missing `timestamp`, and Cursor records). Use
+    /// the time the chunk arrived if the mtime is unknown; the reducer never reads the clock.
     pub mtime: Timestamp,
     /// The transcript's path, on whatever machine it is. Some harnesses file sessions by
     /// project (Cursor), so the path names it; the first chunk's is the one used.
@@ -577,6 +578,39 @@ mod tests {
         let st = s.state(Timestamp::from_secs_f64(NOW));
         assert_eq!((st.activity, st.diagnostics.unparsed), (crate::Activity::Done, 0));
         assert_eq!(st.last_at, Some(Timestamp::from_secs_f64(NOW + 1.0)));
+    }
+
+    #[test]
+    fn entries_without_a_timestamp_use_the_transcript_mtime_not_the_read_time() {
+        let cases = [
+            (
+                Harness::ClaudeCode,
+                "/h/.claude/projects/-w-app/s.jsonl",
+                r#"{"type":"user","message":{"content":"go"}}"#,
+            ),
+            (
+                Harness::Codex,
+                "/h/.codex/sessions/2026/10/23/rollout.jsonl",
+                r#"{"type":"event_msg","payload":{"type":"user_message","message":"go"}}"#,
+            ),
+        ];
+        let written = Timestamp::from_secs_f64(NOW - 3_600.0);
+        let read_at = Timestamp::from_secs_f64(NOW + 86_400.0);
+        for (harness, path, line) in cases {
+            let mut s = SessionReducer::new(harness, ReducerOptions::default());
+            let ctx = ChunkCtx { offset: 0, mtime: written, path: Path::new(path) };
+            s.feed(format!("{line}\n").as_bytes(), ctx).unwrap();
+
+            let st = s.state(read_at);
+            assert_eq!(st.last_at, Some(written), "{harness:?}: the line has no time of its own");
+            assert_eq!(st.since, Some(written), "{harness:?}");
+            assert_eq!(st.last_write, Some(written), "{harness:?}");
+            assert_eq!(
+                (st.activity, st.reason),
+                (Activity::Idle, Reason::NoWritesFor),
+                "{harness:?}: reading old bytes now must not make them fresh"
+            );
+        }
     }
 
     #[test]

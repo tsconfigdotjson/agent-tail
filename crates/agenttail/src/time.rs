@@ -8,6 +8,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// A point in time: seconds since the Unix epoch (UTC), fractions kept.
 ///
+/// v0.1 keeps the representation as `f64` seconds: the same shape tvdash computed and
+/// remote frames carry, and a plain JSON number on the wire. Sub-second (including
+/// millisecond) precision survives canonical JSON round trips for RFC 3339-scale timestamps
+/// (years 0-9999). Equality and ordering are `f64`'s, which is why the reducer compares
+/// instants rather than requiring exact sums.
+///
 /// The library never reads the clock: every call that depends on the time takes `now`, so a
 /// session's state is a pure function of what was fed to it and when you ask.
 #[derive(Clone, Copy, Debug, Default, PartialEq, PartialOrd, Serialize)]
@@ -212,6 +218,34 @@ mod tests {
         assert_eq!(civil_from_days(-1), (1969, 12, 31));
         assert!(valid_date(2024, 2, 29) && !valid_date(2026, 2, 29) && !valid_date(2026, 10, 32));
         assert!(!valid_date(2026, 13, 1) && !valid_date(2026, 0, 1) && !valid_date(2026, 1, 0));
+    }
+
+    #[test]
+    fn timestamps_serialize_as_plain_seconds() {
+        for (secs, want) in [(1_792_756_800.123, "1792756800.123"), (0.0, "0.0"), (1.5, "1.5")] {
+            let text = serde_json::to_string(&Timestamp::from_secs_f64(secs)).unwrap();
+            assert_eq!(text, want);
+            assert!(!text.contains(['e', 'E']), "no exponent for epoch seconds: {text}");
+            let back: f64 = serde_json::from_str(&text).unwrap();
+            assert_eq!(back, secs);
+            assert_eq!(Timestamp::from_secs_f64(back), Timestamp::from_secs_f64(secs));
+        }
+    }
+
+    #[test]
+    fn timestamps_order_and_compare_as_seconds() {
+        let epoch = Timestamp::EPOCH;
+        let earlier = Timestamp::from_secs_f64(1_792_756_800.123);
+        let later = Timestamp::from_secs_f64(1_792_756_800.124);
+        assert!(epoch < earlier && earlier < later);
+        assert!(later > earlier);
+        assert_ne!(earlier, later);
+        let mut times = [later, earlier, epoch];
+        times.sort_by(|a, b| a.partial_cmp(b).expect("timestamps from a clock are ordered"));
+        assert_eq!(times, [epoch, earlier, later]);
+        // The same instant parsed with an offset is equal, not merely close.
+        assert_eq!(Timestamp::parse_rfc3339("2026-10-23T14:00:00.123+02:00"), Some(earlier));
+        assert_eq!(Timestamp::parse_rfc3339("2026-10-23T12:00:00.124Z"), Some(later));
     }
 
     #[test]
