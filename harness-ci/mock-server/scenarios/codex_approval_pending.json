@@ -1,0 +1,24 @@
+{
+  "name": "codex_approval_pending",
+  "description": "An exec_command asks for escalation under on-request and is left pending.",
+  "steps": [
+    {
+      "expect": { "user_contains": "run the command" },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "exec_command",
+            "input": {
+              "cmd": "touch permission-marker.txt",
+              "sandbox_permissions": "require_escalated",
+              "justification": "Create a marker file"
+            }
+          }
+        ],
+        "usage": { "input_tokens": 10, "output_tokens": 20 },
+        "fault": { "type": "slow_first_token", "delay_ms": 800 }
+      }
+    }
+  ]
+}

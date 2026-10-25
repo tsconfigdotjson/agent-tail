@@ -1,0 +1,20 @@
+{
+  "name": "codex_resume",
+  "description": "First turn, then a resumed session that appends to the same rollout.",
+  "steps": [
+    {
+      "expect": { "user_contains": "remember RESUME-WORD-GAMMA" },
+      "reply": {
+        "content": [{ "type": "text", "text": "Noted RESUME-WORD-GAMMA." }],
+        "usage": { "input_tokens": 10, "output_tokens": 5 }
+      }
+    },
+    {
+      "expect": { "user_contains": "what word did I ask you to remember?" },
+      "reply": {
+        "content": [{ "type": "text", "text": "You asked me to remember RESUME-WORD-GAMMA." }],
+        "usage": { "input_tokens": 30, "output_tokens": 10 }
+      }
+    }
+  ]
+}

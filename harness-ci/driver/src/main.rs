@@ -1,9 +1,9 @@
 //! Run a real coding-agent CLI under a PTY against the mock model server, sample its screen
 //! and `agenttail`'s state every 100 ms, and score one against the other.
 //!
-//! The CLI is isolated in a temp `HOME` and temp workspace. Claude Code's onboarding is
-//! seeded so the PTY starts at the prompt. Transcripts and the mock's request log are kept
-//! in the run directory as artifacts.
+//! The CLI is isolated in a temp `HOME` and temp workspace. Claude Code's onboarding and
+//! Codex's provider config are seeded so the PTY starts at the prompt or composer.
+//! Transcripts and the mock's request log are kept in the run directory as artifacts.
 
 mod score;
 mod screen;
@@ -171,8 +171,8 @@ async fn run(args: Args) -> Result<(), String> {
     let scenario: DriverScenario =
         serde_json::from_str(&scenario_text).map_err(|e| format!("parse {}: {e}", scenario_path.display()))?;
     let harness: Harness = scenario.harness.parse().map_err(|e| format!("harness: {e}"))?;
-    if harness != Harness::ClaudeCode {
-        return Err(format!("{} harness is not wired up yet (Claude Code first)", harness.name()));
+    if !matches!(harness, Harness::ClaudeCode | Harness::Codex) {
+        return Err(format!("{} harness is not wired up yet", harness.name()));
     }
     let mock_path = scenario_path.parent().unwrap_or(Path::new(".")).join(&scenario.mock);
     let temp = tempfile::tempdir().map_err(|e| format!("temp dir: {e}"))?;
@@ -238,7 +238,7 @@ fn run_pty(
     home: &Path,
     work: &Path,
 ) -> Result<Score, String> {
-    seed_claude(home, work, &scenario.settings)?;
+    seed_harness(home, work, harness, &addr, &scenario.settings)?;
     seed_files(work, &scenario.files)?;
 
     let phases = materialize_phases(&scenario);
@@ -266,7 +266,7 @@ fn run_pty(
             final_screen: &mut final_screen,
         })?;
         std::thread::sleep(Duration::from_millis(200));
-        if let Some(id) = read_session_id(home) {
+        if let Some(id) = read_session_id(home, harness) {
             session_id = Some(id);
         }
     }
@@ -278,7 +278,7 @@ fn run_pty(
     kill_registry_pids(home);
 
     let transcript = tail.as_ref().map(|tail| tail.path.clone());
-    let dumps = collect_transcript_dumps(home);
+    let dumps = collect_transcript_dumps(home, harness);
     copy_transcripts(&dumps, &out)?;
     let helpers = collect_helpers(home);
     copy_helpers(&helpers, &out)?;
@@ -481,14 +481,23 @@ fn drive_phase(drive: DrivePhase<'_>) -> Result<(), String> {
     }
     builder.cwd(work);
     builder.env("HOME", home);
-    builder.env("CLAUDE_CONFIG_DIR", home.join(".claude"));
-    builder.env("ANTHROPIC_BASE_URL", format!("http://{addr}"));
-    builder.env("ANTHROPIC_API_KEY", DUMMY_KEY);
-    builder.env("DISABLE_AUTOUPDATER", "1");
-    builder.env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1");
-    builder.env("DISABLE_TELEMETRY", "1");
-    builder.env("DISABLE_ERROR_REPORTING", "1");
-    builder.env("CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY", "1");
+    match harness {
+        Harness::ClaudeCode => {
+            builder.env("CLAUDE_CONFIG_DIR", home.join(".claude"));
+            builder.env("ANTHROPIC_BASE_URL", format!("http://{addr}"));
+            builder.env("ANTHROPIC_API_KEY", DUMMY_KEY);
+            builder.env("DISABLE_AUTOUPDATER", "1");
+            builder.env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1");
+            builder.env("DISABLE_TELEMETRY", "1");
+            builder.env("DISABLE_ERROR_REPORTING", "1");
+            builder.env("CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY", "1");
+        }
+        Harness::Codex => {
+            builder.env("CODEX_HOME", home.join(".codex"));
+            builder.env("MOCK_API_KEY", DUMMY_KEY);
+        }
+        _ => {}
+    }
     builder.env("TERM", "xterm-256color");
     builder.env("COLUMNS", COLS.to_string());
     builder.env("LINES", ROWS.to_string());
@@ -722,8 +731,8 @@ fn kill_registry_pids(home: &Path) {
     }
 }
 
-fn read_session_id(home: &Path) -> Option<String> {
-    let path = find_claude_transcript(home)?;
+fn read_session_id(home: &Path, harness: Harness) -> Option<String> {
+    let path = find_transcript(home, harness)?;
     let text = std::fs::read_to_string(path).ok()?;
     session_id_in(&text)
 }
@@ -734,26 +743,46 @@ fn session_id_in(jsonl: &str) -> Option<String> {
         if let Some(id) = value.get("sessionId").and_then(serde_json::Value::as_str).filter(|id| !id.is_empty()) {
             return Some(id.to_string());
         }
+        let Some(payload) = value.get("payload") else { continue };
+        if let Some(id) = payload
+            .get("id")
+            .or_else(|| payload.get("session_id"))
+            .and_then(serde_json::Value::as_str)
+            .filter(|id| !id.is_empty())
+        {
+            return Some(id.to_string());
+        }
     }
     None
 }
 
-fn collect_transcript_dumps(home: &Path) -> Vec<score::TranscriptDump> {
+fn collect_transcript_dumps(home: &Path, harness: Harness) -> Vec<score::TranscriptDump> {
     let mut found = Vec::new();
-    walk_transcripts(&home.join(".claude").join("projects"), 0, &mut found);
+    walk_transcripts(&transcript_root(home, harness), 0, harness, &mut found);
+    if harness == Harness::Codex {
+        let index = home.join(".codex").join("session_index.jsonl");
+        if index.is_file() {
+            found.push((index.display().to_string(), index));
+        }
+    }
     found.sort_by(|left, right| left.0.cmp(&right.0));
     found
         .into_iter()
         .filter_map(|(_, path)| {
-            let name = path.file_name()?.to_str()?.to_string();
+            let name =
+                if harness == Harness::Codex && path.file_name().is_some_and(|name| name == "session_index.jsonl") {
+                    "session_index.jsonl".to_string()
+                } else {
+                    path.file_name()?.to_str()?.to_string()
+                };
             let jsonl = std::fs::read_to_string(&path).ok()?;
             Some(score::TranscriptDump { name, jsonl })
         })
         .collect()
 }
 
-fn walk_transcripts(dir: &Path, depth: usize, found: &mut Vec<(String, PathBuf)>) {
-    if depth > 3 {
+fn walk_transcripts(dir: &Path, depth: usize, harness: Harness, found: &mut Vec<(String, PathBuf)>) {
+    if depth > transcript_depth(harness) {
         return;
     }
     let Ok(entries) = std::fs::read_dir(dir) else { return };
@@ -764,7 +793,7 @@ fn walk_transcripts(dir: &Path, depth: usize, found: &mut Vec<(String, PathBuf)>
             if path.file_name().is_some_and(|name| name == "subagents") {
                 continue;
             }
-            walk_transcripts(&path, depth + 1, found);
+            walk_transcripts(&path, depth + 1, harness, found);
         } else if path.extension().is_some_and(|ext| ext == "jsonl") {
             found.push((path.display().to_string(), path));
         }
@@ -790,8 +819,49 @@ fn copy_transcripts(dumps: &[score::TranscriptDump], out: &Path) -> Result<(), S
 fn default_command(harness: Harness) -> Vec<String> {
     match harness {
         Harness::ClaudeCode => vec!["claude".into(), "--bare".into(), "--model".into(), "claude-sonnet-4-5".into()],
+        Harness::Codex => vec!["codex".into(), "--no-daemon".into()],
         _ => vec![],
     }
+}
+
+fn seed_harness(
+    home: &Path,
+    work: &Path,
+    harness: Harness,
+    mock_addr: &str,
+    settings: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
+    match harness {
+        Harness::ClaudeCode => seed_claude(home, work, settings),
+        Harness::Codex => seed_codex(home, mock_addr),
+        _ => Err(format!("{} harness is not wired up yet", harness.name())),
+    }
+}
+
+fn seed_codex(home: &Path, mock_addr: &str) -> Result<(), String> {
+    let config_dir = home.join(".codex");
+    std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
+    let config = format!(
+        r#"model = "gpt-5.4"
+model_provider = "mock"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+check_for_update_on_startup = false
+
+[tui]
+disable_paste_burst = true
+animations = false
+
+[model_providers.mock]
+name = "Mock"
+base_url = "http://{mock_addr}/v1"
+env_key = "MOCK_API_KEY"
+wire_api = "responses"
+request_max_retries = 0
+stream_max_retries = 0
+"#
+    );
+    std::fs::write(config_dir.join("config.toml"), config).map_err(|e| format!("seed Codex config.toml: {e}"))
 }
 
 fn seed_claude(home: &Path, work: &Path, extra: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
@@ -824,14 +894,14 @@ fn seed_claude(home: &Path, work: &Path, extra: &serde_json::Map<String, serde_j
         .map_err(|e| format!("seed settings.json: {e}"))
 }
 
-fn library_state(tail: &mut Option<Tail>, _harness: Harness, home: &Path, now: Timestamp) -> Option<SessionState> {
-    let path = find_claude_transcript(home)?;
+fn library_state(tail: &mut Option<Tail>, harness: Harness, home: &Path, now: Timestamp) -> Option<SessionState> {
+    let path = find_transcript(home, harness)?;
     let metadata = std::fs::metadata(&path).ok()?;
     let len = metadata.len();
     let mtime = metadata.modified().map(Timestamp::from).unwrap_or(now);
     let replaced = tail.as_ref().is_some_and(|tail| tail.path != path || len < tail.offset);
     if tail.is_none() || replaced {
-        let mut reducer = SessionReducer::new(Harness::ClaudeCode, ReducerOptions::default());
+        let mut reducer = SessionReducer::new(harness, ReducerOptions::default());
         reducer.set_path(&path);
         *tail = Some(Tail { path: path.clone(), reducer, offset: 0 });
     }
@@ -846,7 +916,7 @@ fn library_state(tail: &mut Option<Tail>, _harness: Harness, home: &Path, now: T
             tail.offset = len;
         } else {
             // The file was rewritten in a way the reducer couldn't follow: start over.
-            let mut reducer = SessionReducer::new(Harness::ClaudeCode, ReducerOptions::default());
+            let mut reducer = SessionReducer::new(harness, ReducerOptions::default());
             reducer.set_path(&path);
             let ctx = ChunkCtx { offset: 0, mtime, path: &path };
             let all = std::fs::read(&path).ok()?;
@@ -938,15 +1008,30 @@ fn copy_helpers(helpers: &[score::ObservedHelper], out: &Path) -> Result<(), Str
     Ok(())
 }
 
-fn find_claude_transcript(home: &Path) -> Option<PathBuf> {
-    let root = home.join(".claude").join("projects");
+fn transcript_root(home: &Path, harness: Harness) -> PathBuf {
+    match harness {
+        Harness::ClaudeCode => home.join(".claude").join("projects"),
+        Harness::Codex => home.join(".codex").join("sessions"),
+        _ => home.join(".unwired"),
+    }
+}
+
+fn transcript_depth(harness: Harness) -> usize {
+    match harness {
+        Harness::Codex => 6,
+        _ => 3,
+    }
+}
+
+fn find_transcript(home: &Path, harness: Harness) -> Option<PathBuf> {
+    let root = transcript_root(home, harness);
     let mut best: Option<(SystemTime, PathBuf)> = None;
-    walk(&root, 0, &mut best);
+    walk(&root, 0, transcript_depth(harness), &mut best);
     best.map(|(_, path)| path)
 }
 
-fn walk(dir: &Path, depth: usize, best: &mut Option<(SystemTime, PathBuf)>) {
-    if depth > 3 {
+fn walk(dir: &Path, depth: usize, max_depth: usize, best: &mut Option<(SystemTime, PathBuf)>) {
+    if depth > max_depth {
         return;
     }
     let Ok(entries) = std::fs::read_dir(dir) else { return };
@@ -957,7 +1042,7 @@ fn walk(dir: &Path, depth: usize, best: &mut Option<(SystemTime, PathBuf)>) {
             if path.file_name().is_some_and(|name| name == "subagents") {
                 continue;
             }
-            walk(&path, depth + 1, best);
+            walk(&path, depth + 1, max_depth, best);
         } else if path.extension().is_some_and(|ext| ext == "jsonl") {
             let modified = entry.metadata().and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
             if best.as_ref().is_none_or(|(time, _)| modified > *time) {
@@ -1440,5 +1525,79 @@ mod tests {
                 assert_eq!(mock.steps.len(), 6);
             }
         }
+    }
+
+    #[test]
+    fn the_codex_scenarios_parse_and_point_at_valid_mocks() {
+        for name in [
+            "codex_plain_qa.json",
+            "codex_token_count.json",
+            "codex_approval_pending.json",
+            "codex_approval_never.json",
+            "codex_request_user_input.json",
+            "codex_parallel_tool_calls.json",
+            "codex_turn_aborted.json",
+            "codex_task_error.json",
+            "codex_resume.json",
+        ] {
+            let driver = scenario(name);
+            assert_eq!(driver.harness, "codex", "{name}");
+            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scenarios").join(name);
+            let mock_path = path.parent().unwrap().join(&driver.mock);
+            let text =
+                std::fs::read_to_string(&mock_path).unwrap_or_else(|e| panic!("read {}: {e}", mock_path.display()));
+            let text = substitute_workspace(&text, Path::new("/tmp/codex work\""));
+            mock_server::scenario::Scenario::parse(&text)
+                .unwrap_or_else(|e| panic!("parse {}: {e}", mock_path.display()));
+        }
+        let pending = scenario("codex_approval_pending.json");
+        assert!(!pending.no_approval);
+        assert_eq!(pending.expected_activity[0].expectation().activity, "awaiting_approval");
+        assert_eq!(pending.expected_activity[0].expectation().certainty.as_deref(), Some("inferred"));
+        let never = scenario("codex_approval_never.json");
+        assert!(never.no_approval);
+        assert!(never.command.iter().any(|arg| arg == "--no-daemon"));
+        assert!(never.command.iter().any(|arg| arg == "never"));
+        let ask = scenario("codex_request_user_input.json");
+        assert_eq!(ask.prompt.as_deref(), Some("/plan"));
+        assert_eq!(ask.keys[1].on, ScreenState::AskUserQuestion);
+        let parallel = scenario("codex_parallel_tool_calls.json");
+        assert_eq!(parallel.expect_observations.as_ref().unwrap().codex_min_pending_function_calls, Some(3));
+        let resume = scenario("codex_resume.json");
+        assert!(resume.phases[1].command.iter().any(|arg| arg.contains("{{session_id}}")));
+    }
+
+    #[test]
+    fn codex_default_command_and_home_follow_the_spike() {
+        assert_eq!(
+            resolve_command(&[], Harness::Codex, None).unwrap(),
+            vec!["codex".to_string(), "--no-daemon".into()]
+        );
+        let home = tempfile::tempdir().unwrap();
+        seed_codex(home.path(), "127.0.0.1:1234").unwrap();
+        let config = std::fs::read_to_string(home.path().join(".codex/config.toml")).unwrap();
+        assert!(config.contains("base_url = \"http://127.0.0.1:1234/v1\""), "{config}");
+        assert!(config.contains("disable_paste_burst = true"), "{config}");
+        assert!(config.contains("request_max_retries = 0"), "{config}");
+    }
+
+    #[test]
+    fn codex_rollouts_are_found_below_day_folders_and_use_session_meta() {
+        let home = tempfile::tempdir().unwrap();
+        let day = home.path().join(".codex/sessions/2026/10/24");
+        std::fs::create_dir_all(&day).unwrap();
+        let rollout = day.join("rollout-2026-10-24T00-00-00-abc.jsonl");
+        std::fs::write(&rollout, "{\"type\":\"session_meta\",\"payload\":{\"id\":\"abc\",\"session_id\":\"abc\"}}\n")
+            .unwrap();
+        assert_eq!(find_transcript(home.path(), Harness::Codex).as_deref(), Some(rollout.as_path()));
+        assert_eq!(read_session_id(home.path(), Harness::Codex).as_deref(), Some("abc"));
+        std::fs::write(
+            home.path().join(".codex/session_index.jsonl"),
+            "{\"id\":\"abc\",\"thread_name\":\"Codex title\"}\n",
+        )
+        .unwrap();
+        let dumps = collect_transcript_dumps(home.path(), Harness::Codex);
+        assert!(dumps.iter().any(|dump| dump.name == "session_index.jsonl"));
+        assert!(dumps.iter().any(|dump| dump.name.starts_with("rollout-")));
     }
 }

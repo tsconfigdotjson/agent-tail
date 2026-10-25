@@ -1,0 +1,20 @@
+{
+  "name": "codex_resume",
+  "description": "Resume the previous Codex session; the same rollout gains the second prompt.",
+  "harness": "codex",
+  "mock": "../../mock-server/scenarios/codex_resume.json",
+  "phases": [
+    {
+      "prompt": "remember RESUME-WORD-GAMMA",
+      "run_for_ms": 10000,
+      "exit": "graceful"
+    },
+    {
+      "command": ["codex", "--no-daemon", "resume", "{{session_id}}"],
+      "prompt": "what word did I ask you to remember?",
+      "run_for_ms": 14000
+    }
+  ],
+  "expected_activity": [{ "activity": "done", "when": "end", "screen": "idle", "certainty": "firm" }],
+  "expect_observations": { "codex_same_file_resume": true }
+}

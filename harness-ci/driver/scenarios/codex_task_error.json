@@ -1,0 +1,10 @@
+{
+  "name": "codex_task_error",
+  "description": "A terminal HTTP 500 writes task_complete.error and ends Errored.",
+  "harness": "codex",
+  "mock": "../../mock-server/scenarios/codex_task_error.json",
+  "prompt": "please fail",
+  "run_for_ms": 12000,
+  "expected_activity": [{ "activity": "errored", "when": "end", "screen": "error", "certainty": "firm" }],
+  "expect_observations": { "codex_task_error_contains": ["high demand"] }
+}

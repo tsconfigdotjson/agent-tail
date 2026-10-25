@@ -234,8 +234,10 @@ it. `CLAUDE_CONFIG_DIR` points at the config folder, so its root becomes
 `$CLAUDE_CONFIG_DIR/projects`; `CODEX_HOME` becomes `$CODEX_HOME/sessions`. Only absolute
 paths are used. Claude Code 2.1.310 treats `CLAUDE_CONFIG_DIR` as **one** path, not the
 comma-separated list ccusage assumes: the binary's `s()` returns `process.env.CLAUDE_CONFIG_DIR`
-directly, and the offline driver run wrote to the temp folder. Codex's `CODEX_HOME`
-semantics still need the A4 CLI spike.
+directly, and the offline driver run wrote to the temp folder. A4 confirmed Codex 0.160.1's
+`CODEX_HOME` is the `.codex` home with rollouts below `sessions/`; it also accepts relative
+values against the cwd, which the tracker intentionally ignores so a random cwd cannot move
+the root.
 
 The remaining B8 work is the `spec/discovery/*.toml` data files (ask-user lists, auto-approve
 lists, mode vocabulary, quirks with evidence) and loading `Layout` from them.
@@ -314,9 +316,11 @@ lossy (`my-app`, `my/app`, and `my.app` can collide) and is not decoded.
 
 **Never-prompt lists contain only what was observed.** Claude Code lists `Write` under
 `acceptEdits`, and `Read`/`ToolSearch` under `plan`, all from A3. `Bash` is deliberately absent
-because it prompted in default, plan, and `acceptEdits`. Codex's and Cursor's lists are empty:
-A4 (#11) has not run, and the Cursor corpus saw no approval prompt or auto-run setting. An
-empty list means "not observed", not "this tool prompts".
+because it prompted in default, plan, and `acceptEdits`. Codex's list stays empty after A4:
+an `exec_command` may run inside `workspace-write` or may prompt when it requests escalation,
+so the tool name alone does not prove a no-human path; `never` is a mode-level fact. The Cursor
+corpus saw no approval prompt or auto-run setting. An empty list means "not observed", not
+"this tool prompts".
 
 **The `~/.claude/sessions/<pid>.json` registry is not read.** A3/PR #32 showed useful facts:
 `busy` and `idle` agree with the screen, a permission prompt is `waiting` /
@@ -326,6 +330,38 @@ snapshot rather than a transcript signal. Using it would need a liveness check
 (`kill(pid, 0)`) and would still not replace the existing transcript rules. The TOML records
 the evidence with `used = false`; the tracker does not open the registry, so it adds no
 process probe to "what this touches".
+
+## Codex real harness (A4, 2026-10-24)
+
+**Codex 0.160.1 runs offline against the mock.** A temp `CODEX_HOME` plus a user-level
+`config.toml` custom `model_providers` entry (`base_url`, `env_key`, `wire_api = "responses"`)
+is enough; `HOME` is also temp. The driver adds `--no-daemon` because the interactive CLI
+otherwise starts a persistent `app-server --managed-daemon` that outlives the PTY and keeps
+the temp home open.
+
+**Approval and ask-user events are not persisted.** A pending approval or
+`request_user_input` is a `response_item/function_call` with no matching
+`function_call_output`. A4 saw no `exec_approval_request`, `apply_patch_approval_request`,
+`request_permissions`, `elicitation_request`, `exec_command_begin/end` or `error` record. The
+harness scenarios assert that negative. `approval_policy = "untrusted"` is retired in
+0.160.1 and rejected at startup, so the live pending scenario uses `on-request` with an
+escalating `exec_command`; the adapter still reads old `untrusted` rollouts.
+
+**`task_complete.error` can be an object.** 0.160.1 writes
+`error: {"message": …, "codex_error_info": …}` rather than the string in older fixtures. The
+adapter now accepts either shape and keeps the message in `SessionState.error`, so a terminal
+HTTP failure is `Errored`, not `Done`.
+
+**Titles and index.** Codex requests a one-line thread title through an extra
+`/v1/responses` call; the mock answers it without consuming a scenario step. The live CLI did
+not write `session_index.jsonl`; its thread names live in SQLite. B7's index reader remains
+for older/other layouts, and the harness records any index entries it finds but does not
+fabricate one.
+
+**Resume and history.** `codex resume <id>` appended to the same rollout file (one file, two
+prompts). The live CLI did not create `.jsonl.zst`; old-day-folder resume and compressed
+history remain fixture-backed. The Codex matrix pins 0.160.1, the version of the committed
+rollouts, and keeps the Unix-musl/bwrap warning visible rather than hiding it.
 
 ## Phase B10: the event layer (2026-10-24)
 

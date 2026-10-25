@@ -1,0 +1,14 @@
+{
+  "name": "codex_plain_qa",
+  "description": "One Codex prompt, one text answer, the TUI ends idle.",
+  "harness": "codex",
+  "mock": "../../mock-server/scenarios/plain_qa.json",
+  "prompt": "say hello",
+  "run_for_ms": 12000,
+  "expected_activity": [{ "activity": "done", "when": "end", "screen": "idle", "certainty": "firm" }],
+  "expect_observations": {
+    "codex_approval_policies": ["on-request"],
+    "codex_sandbox_policies": ["workspace-write"],
+    "codex_no_approval_events": true
+  }
+}

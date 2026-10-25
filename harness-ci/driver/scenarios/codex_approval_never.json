@@ -1,0 +1,15 @@
+{
+  "name": "codex_approval_never",
+  "description": "approval_policy=never keeps a long command RunningTool, never AwaitingApproval.",
+  "harness": "codex",
+  "mock": "../../mock-server/scenarios/codex_approval_never.json",
+  "command": ["codex", "--no-daemon", "-a", "never"],
+  "prompt": "wait forever",
+  "no_approval": true,
+  "run_for_ms": 24000,
+  "expected_activity": [{ "activity": "running_tool", "when": "end", "screen": "working", "certainty": "firm" }],
+  "expect_observations": {
+    "codex_approval_policies": ["never"],
+    "codex_no_approval_events": true
+  }
+}

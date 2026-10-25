@@ -1,0 +1,23 @@
+{
+  "name": "codex_approval_never",
+  "description": "Under approval_policy=never a long command keeps running instead of prompting.",
+  "steps": [
+    {
+      "expect": { "user_contains": "wait forever" },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "exec_command",
+            "input": {
+              "cmd": "sleep 60",
+              "yield_time_ms": 30000
+            }
+          }
+        ],
+        "usage": { "input_tokens": 10, "output_tokens": 20 },
+        "fault": { "type": "slow_first_token", "delay_ms": 800 }
+      }
+    }
+  ]
+}

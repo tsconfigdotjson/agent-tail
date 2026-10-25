@@ -106,7 +106,7 @@ impl Adapter for Codex {
                     EventSeed::new(EventKind::TurnStart { turn_id: p["turn_id"].as_str().map(String::from) }).at(at),
                 ),
                 "task_complete" | "turn_complete" => out.push(
-                    EventSeed::new(match p["error"].as_str().filter(|e| !e.is_empty()) {
+                    EventSeed::new(match task_error(p) {
                         Some(error) => EventKind::TurnEnd {
                             reason: TurnEndReason::Error,
                             error: Some(error.into()),
@@ -301,6 +301,13 @@ fn prompts_from(state: &mut crate::event::ParseState, kind: &'static str) -> boo
         }
         Some(seen) => seen == kind,
     }
+}
+
+fn task_error(p: &Value) -> Option<&str> {
+    p["error"]
+        .as_str()
+        .filter(|error| !error.is_empty())
+        .or_else(|| p["error"]["message"].as_str().filter(|error| !error.is_empty()))
 }
 
 fn known_content(kind: &str) -> bool {
@@ -692,6 +699,15 @@ mod tests {
         let s = session(&[event("event_msg", json!({"type": "task_complete", "error": "stream disconnected"}))]);
         assert_eq!(s.last, Last::Errored);
         assert_eq!(s.error.as_deref(), Some("stream disconnected"));
+        assert_eq!(status(&s), (Status::Done, "done"));
+
+        // 0.160 writes an object: {"message": ..., "codex_error_info": ...}.
+        let s = session(&[event(
+            "event_msg",
+            json!({"type": "task_complete", "error": {"message": "high demand", "codex_error_info": "internal_server_error"}}),
+        )]);
+        assert_eq!(s.last, Last::Errored);
+        assert_eq!(s.error.as_deref(), Some("high demand"));
         assert_eq!(status(&s), (Status::Done, "done"));
     }
 

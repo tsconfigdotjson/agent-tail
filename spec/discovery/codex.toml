@@ -9,13 +9,14 @@ default = ".codex/sessions"
 evidence = "docs/formats/codex.md#paths-and-layout; fixtures/legacy/codex-0.160-exec.jsonl"
 
 [[roots.env]]
-# CODEX_HOME replaces ~/.codex, so sessions/ below it holds rollouts. A4 (#11) still needs
-# to confirm this against the current CLI, not only prior art and the tracker tests.
+# CODEX_HOME replaces ~/.codex, so sessions/ below it holds rollouts. A4 confirmed this on
+# Codex CLI 0.160.1. The CLI resolves a relative value against its cwd; the tracker ignores
+# relative values so a random cwd cannot move the root.
 var = "CODEX_HOME"
 append = "sessions"
 absolute = true
-semantics = "home directory override; sessions/ below it holds rollouts; relative values are ignored by the tracker"
-evidence = "https://github.com/tsconfigdotjson/agenttail/issues/11; docs/prior-art.md#codex-cli; https://github.com/tsconfigdotjson/agenttail/pull/7"
+semantics = "home directory override; sessions/ below it holds rollouts; the CLI resolves relative values against cwd, while the tracker uses only absolute values"
+evidence = "docs/formats/codex.md#a4-live-cli-check-2026-10-24; harness-ci/README.md#a4-codex-real-harness-spike-and-scenarios-2026-10-24; https://github.com/tsconfigdotjson/agenttail/issues/11; https://github.com/tsconfigdotjson/agenttail/pull/7"
 
 [layout]
 # YYYY/MM/DD/rollout-*.jsonl today. No fixed depth: older and future layouts are tolerated.
@@ -39,14 +40,15 @@ evidence = "docs/formats/codex.md#record-catalogue-1-rollout-counts; fixtures/le
 match = "exact"
 evidence = "fixtures/legacy/codex-0.160-resume.jsonl; docs/formats/codex.md#status-signals"
 values = [
-  { name = "request_user_input", evidence = "fixtures/legacy/codex-0.160-resume.jsonl (the 0.160 recording; A4 has not run request_user_input against a live Codex yet)" },
+  { name = "request_user_input", evidence = "harness-ci/driver/scenarios/codex_request_user_input.json (live Codex 0.160.1 plan mode); fixtures/legacy/codex-0.160-resume.jsonl" },
 ]
 
 [never_prompt]
-# A4 (#11) has not run. No Codex tool was observed to be accepted without a prompt, so this
-# list is empty on purpose. `write_stdin` is polling an existing command, not a new action.
-# `approval_policy = never` is a mode-level fact, not evidence about a particular tool.
-evidence = "docs/formats/codex.md#status-signals; https://github.com/tsconfigdotjson/agenttail/issues/11"
+# A4 saw exec_command run without a prompt inside the sandbox and prompt when it requested
+# escalation, so the tool name alone is not a no-human path. `write_stdin` is polling an
+# existing command, not a new action. `approval_policy = never` is a mode-level fact, so this
+# list stays empty on purpose.
+evidence = "docs/formats/codex.md#status-signals; harness-ci/README.md#a4-codex-real-harness-spike-and-scenarios-2026-10-24; https://github.com/tsconfigdotjson/agenttail/issues/11"
 values = []
 
 [modes]
@@ -54,8 +56,8 @@ evidence = "docs/formats/codex.md#status-signals; docs/prior-art.md#codex-cli; c
 values = [
   { value = "on-request", can_ask_human = true, observed = true, evidence = "docs/formats/codex.md#record-catalogue-1-rollout-counts (approval_policy on-request)" },
   { value = "on_request", can_ask_human = true, observed = false, evidence = "docs/prior-art.md#codex-cli (alias accepted by the parser)" },
-  { value = "never", can_ask_human = false, observed = false, evidence = "docs/prior-art.md#codex-cli; crates/agenttail/src/state.rs (fixture coverage)" },
-  { value = "untrusted", can_ask_human = true, observed = false, evidence = "docs/prior-art.md#codex-cli" },
+  { value = "never", can_ask_human = false, observed = true, evidence = "harness-ci/driver/scenarios/codex_approval_never.json (live Codex 0.160.1)" },
+  { value = "untrusted", can_ask_human = true, observed = false, evidence = "retired in Codex 0.160.1 (startup rejects it); docs/prior-art.md#codex-cli and docs/formats/codex.md#a4-live-cli-check-2026-10-24" },
 ]
 
 [[quirks]]
@@ -69,9 +71,9 @@ summary = "Older rollouts may be `.jsonl.zst`; the tracker reads only live `.jso
 evidence = "docs/formats/codex.md#paths-and-layout; docs/prior-art.md#codex-cli"
 
 [[quirks]]
-id = "approval-events-may-not-be-persisted"
-summary = "A pending approval or ask-user may appear only as a tool call with no output; whether 0.16x rollouts persist approval events is the A4 open question."
-evidence = "docs/formats/codex.md#status-signals; docs/prior-art.md#codex-cli; https://github.com/tsconfigdotjson/agenttail/issues/11"
+id = "approval-events-are-not-persisted"
+summary = "A pending approval or ask-user appears only as a tool call with no output; Codex 0.160.1 wrote no exec_approval_request, apply_patch_approval_request, request_permissions, elicitation_request, exec_command_begin/end or error record."
+evidence = "docs/formats/codex.md#a4-live-cli-check-2026-10-24; harness-ci/driver/scenarios/codex_approval_pending.json; docs/prior-art.md#codex-cli; https://github.com/tsconfigdotjson/agenttail/issues/11"
 
 [[quirks]]
 id = "token-count-is-running-total"
@@ -84,6 +86,6 @@ summary = "`write_stdin` polls a command already running; it is not a new tool a
 evidence = "fixtures/legacy/codex-0.160-exec.jsonl; crates/agenttail/src/adapters/codex.rs"
 
 [[quirks]]
-id = "a4-not-run"
-summary = "Codex has no real-harness PTY run yet: the roots override, approval policy scenarios, and parallel calls still need #11. session_index titles are read, but A4 has not confirmed the index against a live CLI."
-evidence = "https://github.com/tsconfigdotjson/agenttail/issues/11; harness-ci/README.md#remaining-a0a2-work"
+id = "a4-harness-confirmed"
+summary = "Codex 0.160.1 runs offline under the PTY driver with an absolute CODEX_HOME, a custom model_providers entry, on-request/never approvals, parallel calls, turn_aborted and a resumed rollout. The live CLI did not write session_index.jsonl; its titles are in SQLite."
+evidence = "harness-ci/README.md#a4-codex-real-harness-spike-and-scenarios-2026-10-24; docs/formats/codex.md#a4-live-cli-check-2026-10-24; https://github.com/tsconfigdotjson/agenttail/issues/11"

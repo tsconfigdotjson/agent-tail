@@ -35,9 +35,76 @@ pub struct ScreenReading {
 pub fn read_screen(harness: Harness, screen: &str) -> ScreenReading {
     match harness {
         Harness::ClaudeCode => read_claude(screen),
-        Harness::Codex | Harness::Cursor => ScreenReading { state: ScreenState::Unknown, background_agents: false },
+        Harness::Codex => read_codex(screen),
+        Harness::Cursor => ScreenReading { state: ScreenState::Unknown, background_agents: false },
         _ => ScreenReading { state: ScreenState::Unknown, background_agents: false },
     }
+}
+
+fn read_codex(screen: &str) -> ScreenReading {
+    let lines = normalized_lines(screen);
+    ScreenReading { state: codex_state(&lines), background_agents: false }
+}
+
+fn codex_state(lines: &[String]) -> ScreenState {
+    if lines.iter().any(|line| line_codex_ask(line)) {
+        return ScreenState::AskUserQuestion;
+    }
+    if lines.iter().any(|line| line_codex_permission(line)) {
+        return ScreenState::PermissionPrompt;
+    }
+    if lines.iter().any(|line| line_codex_error(line)) {
+        return ScreenState::Error;
+    }
+    if lines.iter().any(|line| line_codex_working(line)) {
+        return ScreenState::Working;
+    }
+    if lines.iter().any(|line| line_codex_idle(line)) {
+        return ScreenState::Idle;
+    }
+    if lines.iter().any(|line| line.contains("waiting for startup")) {
+        return ScreenState::Starting;
+    }
+    ScreenState::Unknown
+}
+
+fn line_codex_permission(line: &str) -> bool {
+    line.contains("would you like to run the following command?")
+        || line.contains("would you like to make the following edits?")
+        || line.contains("would you like to grant these permissions?")
+        || line.contains("would you like to send input to the existing terminal?")
+        || (line.contains("press enter to confirm or esc to cancel")
+            && (line.contains("yes, proceed")
+                || line.contains("yes, just this once")
+                || line.contains("no, and tell codex")))
+}
+
+fn line_codex_ask(line: &str) -> bool {
+    (line.contains("question ") && line.contains("unanswered)"))
+        || line.contains("enter to submit answer")
+        || line.contains("tab to add notes")
+        || line.contains("yes, implement this plan")
+        || line.contains("no, stay in plan mode")
+}
+
+fn line_codex_error(line: &str) -> bool {
+    (line.starts_with('■') && !line.contains("conversation interrupted"))
+        || line.starts_with("error:")
+        || line.contains("turn failed")
+        || line.contains("stream error")
+        || line.contains("request failed")
+}
+
+fn line_codex_working(line: &str) -> bool {
+    line.contains("esc to interrupt")
+        || (line.contains("working (") && line.contains('•'))
+        || line.contains("waiting for agents")
+}
+
+fn line_codex_idle(line: &str) -> bool {
+    line.contains("ask codex to do anything")
+        || line.contains("ask a follow-up question")
+        || line.contains("conversation interrupted")
 }
 
 fn read_claude(screen: &str) -> ScreenReading {
@@ -681,5 +748,123 @@ esc to interrupt
         assert_eq!(read_screen(Harness::Codex, screen).state, ScreenState::Unknown);
         assert_eq!(read_screen(Harness::Cursor, screen).state, ScreenState::Unknown);
         assert!(!read_screen(Harness::Codex, "✻ Waiting for 1 background agent to finish\n").background_agents);
+    }
+
+    #[test]
+    fn detects_the_captured_codex_idle_composer_and_working_status() {
+        let idle = "  >_ OpenAI Codex (v0.160.1)
+     /tmp/work
+
+  To get started, describe a task or try one of these commands:
+
+  /init - create an AGENTS.md file with instructions for Codex
+  /status - show current session configuration
+  /permissions - choose what Codex is allowed to do
+  /model - choose what model and reasoning effort to use
+  /review - review any changes and find issues
+
+
+› say hello
+
+
+• Hello from the mock.
+
+  Worked for 1s • 23:29
+
+
+› Ask Codex to do anything
+
+  gpt-5.4 default · /tmp/work · ⠋ · ← for agents                       ⚠ 1 warning · f2 to view
+";
+        assert_eq!(read_screen(Harness::Codex, idle).state, ScreenState::Idle);
+
+        let working = "› run the command
+
+
+Working (0s • esc to interrupt)
+
+
+› Ask Codex to do anything
+
+  gpt-5.4 default · /tmp/work · ⠋ · ← for agents
+";
+        assert_eq!(read_screen(Harness::Codex, working).state, ScreenState::Working);
+
+        let starting = "Waiting for startup  · esc cancel\n";
+        assert_eq!(read_screen(Harness::Codex, starting).state, ScreenState::Starting);
+    }
+
+    #[test]
+    fn detects_the_captured_codex_approval_prompt() {
+        let screen = "› run the command
+
+
+• Running touch approval-marker.txt
+
+
+  Would you like to run the following command?
+
+  Environment: local
+
+  Reason: Create a marker file
+
+  $ touch approval-marker.txt
+
+
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for commands that start with `touch approval-marker.txt` (p)
+  3. No, and tell Codex what to do differently (esc)
+
+  Press enter to confirm or esc to cancel
+";
+        assert_eq!(read_screen(Harness::Codex, screen).state, ScreenState::PermissionPrompt);
+    }
+
+    #[test]
+    fn detects_the_captured_codex_request_user_input() {
+        let screen = "› ask me which color
+
+
+  Question 1/1 (1 unanswered)
+  Which color should the app use?
+
+  › 1. Blue (Recommended)  Use blue.
+    2. Green               Use green.
+    3. None of the above   Optionally, add details in notes (tab)
+
+  tab to add notes | enter to submit answer | esc to interrupt
+";
+        assert_eq!(read_screen(Harness::Codex, screen).state, ScreenState::AskUserQuestion);
+    }
+
+    #[test]
+    fn detects_the_captured_codex_error_banner() {
+        let screen = r#"
+› please fail
+
+
+■ We’re currently experiencing high demand, which may cause temporary errors.
+
+
+› Ask Codex to do anything
+
+  gpt-5.4 default · /tmp/work
+"#;
+        assert_eq!(read_screen(Harness::Codex, screen).state, ScreenState::Error);
+    }
+
+    #[test]
+    fn detects_the_captured_codex_interrupt_as_idle() {
+        let screen = "› long answer please
+
+
+■ Conversation interrupted - use /feedback if something went wrong
+
+
+› Ask Codex to do anything
+
+  gpt-5.4 default · /tmp/work · ⠋                                     ⚠ 1 warning · f2 to view
+";
+        assert_eq!(read_screen(Harness::Codex, screen).state, ScreenState::Idle);
     }
 }
