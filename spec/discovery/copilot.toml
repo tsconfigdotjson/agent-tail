@@ -60,8 +60,8 @@ values = [
 
 [[quirks]]
 id = "approval-requests-are-persisted"
-summary = "permission.requested is written before the tool runs, joined by toolCallId; permission.completed records the result kind. This makes a pending approval firm on disk."
-evidence = "docs/formats/copilot.md#status-signals; fixtures/copilot/1.0/linux/permission-denied/input/session.jsonl"
+summary = "permission.requested is written before the tool runs, joined by toolCallId; permission.completed records the result kind. Approved kinds begin with approved, a user denial is denied-interactively-by-user with decisionSource human_response, and all other kinds are not approved. This makes a pending approval firm on disk."
+evidence = "docs/formats/copilot.md#status-signals; fixtures/copilot/1.0/linux/permission-denied/input/session.jsonl; fixtures/copilot/1.0.103/linux/permission-approved/input/session.jsonl; fixtures/copilot/1.0.103/linux/permission-user-denied/input/session.jsonl"
 
 [[quirks]]
 id = "unattended-fallback-denial"

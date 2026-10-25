@@ -417,6 +417,135 @@ mod tests {
         assert_eq!(status(&s), (Status::Working, "working"));
     }
 
+    fn completed(kind: &str) -> (bool, Option<String>) {
+        let mut state = crate::event::ParseState::default();
+        Copilot
+            .parse(
+                &mut state,
+                &event(
+                    "permission.completed",
+                    json!({"toolCallId":"c1","result":{"kind":kind},"decisionSource":"human_response"}),
+                ),
+            )
+            .into_iter()
+            .find_map(|seed| match seed.kind {
+                EventKind::ApprovalCompleted { approved, result_kind, .. } => Some((approved, result_kind)),
+                _ => None,
+            })
+            .expect("one approval_completed event")
+    }
+
+    #[test]
+    fn approved_result_kinds_use_the_approved_prefix_and_everything_else_does_not() {
+        for kind in ["approved", "approved-for-session", "approved-for-location", "approved-read-only-for-session"] {
+            let (approved, result_kind) = completed(kind);
+            assert!(approved, "{kind} must be approved");
+            assert_eq!(result_kind.as_deref(), Some(kind));
+        }
+        for kind in [
+            "denied-interactively-by-user",
+            "denied-by-rules",
+            "denied-no-approval-rule-and-could-not-request-from-user",
+            "denied-by-content-exclusion-policy",
+            "denied-by-permission-request-hook",
+            "cancelled",
+            "user-not-available",
+        ] {
+            let (approved, result_kind) = completed(kind);
+            assert!(!approved, "{kind} must not be approved");
+            assert_eq!(result_kind.as_deref(), Some(kind));
+        }
+        let (approved, result_kind) = completed("");
+        assert!(!approved);
+        assert_eq!(result_kind, None);
+    }
+
+    fn approval_waits(s: &Session) -> bool {
+        let st = s.state(
+            crate::time::Timestamp::from_secs_f64(crate::testutil::NOW),
+            &crate::ReducerOptions::default(),
+            crate::Diagnostics::default(),
+        );
+        (st.activity, st.certainty, st.reason)
+            == (crate::Activity::AwaitingApproval, crate::Certainty::Firm, crate::Reason::ApprovalRequested)
+    }
+
+    #[test]
+    fn a_completion_without_a_requested_event_is_harmless() {
+        let s = session(&[
+            start(),
+            user("run it"),
+            event(
+                "assistant.message",
+                json!({"content":"","toolRequests":[{"toolCallId":"c1","name":"bash","arguments":{"command":"sleep 1"}}]}),
+            ),
+            event(
+                "permission.completed",
+                json!({"toolCallId":"c1","result":{"kind":"approved"},"decisionSource":"human_response"}),
+            ),
+        ]);
+        assert!(s.pending_approvals.is_empty());
+        assert_eq!(status(&s), (Status::Working, "working"));
+    }
+
+    #[test]
+    fn a_completion_without_a_join_id_does_not_clear_a_request_that_has_one() {
+        let mut s = session(&[
+            start(),
+            user("run it"),
+            event(
+                "assistant.message",
+                json!({"content":"","toolRequests":[{"toolCallId":"c1","name":"bash","arguments":{"command":"sleep 1"}}]}),
+            ),
+            event("permission.requested", json!({"toolCallId":"c1","permissionRequest":{"toolCallId":"c1"}})),
+            event(
+                "permission.completed",
+                json!({"result":{"kind":"denied-interactively-by-user"},"decisionSource":"human_response"}),
+            ),
+        ]);
+        assert!(s.pending_approvals.contains("c1"));
+        assert!(approval_waits(&s), "an unjoinable completion must not clear an unrelated request");
+        s.apply(&event(
+            "tool.execution_complete",
+            json!({"toolCallId":"c1","success":false,"error":{"message":"denied"}}),
+        ));
+        assert!(s.pending_approvals.is_empty());
+        assert_eq!(status(&s), (Status::Working, "thinking"));
+    }
+
+    #[test]
+    fn duplicate_completions_are_idempotent() {
+        let s = session(&[
+            start(),
+            user("run it"),
+            event(
+                "assistant.message",
+                json!({"content":"","toolRequests":[{"toolCallId":"c1","name":"bash","arguments":{"command":"sleep 1"}}]}),
+            ),
+            event("permission.requested", json!({"toolCallId":"c1"})),
+            event("permission.completed", json!({"toolCallId":"c1","result":{"kind":"approved"}})),
+            event("permission.completed", json!({"toolCallId":"c1","result":{"kind":"approved"}})),
+        ]);
+        assert!(s.pending_approvals.is_empty());
+        assert_eq!(status(&s), (Status::Working, "working"));
+    }
+
+    #[test]
+    fn an_unidentified_request_clears_on_an_unidentified_completion() {
+        let s = session(&[
+            start(),
+            user("run it"),
+            event(
+                "assistant.message",
+                json!({"content":"","toolRequests":[{"toolCallId":"c1","name":"bash","arguments":{"command":"sleep 1"}}]}),
+            ),
+            event("permission.requested", json!({"permissionMode":"manual"})),
+            event("permission.completed", json!({"result":{"kind":"approved"},"decisionSource":"human_response"})),
+        ]);
+        assert!(s.pending_approvals.is_empty());
+        assert_eq!(status(&s), (Status::Working, "working"));
+    }
+
     #[test]
     fn usage_is_summed_per_api_call() {
         let s = session(&[

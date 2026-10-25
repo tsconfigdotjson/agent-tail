@@ -142,7 +142,7 @@ the language-neutral `events`/`status` contract, canonical JSON and `survey --dr
 | Pi | `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<id>.jsonl` | Pi 1.4.0 (pinned and npm latest at the time); `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR` overrides; no approval prompt, so a pending tool is firm `RunningTool` |
 | OpenCode | `~/.local/share/opencode/opencode.db` (`XDG_DATA_HOME`, `OPENCODE_DB`) | a live 1.19.4 `opencode run` against the harness mock, with exported/redacted row fixtures; approvals remain inferred because they are not persisted |
 | Gemini CLI | `~/.gemini/tmp/<project>/chats/session-*.jsonl` (`GEMINI_CLI_HOME`) | live 0.65.0 runs against the harness mock; tool calls are written only after completion, so no pending approval is on disk |
-| Copilot CLI | `~/.copilot/session-state/<id>/events.jsonl` (`COPILOT_HOME`) | live 1.0.103 runs through its BYOK mock provider; `permission.requested`/`permission.completed` make approval waits firm, and the prompt-mode unattended denial is captured |
+| Copilot CLI | `~/.copilot/session-state/<id>/events.jsonl` (`COPILOT_HOME`) | live 1.0.103 runs through its BYOK mock provider; `permission.requested`/`permission.completed` make approval waits firm, the prompt-mode unattended denial is captured, and hand-made fixtures cover the interactive user-approve/user-deny completion shapes |
 
 ## Building
 

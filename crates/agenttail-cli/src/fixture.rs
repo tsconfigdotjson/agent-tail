@@ -699,6 +699,9 @@ fn token_secret_kind(token: &str, entropy: bool) -> Option<&'static str> {
     {
         return Some("secret_pattern");
     }
+    if is_kebab_identifier(token) {
+        return None;
+    }
     if entropy && token.len() >= 24 && !is_uuid_like(token) && !is_path_like(token) && entropy_bits(token) >= 3.5 {
         let has_lower = token.bytes().any(|b| b.is_ascii_lowercase());
         let has_upper = token.bytes().any(|b| b.is_ascii_uppercase());
@@ -733,6 +736,16 @@ fn entropy_bits(text: &str) -> f64 {
 fn is_path_like(text: &str) -> bool {
     text.contains('/')
         && text.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'/' | b'-' | b'_' | b'.'))
+}
+
+/// Lower-case words joined by hyphens are names (event types, decision kinds, command
+/// names), not random secrets. A token with any upper-case letter, digit or other symbol
+/// still goes through the entropy check.
+fn is_kebab_identifier(text: &str) -> bool {
+    if !text.contains('-') {
+        return false;
+    }
+    text.split('-').all(|word| !word.is_empty() && word.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()))
 }
 
 fn is_uuid_like(text: &str) -> bool {
@@ -1441,6 +1454,19 @@ mod tests {
         assert_eq!(got.report.count("secret_key"), 3);
         assert!(got.report.count("secret_pattern") >= 1);
         assert!(got.report.count("secret_entropy") >= 1);
+    }
+
+    #[test]
+    fn kebab_case_decision_kinds_are_not_secrets() {
+        let kind = "denied-interactively-by-user";
+        let got = redact(&format!("{{\"result\":{{\"kind\":\"{kind}\"}}}}\n"));
+        assert_eq!(value_of(&got)["result"]["kind"], kind);
+        assert_eq!(got.report.count("secret_entropy"), 0);
+
+        let prose = format!("the result kind is {kind}\n");
+        let got = redact(&prose);
+        assert_eq!(String::from_utf8(got.bytes).unwrap(), prose);
+        assert_eq!(got.report.count("secret_entropy"), 0);
     }
 
     #[test]
