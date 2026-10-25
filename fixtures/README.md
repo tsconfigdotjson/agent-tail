@@ -32,11 +32,16 @@ The committed corpus lives in the versioned layout:
 | `pi/1.4/linux/branched` | Hand-made Pi 1.4.0 tree: a main prompt, an abandoned tool-call/session-name/usage branch, then an active branch from the original prompt; checkpoints assert that only the active leaf's parent chain moves status, usage, cost, recent lines and title |
 | `pi/1.4/linux/parallel-tools` | Hand-made Pi 1.4.0 session with two `toolCall` blocks in one assistant message: one result still leaves the other call running; both results return to thinking, then done; per-call usage and cost are summed |
 | `pi/1.4/linux/interrupted` | Hand-made Pi 1.4.0 assistant message with `stopReason: aborted`; checks firm interrupted and the shared idle fallback |
+| `pi/1.4/linux/compaction-active` | Hand-made Pi 1.4.0 active branch with a `compaction` entry; its usage/cost is counted, `firstKeptEntryId` does not prune the session chain, and the follow-up turn still ends done |
+| `pi/1.4/linux/unknown-entry` | Hand-made Pi 1.4.0 session with an `extension_state` entry the adapter does not know; the entry stays an Unknown event and the following assistant stop still ends the turn done |
 | `opencode/1.19.4/linux/plain-qa` | a real `opencode run` text turn, exported from its SQLite database |
 | `opencode/1.19.4/linux/tool` | a real `opencode run` bash call and the answer after its result |
 | `opencode/1.19.4/linux/tool-running` | a live SQLite snapshot during a `sleep 8` tool call, including the 20 s stall inference |
 | `opencode/1.19.4/linux/question` | Hand-made row export with a pending `question` tool part; the only firm needs-you OpenCode signal, so it is AwaitingAnswer rather than inferred approval |
 | `opencode/1.19.4/linux/interrupted` | Hand-made row export ending in `step-finish` reason `aborted`; a partial answer must read as interrupted, not done |
+| `opencode/1.19.4/linux/error-step-finish` | Hand-made row export ending in `step-finish` reason `error` with its error message; a partial answer must read as firm errored, not done |
+| `opencode/1.19.4/linux/parallel-parts` | Hand-made snapshot during a parallel tool step: one completed and one running tool part in the same assistant message; the pending call survives the completed result and stalls to inferred approval at 30 s |
+| `opencode/1.19.4/linux/child-session` | Hand-made parent/child row export: the parent ends done while a child session with `parent_id` set still runs a tool; feeding the child as a helper makes the parent `background_work` |
 | `gemini/0.65.0/linux/plain-qa` | Gemini CLI 0.65.0 against the mock: a session-context record, a prompt, one text answer |
 | `gemini/0.65.0/linux/tool` | Gemini CLI 0.65.0: a `run_shell_command` call written after completion with its result, then the final answer |
 | `gemini/0.65.0/linux/error` | Hand-made Gemini 0.65.0 journal with a terminal `type: "error"` record and its message; exercises the adapter's error mapping because a real API failure rewinds the prompt instead of writing this record |

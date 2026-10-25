@@ -105,9 +105,14 @@ cargo run -p harness-driver -- --scenario driver/scenarios/opencode_tool.json
 The offline fixtures under `fixtures/opencode/1.19.4/linux/` are exported, redacted rows:
 `plain-qa` (a complete text turn), `tool` (a completed bash call and the following answer),
 `tool-running` (a live snapshot during `sleep 8`, including the 20 s stall checkpoint),
-`question` (a pending `question` part is firm `AwaitingAnswer`) and `interrupted` (a
-`step-finish` reason `aborted` is firm `Interrupted`, not a completed partial answer). The
-fixture row stream is the same `{"table": ..., "row": ...}` shape the reader emits.
+`question` (a pending `question` part is firm `AwaitingAnswer`), `interrupted` (a
+`step-finish` reason `aborted` is firm `Interrupted`, not a completed partial answer),
+`error-step-finish` (a `step-finish` reason `error` is firm `Errored` with its message),
+`parallel-parts` (one completed and one running tool part in the same assistant message; the
+completed result leaves the other call pending, which stalls to inferred approval at 20 s),
+and `child-session` (a parent ends `Done` while a child session with `parent_id` set still runs
+a tool; feeding the child as a helper makes the parent `BackgroundWork`). The fixture row
+stream is the same `{"table": ..., "row": ...}` shape the reader emits.
 
 ## Open questions
 
@@ -116,4 +121,5 @@ fixture row stream is the same `{"table": ..., "row": ...}` shape the reader emi
   produce a new fixture, rather than being guessed at.
 - A real interactive TUI approval (not `--auto` / non-interactive `run`) has not been captured.
   The pending/running tool part is the on-disk evidence, but no approval row exists to make it
-  firm.
+  firm. The `child-session` fixture exercises the reducer/helper path from exported rows; it is
+  not a live nested-session capture.

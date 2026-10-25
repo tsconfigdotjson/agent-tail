@@ -136,4 +136,5 @@ results, no-prompt modes, and the shared record parser.
 
 What is still missing: a committed redacted artifact from the scheduled live lane, a
 reproducible scored Desktop turn from that artifact, and verification of the consumer/3P
-roots on macOS, Linux, and Windows.
+roots on macOS, Linux, and Windows. The #108 lane checked local disk and artifacts for an
+already-captured audit log and found none; it did not start an auth-dependent Desktop chase.

@@ -1,0 +1,6 @@
+harness = "pi"
+version = "1.4.0"
+os = "linux"
+capture = "handmade"
+date = "2026-10-25"
+description = "A hand-made Pi 1.4.0 session with a compaction entry on the active branch. The compaction's own usage/cost is counted, its firstKeptEntryId does not prune the session chain, and the follow-up turn still ends Done."

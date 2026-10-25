@@ -1,0 +1,7 @@
+{"type":"session","version":3,"id":"unknown-entry-demo","timestamp":"2026-10-25T07:10:00.000Z","cwd":"/home/<user>/work/unknown"}
+{"type":"model_change","id":"model-root","parentId":null,"timestamp":"2026-10-25T07:10:00.050Z","provider":"mock","modelId":"mock-model"}
+{"type":"thinking_level_change","id":"thinking-root","parentId":"model-root","timestamp":"2026-10-25T07:10:00.060Z","thinkingLevel":"off"}
+{"type":"message","id":"system-root","parentId":"thinking-root","timestamp":"2026-10-25T07:10:00.070Z","message":{"role":"system","content":"Fixture system prompt."}}
+{"type":"message","id":"user-main","parentId":"system-root","timestamp":"2026-10-25T07:10:01.000Z","message":{"role":"user","content":[{"type":"text","text":"handle an unknown entry"}],"timestamp":1792912201000}}
+{"type":"extension_state","id":"future-entry","parentId":"user-main","timestamp":"2026-10-25T07:10:02.000Z","extension":"demo","state":{"phase":"draft"}}
+{"type":"message","id":"assistant-final","parentId":"future-entry","timestamp":"2026-10-25T07:10:03.000Z","message":{"role":"assistant","content":[{"type":"text","text":"The unknown entry did not break the turn."}],"api":"anthropic-messages","provider":"mock","model":"mock-model","usage":{"input":10,"output":7,"cacheRead":0,"cacheWrite":0,"totalTokens":17,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0.02}},"stopReason":"stop","timestamp":1792912203000}}

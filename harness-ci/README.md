@@ -86,10 +86,15 @@ matrix also resolves and runs npm `latest` for each harness, so a release that c
 transcript shape fails loudly.
 
 Recent coverage additions include Copilot parallel tool calls and a terminal `session.error`,
-and Pi parallel tool calls plus failing-tool recovery. Their fixtures also pin Copilot
-`abort`/`session.error` followed by a routine `session.shutdown` (which must not turn those
-terminal states back into `done`). The adapter-by-adapter table, including deferred cases, is
-[`docs/harness-coverage.md`](../docs/harness-coverage.md).
+Pi parallel tool calls plus failing-tool recovery, Pi compaction/unknown-entry fixtures, and
+OpenCode error-step-finish, parallel-part and child-session fixtures. The Claude Code stable
+list now includes ask-user, plan exit, mid-tool interrupt and accept-edits; its background-agent
+driver stays local because the pinned 2.1.281 keeps a pending background count after the outer
+task notification. The fixtures also pin Copilot `abort`/`session.error` followed by a routine
+`session.shutdown` (which must not turn those terminal states back into `done`). The nightly
+Claude Code shape baseline was refreshed from the expanded stable list, so the new scenarios
+are approved shape rather than first-night drift. The adapter-by-adapter table, including
+deferred cases, is [`docs/harness-coverage.md`](../docs/harness-coverage.md).
 
 Two Codex scenarios avoid host-dependent false failures. `codex_token_count` sends its second
 prompt on the first idle after a delay because a fast turn can finish without leaving the TUI

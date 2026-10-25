@@ -133,7 +133,8 @@ just the version (`1.4.0`).
 unexpected event shape. It runs for pinned 1.4.0 and npm latest, on Linux and macOS, so a
 new release fails loudly instead of being skipped. Scenarios cover plain text, one tool,
 parallel tool calls, a failing tool result, and a terminal API error. The fixtures also pin
-the aborted stop reason. The Pi path is transcript/status based, not PTY-screen scored;
+the aborted stop reason, a compaction on the active branch, and an unknown entry type that
+still lets the turn end. The Pi path is transcript/status based, not PTY-screen scored;
 Pi's TUI screen reader is not part of this path. See `harness-ci/README.md`.
 
 ## Branches
@@ -158,12 +159,18 @@ state. A linear Pi session has no off-chain events and behaves as before.
 Compaction is just another entry on the active chain. Its `firstKeptEntryId` controls what
 Pi sends to the model after compaction; it does not prune the session's status/usage chain,
 so usage from active-chain ancestors before the compaction boundary remains counted, as
-does the compaction entry's own usage. An off-chain compaction contributes nothing.
+does the compaction entry's own usage. An off-chain compaction contributes nothing. The
+`compaction-active` fixture pins the active-chain case: the compaction's usage/cost is
+counted and the following prompt still reaches `Done`.
 
 ## Open questions and limits
 
 - **`deferred`** stop reasons have no observed session. They are kept as `Meta` rather than
-  guessed as done or running.
+  guessed as done or running. No fixture claims a terminal `deferred` state because none was
+  found in the local Pi corpus; do not synthesize one.
+- **Unknown entry types** are kept as `Unknown` events. The `unknown-entry` fixture uses an
+  `extension_state` entry that 1.4.0 does not define and checks that the following assistant
+  stop still ends the turn.
 - **Extension ask tools** are not known. If a Pi extension adds an ask-the-user tool, the
   spec should gain its exact name with a real capture.
 - **Older file versions:** Pi migrates v1/v2 sessions to v3 on load. The adapter reads the

@@ -1,8 +1,15 @@
 {
   "attachment_types": [
+    "agent_listing_delta",
     "date",
+    "environment",
+    "model",
+    "plan_mode",
+    "prompt_snapshot",
     "remote_session_change",
-    "session_context"
+    "session_context",
+    "skill_listing",
+    "total_tokens_reminder"
   ],
   "content_types": {
     "assistant.content": [
@@ -10,11 +17,19 @@
       "tool_use"
     ],
     "attachment": [
+      "agent_listing_delta",
       "date",
+      "environment",
+      "model",
+      "plan_mode",
+      "prompt_snapshot",
       "remote_session_change",
-      "session_context"
+      "session_context",
+      "skill_listing",
+      "total_tokens_reminder"
     ],
     "user.content": [
+      "text",
       "tool_result"
     ]
   },
@@ -47,9 +62,11 @@
       "null"
     ],
     "permissionMode": [
+      "acceptEdits",
       "bypassPermissions",
       "default",
-      "null"
+      "null",
+      "plan"
     ],
     "promptSource": [
       "null",
@@ -65,7 +82,8 @@
       "null"
     ],
     "toolDenialKind": [
-      "null"
+      "null",
+      "user-rejected"
     ],
     "userType": [
       "external",
@@ -124,6 +142,7 @@
       "perTurnEffort",
       "sessionId",
       "session_id",
+      "slug",
       "timestamp",
       "type",
       "userType",
@@ -137,13 +156,40 @@
     ],
     "attachment": [
       "attachment",
+      "attachment.addedLines",
+      "attachment.addedLines[]",
+      "attachment.addedTypes",
+      "attachment.addedTypes[]",
+      "attachment.cliPrefix",
       "attachment.commit",
+      "attachment.content",
       "attachment.context",
       "attachment.date",
+      "attachment.identity",
+      "attachment.identity.knowledgeCutoff",
+      "attachment.identity.marketingName",
+      "attachment.identity.modelId",
+      "attachment.isInitial",
+      "attachment.isSubAgent",
       "attachment.managedCommit",
       "attachment.managedPr",
+      "attachment.names",
+      "attachment.names[]",
+      "attachment.planExists",
+      "attachment.planFilePath",
       "attachment.pr",
+      "attachment.reminderFold",
+      "attachment.reminderType",
+      "attachment.removedTypes",
+      "attachment.removedTypes[]",
       "attachment.sendUserFileHint",
+      "attachment.showConcurrencyNote",
+      "attachment.skillCount",
+      "attachment.snapshot",
+      "attachment.systemPrompt",
+      "attachment.systemPrompt[]",
+      "attachment.text",
+      "attachment.tools",
       "attachment.type",
       "attachment.url",
       "cwd",
@@ -154,11 +200,24 @@
       "rendered",
       "sessionId",
       "session_id",
+      "slug",
       "timestamp",
       "type",
       "userType",
       "uuid",
       "version"
+    ],
+    "file-history-delta": [
+      "backup",
+      "backup.backupFileName",
+      "backup.backupTime",
+      "backup.realParentDir",
+      "backup.version",
+      "messageId",
+      "snapshotMessageId",
+      "timestamp",
+      "trackingPath",
+      "type"
     ],
     "file-history-snapshot": [
       "isSnapshotUpdate",
@@ -203,6 +262,7 @@
       "cwd",
       "entrypoint",
       "gitBranch",
+      "interruptedMessageId",
       "isSidechain",
       "message",
       "message.content",
@@ -215,8 +275,10 @@
       "promptSource",
       "sessionId",
       "session_id",
+      "slug",
       "sourceToolAssistantUUID",
       "timestamp",
+      "toolDenialKind",
       "toolUseResult",
       "turnOrigin",
       "type",
@@ -233,6 +295,7 @@
     "assistant",
     "atis-latch",
     "attachment",
+    "file-history-delta",
     "file-history-snapshot",
     "last-prompt",
     "mode",
@@ -244,8 +307,12 @@
     "turn_duration"
   ],
   "tool_names_seen": [
+    "AskUserQuestion",
     "Bash",
-    "Read"
+    "ExitPlanMode",
+    "Read",
+    "ToolSearch",
+    "Write"
   ],
   "version": "2.1.281"
 }

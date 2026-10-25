@@ -1,0 +1,6 @@
+harness = "pi"
+version = "1.4.0"
+os = "linux"
+capture = "handmade"
+date = "2026-10-25"
+description = "A hand-made Pi 1.4.0 session with an extension_state entry that 1.4.0 does not define. The adapter keeps it as an Unknown event, leaves the prompt Thinking, and still reaches Done on the following assistant stop."

@@ -85,6 +85,8 @@ fn committed_expected_events_match_their_inputs() {
         "pi/1.4/linux/tool-call",
         "pi/1.4/linux/api-error",
         "pi/1.4/linux/branched",
+        "pi/1.4/linux/compaction-active",
+        "pi/1.4/linux/unknown-entry",
         "gemini/0.65.0/linux/plain-qa",
         "gemini/0.65.0/linux/tool",
         "copilot/1.0.103/linux/plain-qa",
@@ -93,6 +95,9 @@ fn committed_expected_events_match_their_inputs() {
         "copilot/1.0.103/linux/permission-approved",
         "copilot/1.0.103/linux/permission-user-denied",
         "copilot/1.0.103/linux/subagent-helper",
+        "opencode/1.19.4/linux/error-step-finish",
+        "opencode/1.19.4/linux/parallel-parts",
+        "opencode/1.19.4/linux/child-session",
     ] {
         let got = events(&format!("{input}/input/session.jsonl"));
         let expected = fixture(&format!("{input}/expected/events.jsonl"));

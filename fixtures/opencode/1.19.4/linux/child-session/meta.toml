@@ -1,0 +1,6 @@
+harness = "opencode"
+version = "1.19.4"
+os = "linux"
+capture = "handmade"
+date = "2026-10-25"
+description = "A hand-made OpenCode 1.19.4 parent/child row export. The parent's turn ends Done while the child session (parent_id set) still has a running tool part; feeding the child as a helper turns the parent into BackgroundWork."

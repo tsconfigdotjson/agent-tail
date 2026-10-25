@@ -185,6 +185,10 @@ local-only, and liveness has to be checked by pid (*inference from source; one l
 
 ## Open questions
 - Does a `permission_prompt` in default mode change `sessions/<pid>.json`? Does anything get
-  written while it is up? Harness CI can answer this.
-- `mode` values other than `normal`, and plan-mode and `ExitPlanMode` records: none in this corpus.
-- Manual `/compact` (`trigger: manual`) not seen.
+  written while it is up? The local `claude_sessions_registry` driver covers busy/idle/waiting;
+  it is not in the stable matrix yet.
+- Plan mode and `ExitPlanMode` are covered by `claude_plan_exit`, and ask-user by
+  `claude_ask_user`; both are now in the stable CI list. The background-agent driver stays
+  local because the pinned 2.1.281 and 2.1.310 disagree on the parent's pending count.
+- Manual `/compact` (`trigger: manual`) has a local driver (`claude_compact_manual`) but no
+  committed fixture yet.
