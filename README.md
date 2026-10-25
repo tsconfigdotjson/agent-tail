@@ -25,7 +25,8 @@ For each session you get a `SessionState`:
 | `interrupted` | the user interrupted or aborted (Claude's interrupt text, Codex `turn_aborted`, Cursor's `turn_ended` or `composerData.status: aborted`, OpenCode's aborted `step-finish`) | firm |
 | `errored` | the harness recorded an error ending the turn (Claude's synthetic API row, Codex `task_complete.error`, Cursor's error status and message, OpenCode's failed `step-finish`/assistant error) | firm |
 | `background_work` | the turn ended, but a subagent or background task is still writing (Claude's `pendingBackgroundAgentCount` makes this firm; a helper's own transcript makes it inferred) | firm / **inferred** |
-| `idle` | nothing written for 15 min, or nothing read yet | firm |
+| `idle` | nothing written for 15 min | firm |
+| `unknown` | nothing that moves the state has been read yet: an empty or metadata-only session. A dashboard can map this to its idle look (StatusWall adoption is #16) | firm |
 
 Each state also carries the harness's last `permission` mode (Claude Code and Codex) and
 Codex `sandbox` policy, the `background` helpers still running, and, for `errored`, the

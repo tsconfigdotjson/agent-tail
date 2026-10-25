@@ -284,7 +284,7 @@ impl Session {
         use {Activity::*, Certainty::*, Reason::*};
         let db = self.db_signal(now, o);
         if self.last == Last::Nothing && db.is_none() {
-            return (Idle, Firm, NoEntries);
+            return (Unknown, Firm, NoEntries);
         }
         let db_at = self.db_status.map_or(0.0, |(_, at)| at);
         let age = now - self.last_at.max(self.active_at()).max(db_at);
@@ -691,7 +691,7 @@ mod tests {
             let st = s.state(Timestamp::from_secs_f64(NOW), &o, Diagnostics::default());
             (st.activity, st.certainty, st.reason)
         };
-        assert_eq!(why(&s), (Activity::Idle, Certainty::Firm, Reason::NoEntries));
+        assert_eq!(why(&s), (Activity::Unknown, Certainty::Firm, Reason::NoEntries));
         s.set(Last::ToolUse, at_secs(STALL_AFTER + 1.0));
         assert_eq!(why(&s), (Activity::AwaitingApproval, Certainty::Inferred, Reason::ToolCallStalled));
         s.set(Last::ToolResult, at_secs(1.0));
@@ -703,6 +703,15 @@ mod tests {
         s.set(Last::ToolUse, at_secs(2.0));
         let st = s.state(Timestamp::from_secs_f64(NOW), &quick, Diagnostics::default());
         assert_eq!(st.activity, Activity::AwaitingApproval);
+    }
+
+    #[test]
+    fn an_empty_session_is_unknown_even_when_its_file_is_old() {
+        let o = ReducerOptions::default();
+        let mut s = Session::new(Harness::ClaudeCode, LOG_LINES);
+        s.mtime = at_secs(IDLE_AFTER + 60.0);
+        let st = s.state(Timestamp::from_secs_f64(NOW), &o, Diagnostics::default());
+        assert_eq!((st.activity, st.certainty, st.reason), (Activity::Unknown, Certainty::Firm, Reason::NoEntries));
     }
 
     #[test]

@@ -54,14 +54,14 @@ make callers ship them. When Phase 2 reads helpers, `feed_helper` arrives with t
 updates the mtime on every poll, new bytes or not).
 
 **`SessionState` and `Activity`.** `Activity` has every variant of PLAN.md section 4 now
-(`#[non_exhaustive]`), so tvdash writes its mapping once; today's rules produce six:
+(`#[non_exhaustive]`), so tvdash writes its mapping once; today's rules produce seven:
 Question → `AwaitingAnswer`; tool call stalled 20 s → `AwaitingApproval` with certainty
 `Inferred`; tool call → `RunningTool`; prompt or tool result → `Thinking`; end of turn →
-`Done`; nothing read, or nothing written for 15 min → `Idle`. Every other combination is
-`Firm`, including idle-by-age (it's the definition of idle, not a guess). `Reason` names
-the rule (`no_entries`, `no_writes_for`, `ask_user_tool`, `tool_call_stalled`,
-`tool_call_pending`, `prompt_sent`, `tool_result_in`, `turn_ended`). The internal `Last` is
-kept as it was.
+`Done`; nothing written for 15 min → `Idle`; nothing that moves the state read yet →
+`Unknown`. Every other combination is `Firm`, including idle-by-age (it's the definition of
+idle, not a guess). `Reason` names the rule (`no_entries`, `no_writes_for`, `ask_user_tool`,
+`tool_call_stalled`, `tool_call_pending`, `prompt_sent`, `tool_result_in`, `turn_ended`).
+The internal `Last` is kept as it was.
 
 **A coarse `StatusClass` (needs-you, working, done, idle) is in the library**, as
 `Activity::class()`: the brief asked for the status class, the tracker sorts by it as
@@ -109,8 +109,9 @@ tvdash reads.
    map order; the tracker now breaks ties by key, so a poll's order is deterministic.
 4. **Cost is `Option<f64>`**: `None` until the harness records one, where tvdash had `0.0`.
    tvdash maps `None` to `0.0`.
-5. **A session with nothing read is `Idle` for reason `no_entries`** even when its file is
-   old; tvdash also said idle (the age rule came first), so only the reason is new.
+5. **A session with nothing read is `Unknown` for reason `no_entries`** even when its file
+   is old; tvdash said idle (its age rule came first). Issue #62 switched this from the
+   extraction's `Idle` to match PLAN.md section 4: an unread session is not idle work.
 6. **On non-Unix systems** a file's identity is unknown, so a transcript replaced by a
    longer file isn't noticed (one replaced by a shorter one is). tvdash only built on Unix.
 
@@ -552,4 +553,14 @@ pinned behaviour should be ignored. The mock gained OpenAI Chat Completions and 
 OpenCode's separate title request without consuming a scenario step. Fixtures are exported,
 redacted rows under `fixtures/opencode/1.19.4/linux/` (complete text turn, completed tool
 turn, and a live running-tool snapshot).
+
+## Phase D follow-up: empty sessions are Unknown (issue #62, 2026-10-25)
+
+**A session with nothing read is `Unknown` / `no_entries`, not `Idle`.** The extraction kept
+tvdash's display behaviour, but PLAN.md section 4 reserves `Idle` for a session whose last
+activity is older than `idle_after`; an unread or metadata-only transcript has no activity to
+call idle. `Activity::class()` still puts `Unknown` in `StatusClass::Idle`, so sorting does
+not change. Consumers that render `activity` directly must map `Unknown` to their idle look
+if they want the old display; StatusWall's adoption (#16) is not integrated yet, so no
+consumer is broken by this change today.
 

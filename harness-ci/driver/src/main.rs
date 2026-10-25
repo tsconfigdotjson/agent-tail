@@ -1767,7 +1767,7 @@ mod tests {
         assert_eq!(fork.expect_observations.as_ref().unwrap().continued_in, Some(true));
         assert_eq!(fork.expected_activity[0].expectation().activity, "done");
         assert_eq!(fork.expected_activity[0].expectation().when, score::ExpectWhen::Ever);
-        assert_eq!(fork.expected_activity[1].expectation().activity, "idle");
+        assert_eq!(fork.expected_activity[1].expectation().activity, "unknown");
 
         let long = scenario("claude_long_output.json");
         assert!(long.no_approval);
