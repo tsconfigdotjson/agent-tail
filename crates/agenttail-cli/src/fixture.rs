@@ -66,7 +66,10 @@ impl RedactReport {
     }
 
     pub fn sensitive(&self) -> u64 {
-        ["secret_key", "secret_pattern", "secret_entropy", "home_path"].iter().map(|kind| self.count(kind)).sum()
+        ["secret_key", "secret_pattern", "secret_entropy", "home_path", "user"]
+            .iter()
+            .map(|kind| self.count(kind))
+            .sum()
     }
 }
 
@@ -92,12 +95,19 @@ pub fn redact_bytes(input: &[u8], options: &RedactOptions, input_label: &str) ->
         line_no += 1;
 
         let redacted = match std::str::from_utf8(body) {
-            Ok(text) if !text.trim().is_empty() => match serde_json::from_str::<Value>(text) {
-                Ok(value) => {
-                    let value = redactor.value(value, None, line_no);
-                    serde_json::to_vec(&value).expect("JSON values serialize")
+            Ok(text) if !text.trim().is_empty() => match parse_json_values(text) {
+                Some(values) => {
+                    let mut redacted = Vec::new();
+                    for (index, value) in values.into_iter().enumerate() {
+                        if index > 0 {
+                            redacted.push(b' ');
+                        }
+                        let value = redactor.value(value, None, line_no);
+                        redacted.extend(serde_json::to_vec(&value).expect("JSON values serialize"));
+                    }
+                    redacted
                 }
-                Err(_) => {
+                None => {
                     redactor.malformed_lines.push(line_no);
                     redactor.text(text, None, line_no, false).into_bytes()
                 }
@@ -140,6 +150,28 @@ pub fn redact_bytes(input: &[u8], options: &RedactOptions, input_label: &str) ->
     };
     let _ = after_start;
     Redaction { bytes: out, report }
+}
+
+/// Every JSON value on one physical line, with only whitespace between them. The event
+/// parser also accepts several objects on one line; redaction must not fall back to a
+/// context-free text pass just because a harness wrote two.
+fn parse_json_values(text: &str) -> Option<Vec<Value>> {
+    let mut stream = serde_json::Deserializer::from_str(text).into_iter::<Value>();
+    let mut values = Vec::new();
+    loop {
+        let before = stream.byte_offset();
+        match stream.next() {
+            None => {
+                if text[before..].trim().is_empty() {
+                    break;
+                }
+                return None;
+            }
+            Some(Ok(value)) => values.push(value),
+            Some(Err(_)) => return None,
+        }
+    }
+    (!values.is_empty()).then_some(values)
 }
 
 fn split_ending(raw: &[u8]) -> (&[u8], &[u8]) {
@@ -240,6 +272,13 @@ impl Redactor {
         if !is_key && (text.contains("-----BEGIN ") && text.contains("PRIVATE KEY-----")) {
             return self.secret(text, "secret_pattern", line);
         }
+        if !is_key && key.is_some_and(is_user_key) && !text.trim().is_empty() {
+            if is_placeholder(text) {
+                return text.into();
+            }
+            self.bump("user", line, "<user>");
+            return "<user>".into();
+        }
         if !is_key && key.is_some_and(is_host_key) && !text.trim().is_empty() && !text.starts_with('<') {
             self.bump("host", line, "<host>");
             return "<host>".into();
@@ -303,6 +342,12 @@ impl Redactor {
         let mut out = String::with_capacity(text.len());
         let mut at = 0usize;
         while at < text.len() {
+            if let Some(len) = root_home(&text[at..]) {
+                out.push_str("/home/<user>");
+                self.bump("home_path", line, "<user>");
+                at += len;
+                continue;
+            }
             let Some(prefix_len) = home_prefix(&text[at..]) else {
                 let ch = text[at..].chars().next().expect("at is a character boundary");
                 out.push(ch);
@@ -440,7 +485,6 @@ impl Redactor {
                 || !domain.contains('.')
                 || domain.starts_with('.')
                 || domain.ends_with('.')
-                || is_safe_domain(domain)
             {
                 let ch = text[at..].chars().next().expect("character boundary");
                 out.push(ch);
@@ -547,12 +591,41 @@ fn is_placeholder(text: &str) -> bool {
 }
 
 fn home_prefix(text: &str) -> Option<usize> {
-    for prefix in ["C:\\Users\\", "c:\\Users\\", "C:\\users\\", "/home/", "/Users/", "/users/"] {
+    for prefix in ["/home/", "/Users/", "/users/", "/var/home/", "/usr/home/"] {
         if text.starts_with(prefix) {
             return Some(prefix.len());
         }
     }
+    let bytes = text.as_bytes();
+    if bytes.len() >= 9
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'\\' | b'/')
+        && bytes[3..9].eq_ignore_ascii_case(b"Users\\")
+    {
+        return Some(9);
+    }
+    if bytes.len() >= 8 && bytes[..8].eq_ignore_ascii_case(b"\\Users\\") {
+        return Some(8);
+    }
     None
+}
+
+/// The root account's home has no username segment to replace: rewrite the whole `/root`
+/// prefix so it still reads as an absolute path.
+fn root_home(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    if !bytes.starts_with(b"/root") {
+        return None;
+    }
+    let next = bytes.get(5).copied();
+    next.is_none_or(|b| {
+        b == b'/'
+            || b == b'\\'
+            || b.is_ascii_whitespace()
+            || matches!(b, b'"' | b'\'' | b',' | b';' | b')' | b']' | b'}')
+    })
+    .then_some(5)
 }
 
 fn split_host_port(hostport: &str) -> (&str, &str) {
@@ -614,19 +687,25 @@ fn token_secret_kind(token: &str, entropy: bool) -> Option<&'static str> {
         ("SG.", 20),
     ];
     for (prefix, min) in PREFIXES {
-        if token.starts_with(prefix) && token.len() >= prefix.len() + min {
+        if let Some(at) = token.find(prefix)
+            && token.len() >= at + prefix.len() + min
+        {
             return Some("secret_pattern");
         }
     }
-    if token.starts_with("eyJ") && token.matches('.').count() >= 2 && token.len() >= 32 {
+    if let Some(at) = token.find("eyJ")
+        && token[at..].matches('.').count() >= 2
+        && token.len() - at >= 32
+    {
         return Some("secret_pattern");
     }
     if entropy && token.len() >= 24 && !is_uuid_like(token) && !is_path_like(token) && entropy_bits(token) >= 3.5 {
         let has_lower = token.bytes().any(|b| b.is_ascii_lowercase());
         let has_upper = token.bytes().any(|b| b.is_ascii_uppercase());
         let has_digit = token.bytes().any(|b| b.is_ascii_digit());
-        let classes = u8::from(has_lower) + u8::from(has_upper) + u8::from(has_digit);
-        if has_digit && classes >= 2 {
+        let has_symbol = token.bytes().any(|b| !b.is_ascii_alphanumeric());
+        let classes = u8::from(has_lower) + u8::from(has_upper) + u8::from(has_digit) + u8::from(has_symbol);
+        if classes >= 2 && (has_digit || has_symbol || (has_lower && has_upper && token.len() >= 32)) {
             return Some("secret_entropy");
         }
     }
@@ -681,17 +760,6 @@ fn is_email_domain(b: u8) -> bool {
     b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-')
 }
 
-fn is_safe_domain(domain: &str) -> bool {
-    let domain = domain.to_ascii_lowercase();
-    domain == "example.com"
-        || domain.ends_with(".example.com")
-        || domain == "example.org"
-        || domain.ends_with(".example.org")
-        || domain == "example.net"
-        || domain.ends_with(".example.net")
-        || domain == "localhost"
-}
-
 fn is_secret_key(key: &str) -> bool {
     let normalized: String = key.chars().filter(|c| c.is_ascii_alphanumeric()).flat_map(char::to_lowercase).collect();
     if matches!(
@@ -739,6 +807,14 @@ fn is_secret_key(key: &str) -> bool {
                 | "cachedinputtokens"
                 | "maxtokens"
         )
+}
+
+fn is_user_key(key: &str) -> bool {
+    let normalized: String = key.chars().filter(|c| c.is_ascii_alphanumeric()).flat_map(char::to_lowercase).collect();
+    matches!(
+        normalized.as_str(),
+        "user" | "username" | "login" | "loginname" | "account" | "accountname" | "owner" | "author" | "committer"
+    )
 }
 
 fn is_host_key(key: &str) -> bool {
@@ -932,7 +1008,10 @@ pub fn scan(paths: &[PathBuf]) -> Result<usize, String> {
             let redaction = redact_bytes(&bytes, &RedactOptions::default(), &file.display().to_string());
             let report = redaction.report;
             for finding in &report.findings {
-                if matches!(finding.kind.as_str(), "secret_key" | "secret_pattern" | "secret_entropy" | "home_path") {
+                if matches!(
+                    finding.kind.as_str(),
+                    "secret_key" | "secret_pattern" | "secret_entropy" | "home_path" | "user"
+                ) {
                     failures += 1;
                     println!("{}:{}: {}", file.display(), finding.line, finding.kind);
                 } else if matches!(finding.kind.as_str(), "email" | "host") {
@@ -1243,6 +1322,67 @@ mod tests {
         assert!(got.report.count("home_path") >= 3);
         assert!(got.report.count("host") >= 2);
         assert!(got.report.count("email") >= 2);
+    }
+
+    #[test]
+    fn root_home_any_windows_drive_and_username_fields_are_redacted() {
+        let input = concat!(
+            r#"{"user":"alice","username":"bob","root":"/root/.ssh/id_ed25519","win":"D:\\Users\\carol\\app","var":"/var/home/dave/app"}"#,
+            "\n",
+            r#"{"email":"alice@example.com","logical":"a long ZxQwErTyUiOpAsDfGhJkLzXcVbNmQwErTyBlob"}"#,
+            "\n",
+        );
+        let got = redact(input);
+        let values: Vec<Value> =
+            String::from_utf8(got.bytes).unwrap().lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+        assert_eq!(values[0]["user"], "<user>");
+        assert_eq!(values[0]["username"], "<user>");
+        assert_eq!(values[0]["root"], "/home/<user>/.ssh/id_ed25519");
+        assert_eq!(values[0]["win"], "D:\\Users\\<user>\\app");
+        assert_eq!(values[0]["var"], "/var/home/<user>/app");
+        assert_eq!(values[1]["email"], "<email>");
+        assert!(values[1]["logical"].as_str().unwrap().contains("<secret-"));
+        assert!(got.report.count("user") >= 2);
+        assert!(got.report.count("home_path") >= 3);
+        assert!(got.report.count("email") >= 1);
+        assert!(got.report.count("secret_entropy") >= 1);
+    }
+
+    #[test]
+    fn two_json_objects_on_one_line_are_both_redacted() {
+        let got = redact("{\"token\":\"abc\"}{\"cwd\":\"/home/alice/x\"}\n");
+        let text = String::from_utf8(got.bytes).unwrap();
+        assert_eq!(text.lines().count(), 1);
+        assert!(!text.contains("abc"), "{text}");
+        assert!(!text.contains("alice"), "{text}");
+        let values: Vec<Value> = text
+            .split("} {")
+            .enumerate()
+            .map(|(i, part)| {
+                let part = match i {
+                    0 => format!("{part}}}"),
+                    _ => format!("{{{part}"),
+                };
+                serde_json::from_str(&part).unwrap()
+            })
+            .collect();
+        assert_eq!(values[0]["token"], "<secret-0001>");
+        assert_eq!(values[1]["cwd"], "/home/<user>/x");
+        assert!(got.report.malformed_lines.is_empty());
+    }
+
+    #[test]
+    fn secret_prefixes_and_entropy_are_found_inside_env_style_text() {
+        let got = redact(
+            "{\"note\":\"OPENAI_API_KEY=sk-ant-api03-abcdefghijklmnopqrstuvwxyz012345\",\"blob\":\"ZxQwErTyUiOpAsDfGhJkLzXcVbNmQwErTyBlob\"}\n",
+        );
+        let values = Value::Array(
+            String::from_utf8(got.bytes).unwrap().lines().map(|line| serde_json::from_str(line).unwrap()).collect(),
+        );
+        assert!(values[0]["note"].as_str().unwrap().contains("<secret-"));
+        assert!(values[0]["blob"].as_str().unwrap().contains("<secret-"));
+        assert!(got.report.count("secret_pattern") >= 1);
+        assert!(got.report.count("secret_entropy") >= 1);
     }
 
     #[test]
