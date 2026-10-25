@@ -1668,7 +1668,7 @@ mod tests {
         let now = wall();
         let v = t.poll(now);
         let mins = (now.as_secs_f64() - v[0].1.since.unwrap().as_secs_f64()) / 60.0;
-        assert_eq!((label(&v[0].1), mins < 2.0), ("may need approval", true), "a minute ago: {mins}");
+        assert_eq!((label(&v[0].1), mins < 2.0), ("working", true), "a minute ago: {mins}");
     }
 
     #[test]
@@ -1678,7 +1678,7 @@ mod tests {
         let main = cursor_session(home.path(), "w-app", "a1", &[cursor_prompt("go"), task]);
         set_age(&main, 60);
         let mut t = Tracker::new(home.path(), hours(1.0));
-        assert_eq!(polled(&mut t), [("app".into(), "may need approval".into())], "alone, a stalled tool call");
+        assert_eq!(polled(&mut t), [("app".into(), "working".into())], "Cursor does not guess approval from age");
 
         let dir = main.parent().unwrap();
         let sub = dir.join("subagents/s1.jsonl");
@@ -1961,6 +1961,57 @@ mod tests {
         let state = &t.poll(later)[0].1;
         assert_eq!(state.meta.title, "Renamed");
         assert_eq!(state.activity, crate::Activity::Interrupted);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn cursor_db_pending_approval_is_firm_and_replaces_the_stall_inference() {
+        use rusqlite::{Connection, params};
+        let home = tempfile::tempdir().unwrap();
+        let path = cursor_session(home.path(), "w-app", "a1", &[cursor_prompt("go"), cursor_tool("Shell")]);
+        set_age(&path, 40);
+        let db = home.path().join("state.vscdb");
+        let now = wall();
+        let updated = (now.as_secs_f64() * 1000.0) as i64;
+        cursor_state_db(&db, "a1", "generating", "Waiting", updated);
+        let connection = Connection::open(&db).unwrap();
+        let bubble = json!({
+            "type": 2,
+            "toolFormerData": {
+                "name": "run_terminal_command_v2",
+                "status": "loading",
+                "additionalData": {"status": "pending", "blockReason": "mutation"}
+            }
+        });
+        connection
+            .execute(
+                "INSERT INTO cursorDiskKV (key, value) VALUES (?1, ?2)",
+                params!["bubbleId:a1:b1", bubble.to_string()],
+            )
+            .unwrap();
+        let mut t = Tracker::new(home.path(), hours(1.0)).with_cursor_state_db(&db);
+        // The transcript is older than the 20 s stall threshold; the database's pending
+        // decision is firm, so Cursor does not fall back to the old timing guess.
+        assert_eq!(polled_at(&mut t, now), [("app".into(), "needs approval".into())]);
+        let state = &t.poll(now)[0].1;
+        assert_eq!(
+            (state.activity, state.certainty, state.reason),
+            (crate::Activity::AwaitingApproval, crate::Certainty::Firm, crate::Reason::ComposerStatus)
+        );
+
+        // An accepted decision clears the wait; the composer's generating status decides.
+        let accepted = json!({
+            "type": 2,
+            "toolFormerData": {"name": "run_terminal_command_v2", "status": "loading", "userDecision": "accepted"}
+        });
+        connection
+            .execute("UPDATE cursorDiskKV SET value = ?1 WHERE key = 'bubbleId:a1:b1'", params![accepted.to_string()])
+            .unwrap();
+        if let Some(database) = t.cursor_db.as_mut() {
+            database.read_at = Timestamp::from_secs_f64(now.as_secs_f64() - CURSOR_STATE_DB_EVERY.as_secs_f64());
+        }
+        let later = Timestamp::from_secs_f64(now.as_secs_f64() + 1.0);
+        assert_eq!(polled_at(&mut t, later), [("app".into(), "thinking".into())]);
     }
 
     #[cfg(feature = "sqlite")]

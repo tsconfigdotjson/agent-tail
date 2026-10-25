@@ -63,10 +63,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Survey, nightly and desktop-Xvfb tool tests
+      - name: Survey, nightly, desktop-Xvfb and Cursor snapshot tool tests
         run: |
           python3 -m unittest discover -s harness-ci/ci -p 'test_*.py' -v
           python3 -m unittest discover -s harness-ci/desktop-xvfb -p 'test_*.py' -v
+          python3 -m unittest discover -s harness-ci/cursor -p 'test_*.py' -v
 
   fixtures:
     name: Fixture redaction scan

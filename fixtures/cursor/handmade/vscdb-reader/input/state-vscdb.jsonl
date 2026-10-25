@@ -7,3 +7,11 @@
 {"key":"composerData:composer-4","value":{"status":"none","generatingBubbleIds":[],"_v":18}}
 {"key":"composerData:broken","value":"not json"}
 {"key":"bubbleId:composer-9:other-bubble","value":{"type":2,"toolFormerData":{"name":"read_file_v2","status":"completed"}}}
+{"key":"composerData:composer-5","value":{"name":"Waiting for shell approval","status":"generating","lastUpdatedAt":1792756800000,"createdAt":1792756000000,"generatingBubbleIds":["bubble-5"],"_v":18}}
+{"key":"bubbleId:composer-5:bubble-5","value":{"type":2,"toolFormerData":{"name":"run_terminal_command_v2","status":"loading","additionalData":{"status":"pending","blockReason":"mutation"}}}}
+{"key":"composerData:composer-6","value":{"name":"Shell approved","status":"generating","lastUpdatedAt":1792756800000,"createdAt":1792756000000,"generatingBubbleIds":["bubble-6"],"_v":18}}
+{"key":"bubbleId:composer-6:bubble-6","value":{"type":2,"toolFormerData":{"name":"run_terminal_command_v2","status":"loading","userDecision":"accepted","additionalData":{"status":"loading"}}}}
+{"key":"composerData:composer-7","value":{"name":"Shell denied","status":"completed","lastUpdatedAt":1792756800000,"createdAt":1792756000000,"generatingBubbleIds":[],"_v":18}}
+{"key":"bubbleId:composer-7:bubble-7","value":{"type":2,"toolFormerData":{"name":"run_terminal_command_v2","status":"completed","userDecision":"rejected","additionalData":{"status":"rejected"}}}}
+{"key":"composerData:composer-8","value":{"name":"Waiting for an answer","status":"generating","lastUpdatedAt":1792756800000,"createdAt":1792756000000,"generatingBubbleIds":["bubble-8"],"_v":18}}
+{"key":"bubbleId:composer-8:bubble-8","value":{"type":2,"toolFormerData":{"name":"ask_question","status":"loading","userDecision":"pending","additionalData":{"status":"pending"}}}}

@@ -89,18 +89,30 @@ impl CursorComposer {
     /// What this composer's own status says, without looking at the transcript. `None` means
     /// the status carries no activity (`none`/an unknown value) or no time to date it.
     ///
+    /// A finished or aborted turn wins over a bubble left behind from it. Otherwise a
+    /// persisted pending tool decision (the approval card, or an ask-user card) is firmer
+    /// than `generating`: Cursor writes the bubble before it waits, and the composer may still
+    /// say `generating` until the decision arrives.
+    ///
     /// `generatingBubbleIds` is used only when the status itself is `none`: old Cursor
     /// versions leave stale generating ids behind after a completed turn.
     pub fn activity(&self) -> Option<Activity> {
         match self.status {
             ComposerStatus::Completed => Some(Activity::Done),
             ComposerStatus::Aborted => Some(Activity::Interrupted),
+            _ if self.waiting_activity().is_some() => self.waiting_activity(),
             ComposerStatus::Generating => Some(Activity::Thinking),
             ComposerStatus::None | ComposerStatus::Unknown(_) if self.generating_bubbles > 0 => {
                 Some(Activity::Thinking)
             }
             ComposerStatus::None | ComposerStatus::Unknown(_) => None,
         }
+    }
+
+    /// What a bubble says while it is waiting on the user, if any tool is. An ask-user bubble
+    /// waits for an answer; every other pending tool waits for approval.
+    pub fn waiting_activity(&self) -> Option<Activity> {
+        self.tools.iter().rev().find_map(CursorToolCall::waiting_activity)
     }
 
     /// When the composer's status was last written: `lastUpdatedAt`, or `createdAt` for an
@@ -125,6 +137,29 @@ pub struct CursorToolCall {
     pub user_decision: Option<String>,
     /// `toolFormerData.error`, kept as the JSON string Cursor wrote.
     pub error: Option<String>,
+}
+
+impl CursorToolCall {
+    /// What this tool is waiting on, when its persisted decision is still `pending`.
+    ///
+    /// Cursor writes the value at both levels depending on the tool and version:
+    /// `toolFormerData.additionalData.status` while the shell/write/review card is up (3.27),
+    /// and `userDecision` (or `status` in some exports) in the public storage shape. An
+    /// ask-user tool is waiting for an answer; the rest are waiting for approval.
+    pub fn waiting_activity(&self) -> Option<Activity> {
+        let pending = [self.user_decision.as_deref(), self.additional_status.as_deref(), self.status.as_deref()]
+            .into_iter()
+            .flatten()
+            .any(|value| value.eq_ignore_ascii_case("pending"));
+        if !pending {
+            return None;
+        }
+        Some(if crate::Harness::Cursor.discovery().asks_user(&self.name) {
+            Activity::AwaitingAnswer
+        } else {
+            Activity::AwaitingApproval
+        })
+    }
 }
 
 /// Every composer read from a snapshot, sorted by id.
@@ -377,7 +412,7 @@ mod tests {
         assert!(sidecar(&live, "-wal").is_file(), "the rows are still in the WAL");
 
         let state = read_state_vscdb(&live).unwrap();
-        assert_eq!(state.composers.len(), 4, "one malformed composer row is skipped");
+        assert_eq!(state.composers.len(), 8, "one malformed composer row is skipped");
         let composer = state.composer("composer-1").unwrap();
         assert_eq!(composer.name.as_deref(), Some("Add a health check"));
         assert_eq!(composer.status, ComposerStatus::Completed);
@@ -402,6 +437,22 @@ mod tests {
         );
         let none = state.composer("composer-4").unwrap();
         assert_eq!((none.status.clone(), none.activity()), (ComposerStatus::None, None));
+
+        // While the approval card is up Cursor writes a pending decision on the bubble; the
+        // composer may still say generating, so the pending decision is the firmer signal.
+        let waiting = state.composer("composer-5").unwrap();
+        assert_eq!(waiting.status, ComposerStatus::Generating);
+        assert_eq!(waiting.activity(), Some(Activity::AwaitingApproval));
+        assert_eq!(waiting.waiting_activity(), Some(Activity::AwaitingApproval));
+        // Accepting moves the bubble to loading/accepted; denying records the rejection. The
+        // composer status then decides again (generating or completed), with no stale wait.
+        let approved = state.composer("composer-6").unwrap();
+        assert_eq!(approved.activity(), Some(Activity::Thinking));
+        let denied = state.composer("composer-7").unwrap();
+        assert_eq!(denied.activity(), Some(Activity::Done));
+        // A pending ask-user tool waits for an answer, not a yes/no approval.
+        let question = state.composer("composer-8").unwrap();
+        assert_eq!(question.activity(), Some(Activity::AwaitingAnswer));
 
         // The reader never writes to the live database, and the writer still has it open.
         writer

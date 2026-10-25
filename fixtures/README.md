@@ -114,7 +114,9 @@ through `AGENT_TAIL_BIN` before its PR is opened.
 `fixtures/cursor/handmade/vscdb-reader/` is a `state.vscdb` fixture, not a transcript
 scenario: `input/state-vscdb.jsonl` holds synthetic `cursorDiskKV` key/value rows, and
 `crates/agent-tail/src/sqlite.rs` builds a real SQLite database from it (with the rows left in
-the WAL) to test the snapshot reader.
+the WAL) to test the snapshot reader. It includes waiting, approved and denied tool-decision
+shapes derived from the Cursor 3.27 IDE source (`additionalData.status: pending` for the wait),
+plus the public `userDecision: pending` shape; it is not a live capture.
 
 OpenCode's fixtures are **database row exports**, not transcript lines. Each line is
 `{"table": "session" | "message" | "part", "row": {…columns…}}`, in the reader's feed order:
