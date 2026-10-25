@@ -116,12 +116,12 @@ wait is still needed.
 
 ### Live approval wait capture
 
-On Linux, Cursor keeps the database at
-`~/.config/Cursor/User/globalStorage/state.vscdb` (macOS uses
-`~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`). The capture tool
+Cursor keeps the database at `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`
+on macOS and `~/.config/Cursor/User/globalStorage/state.vscdb` on Linux. The capture tool
 [`harness-ci/cursor/snapshot_state_vscdb.py`](../../harness-ci/cursor/snapshot_state_vscdb.py)
-copies that file with `-wal` and `-shm` into a private temp folder, opens **only the copy**
-`mode=ro`, runs the SQL below, redacts ids/titles/errors, and writes three JSON dumps:
+auto-detects the platform path, copies that file with `-wal` and `-shm` into a private temp
+folder, opens **only the copy** `mode=ro`, runs the SQL below, redacts ids/titles/errors, and
+writes three JSON dumps:
 
 ```sh
 harness-ci/cursor/snapshot-state-vscdb.sh waiting       --out /tmp/cursor-approval
@@ -131,11 +131,16 @@ harness-ci/cursor/snapshot-state-vscdb.sh after-approve --out /tmp/cursor-approv
 harness-ci/cursor/snapshot-state-vscdb.sh after-deny    --out /tmp/cursor-approval
 ```
 
-`capture` runs the same three snapshots with prompts. A raw read of a copied database (never
-the live one) is:
+`capture` runs the same three snapshots with prompts. For the periodic Mac confirmation on an
+already-signed-in Cursor, use
+[`harness-ci/cursor/mac-smoke.md`](../../harness-ci/cursor/mac-smoke.md); it also shows the
+one-line `agent-tail ls`/`watch` status check. A raw read of a copied database (never the
+live one) is:
 
 ```sh
-CURSOR_STATE="${CURSOR_STATE_DIR:-$HOME/.config/Cursor/User/globalStorage}"
+# macOS:
+CURSOR_STATE="${CURSOR_STATE_DIR:-$HOME/Library/Application Support/Cursor/User/globalStorage}"
+# Linux: CURSOR_STATE="${CURSOR_STATE_DIR:-$HOME/.config/Cursor/User/globalStorage}"
 SNAP=$(mktemp -d)
 cp "$CURSOR_STATE/state.vscdb"* "$SNAP/"
 sqlite3 "$SNAP/state.vscdb" "
@@ -152,12 +157,13 @@ sqlite3 "$SNAP/state.vscdb" "
 rm -rf "$SNAP"
 ```
 
-**Blocked in the #43 lane:** the CLI tokens available there expired and the IDE needs an
-interactive Cursor sign-in, which is unavailable under Xvfb. Multibeast can finish only the
-auth step (sign in, open an Agent chat with auto-run off, run the commands above) and attach
-the dumps. The 3.27 IDE source shows the wait writing `additionalData.status: pending`; a
-live capture is still needed to confirm it and to record what `composerData.status` says
-during the wait. It is no longer the open question of *whether* a firm signal exists.
+**CI stays offline-only.** The Linux + Xvfb capture remains blocked: the CLI tokens
+available there expired, and the IDE needs an interactive Cursor sign-in under Xvfb. Do not
+add a Cursor login step to CI. The periodic confirmation path is
+[`mac-smoke.md`](../../harness-ci/cursor/mac-smoke.md) on Lee's already-signed-in Mac. The
+3.27 IDE source shows the wait writing `additionalData.status: pending`; that Mac smoke is
+what confirms it and records what `composerData.status` says during the wait. It is no longer
+the open question of *whether* a firm signal exists.
 
 ## Status signals
 - **Turn end:** `turn_ended`. Firm. `status: error` with one of the `error` strings above means

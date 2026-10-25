@@ -6,6 +6,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
+
+import snapshot_state_vscdb as snapshot
 
 HERE = Path(__file__).resolve().parent
 SCRIPT = HERE / "snapshot_state_vscdb.py"
@@ -73,9 +76,23 @@ class SnapshotStateVscdbTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads((self.out / f"{phase}.json").read_text())
 
+    def test_platform_and_default_paths(self):
+        with mock.patch("pathlib.Path.home", return_value=Path("/Users/lee")):
+            self.assertEqual(
+                snapshot.default_db("darwin"),
+                Path("/Users/lee/Library/Application Support/Cursor/User/globalStorage/state.vscdb"),
+            )
+            self.assertEqual(snapshot.platform_name("darwin"), "macos")
+            self.assertEqual(
+                snapshot.default_db("linux"),
+                Path("/Users/lee/.config/Cursor/User/globalStorage/state.vscdb"),
+            )
+            self.assertEqual(snapshot.platform_name("linux"), "linux")
+
     def test_three_phases_are_snapshotted_and_redacted(self):
         waiting = self.run_phase("waiting")
         self.assertEqual(waiting["phase"], "waiting")
+        self.assertEqual(waiting["platform"], snapshot.platform_name())
         self.assertEqual(waiting["composer"]["status"], "generating")
         self.assertEqual(waiting["composer"]["generatingBubbleIds"], {"count": 1})
         self.assertEqual(waiting["bubbles"][0]["toolFormerData"]["additionalStatus"], "pending")

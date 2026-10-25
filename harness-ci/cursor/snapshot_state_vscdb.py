@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Snapshot Cursor's Linux state.vscdb during a live approval wait, without opening it.
+"""Snapshot Cursor's state.vscdb during a live approval wait, without opening it.
 
 The live database is never opened. Each capture copies ``state.vscdb`` and its ``-wal`` and
 ``-shm`` sidecars into a private temporary folder, opens the copy read-only, runs the
@@ -9,16 +9,18 @@ file is safe to attach to the issue or turn into a fixture.
 
 Typical use, from the repository root::
 
-    python3 harness-ci/cursor/snapshot_state_vscdb.py waiting --out /tmp/cursor-approval
+    ./harness-ci/cursor/snapshot-state-vscdb.sh waiting --out /tmp/cursor-approval
     # approve the tool in Cursor
-    python3 harness-ci/cursor/snapshot_state_vscdb.py after-approve --out /tmp/cursor-approval
+    ./harness-ci/cursor/snapshot-state-vscdb.sh after-approve --out /tmp/cursor-approval
     # start a second tool wait, then deny it in Cursor
-    python3 harness-ci/cursor/snapshot_state_vscdb.py after-deny --out /tmp/cursor-approval
+    ./harness-ci/cursor/snapshot-state-vscdb.sh after-deny --out /tmp/cursor-approval
 
 ``capture`` does the same three snapshots with prompts between them. It is only a convenience;
 each phase can also be captured by hand with the commands above.
 
-The default database is Cursor's Linux global storage path. On other platforms pass ``--db``.
+The default database is Cursor's platform global storage path: macOS uses
+``~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`` and Linux uses
+``~/.config/Cursor/User/globalStorage/state.vscdb``. Pass ``--db`` for a non-standard install.
 """
 
 from __future__ import annotations
@@ -34,7 +36,6 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
-DEFAULT_DB = Path.home() / ".config/Cursor/User/globalStorage/state.vscdb"
 DEFAULT_OUT = Path(tempfile.gettempdir()) / "agent-tail-cursor-approval"
 SIDECARS = ("-wal", "-shm")
 PHASE_FILES = {
@@ -81,6 +82,30 @@ LATEST_COMPOSER_SQL = """
 
 class CaptureError(Exception):
     """A snapshot could not be read; the message is safe to show."""
+
+
+def platform_name(platform: str | None = None) -> str:
+    """The platform written to the dump: ``macos``, ``linux``, ``windows`` or the raw value."""
+    platform = sys.platform if platform is None else platform
+    if platform == "darwin":
+        return "macos"
+    if platform.startswith("linux"):
+        return "linux"
+    if platform.startswith(("win32", "cygwin", "msys")):
+        return "windows"
+    return platform
+
+
+def default_db(platform: str | None = None) -> Path:
+    """Cursor's default ``state.vscdb`` path on this (or the given) platform."""
+    name = platform_name(platform)
+    if name == "macos":
+        return Path.home() / "Library/Application Support/Cursor/User/globalStorage/state.vscdb"
+    if name == "windows":
+        appdata = os.environ.get("APPDATA")
+        root = Path(appdata) if appdata else Path.home() / "AppData/Roaming"
+        return root / "Cursor/User/globalStorage/state.vscdb"
+    return Path.home() / ".config/Cursor/User/globalStorage/state.vscdb"
 
 
 def sidecar(path: Path, suffix: str) -> Path:
@@ -173,7 +198,7 @@ def capture(db: Path, composer: str | None, phase: str, out: Path) -> str:
                 )
             document = {
                 "phase": phase,
-                "platform": "linux",
+                "platform": platform_name(),
                 "database": copied,
                 "composer": {
                     "key": "composerData:<composer>",
@@ -233,7 +258,8 @@ def parser() -> argparse.ArgumentParser:
         choices=[*PHASE_FILES, "capture"],
         help="waiting, after-approve, after-deny, or capture (interactive, all three)",
     )
-    p.add_argument("--db", type=Path, default=DEFAULT_DB, help=f"state.vscdb path (default: {DEFAULT_DB})")
+    default_database = default_db()
+    p.add_argument("--db", type=Path, default=default_database, help=f"state.vscdb path (default: {default_database})")
     p.add_argument("--composer", help="Cursor composer id (default: newest composerData row)")
     p.add_argument("--out", type=Path, default=DEFAULT_OUT, help=f"output directory (default: {DEFAULT_OUT})")
     return p

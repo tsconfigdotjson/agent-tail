@@ -99,9 +99,10 @@ long command starts; the policy under test is still `approval_policy = never`.
 - pinned and latest CLI scenarios for Claude Code, Codex, Pi, OpenCode, Gemini CLI, and
   GitHub Copilot CLI;
 - Cursor CLI installation and offline transcript/status fixtures (its chat path requires
-  Cursor's backend, so it is not in the mock/PTY matrix); the manual Linux
+  Cursor's backend, so it is not in the mock/PTY matrix); the manual macOS/Linux
   [`cursor/`](cursor/README.md) snapshot tool captures a live `state.vscdb` approval wait
-  without opening the live database;
+  without opening the live database, and [`cursor/mac-smoke.md`](cursor/mac-smoke.md) is the
+  periodic already-signed-in Mac confirmation path;
 - nightly shape-drift checks and fixture capture.
 
 Claude Desktop has a separate offline stand-in, a live Jev lane, and a manual launch probe
