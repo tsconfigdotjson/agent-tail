@@ -66,6 +66,21 @@ jobs:
       - name: Survey and nightly tool tests
         run: python3 -m unittest discover -s harness-ci/ci -p 'test_*.py' -v
 
+  fixtures:
+    name: Fixture redaction scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.88
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustc --version
+
+      - name: Scan fixtures for secrets and home paths
+        run: cargo run --locked -p agenttail-cli -- fixture scan fixtures
+
   prepare:
     name: Resolve npm latest
     runs-on: ubuntu-latest
@@ -314,14 +329,25 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install Rust 1.88
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustc --version
+
       - uses: actions/download-artifact@v4
         with:
           pattern: harness-*
           path: ${{ runner.temp }}/artifacts
 
+      - name: Build the fixture redaction tool
+        run: cargo build --locked -p agenttail-cli --release
+
       - name: Compare shapes and capture redacted fixtures
         id: compare
         shell: bash
+        env:
+          AGENTTAIL_BIN: ${{ github.workspace }}/target/release/agenttail
         run: |
           set +e
           python3 harness-ci/ci/nightly.py --artifacts "$RUNNER_TEMP/artifacts"
@@ -332,6 +358,9 @@ jobs:
             exit 1
           fi
           exit "$status"
+
+      - name: Scan captured fixtures for secrets and home paths
+        run: target/release/agenttail fixture scan fixtures
 
       - name: Open a drift PR when shape changed
         if: steps.compare.outcome == 'success'

@@ -13,7 +13,9 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import re
+import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -440,6 +442,24 @@ def capture_fixture(run_dir: Path, out_root: Path, harness: str, version: str, o
         "".join(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n" for record in redacted),
         encoding="utf-8",
     )
+    # The workflow sets AGENTTAIL_BIN so the same Rust redactor that people use locally
+    # handles the nightly capture too. The local fallback above still strips ids and paths
+    # for unit tests and development without a built CLI.
+    binary = os.environ.get("AGENTTAIL_BIN")
+    if binary:
+        subprocess.run(
+            [
+                binary,
+                "fixture",
+                "redact",
+                "--in-place",
+                "--report",
+                str(target / "redaction.json"),
+                str(input_path),
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
     today = dt.date.today().isoformat()
     (target / "meta.toml").write_text(
         "\n".join(
