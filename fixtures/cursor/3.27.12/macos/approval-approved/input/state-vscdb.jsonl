@@ -1,0 +1,7 @@
+{"key":"composerData:composer-1","value":{"name":"<redacted>","status":"completed","lastUpdatedAt":1792953082400,"createdAt":1792953082122,"generatingBubbleIds":[]}}
+{"key":"bubbleId:composer-1:bubble-1","value":{"type":1,"toolFormerData":{}}}
+{"key":"bubbleId:composer-1:bubble-2","value":{"type":2,"toolFormerData":{}}}
+{"key":"bubbleId:composer-1:bubble-3","value":{"type":2,"toolFormerData":{}}}
+{"key":"bubbleId:composer-1:bubble-4","value":{"type":2,"toolFormerData":{}}}
+{"key":"bubbleId:composer-1:bubble-5","value":{"type":2,"toolFormerData":{}}}
+{"key":"bubbleId:composer-1:bubble-6","value":{"type":2,"toolFormerData":{"name":"run_terminal_command_v2","status":"completed","additionalData":{"status":"success"}}}}

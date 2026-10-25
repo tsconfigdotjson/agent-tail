@@ -142,7 +142,7 @@ donated-verified, ported-unverified, spike, or unsupported.
 | OpenCode | CI-verified |
 | Gemini CLI | CI-verified |
 | GitHub Copilot CLI | CI-verified |
-| Cursor | ported-unverified; live approval capture still needed |
+| Cursor | donated-verified |
 | Claude Desktop local agent mode | ported-unverified; no real capture yet |
 
 Code-tab transcripts from Claude Desktop stay on the Claude Code adapter. Format notes for

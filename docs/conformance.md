@@ -16,6 +16,8 @@ which contains `input/`). It holds `session.jsonl` as the main transcript and ma
 `subagents/<agent>.jsonl` plus `subagents/<agent>.meta.json` for helpers that the harness
 writes as separate files. GitHub Copilot CLI instead interleaves helper records in
 `session.jsonl` with a top-level `agentId`; those are read as part of the main transcript.
+A database-only Cursor fixture instead holds `input/state-vscdb.jsonl` and no transcript;
+`status` loads the rows, applies the composer status, and checks at `after_line: 0`.
 
 The language-neutral contract is frozen in [`spec/schema/`](../spec/schema/):
 `event.schema.json` for events, `session-state.schema.json` for the full state object, and
@@ -28,7 +30,8 @@ committed fixtures' expected events and statuses are validated against these sch
   helper transcripts are reducer inputs, not part of `expected/events.jsonl`.
 - **status** replays the main transcript and each checkpoint's helper/meta steps, then writes
   one status object per checkpoint, in checkpoint order. It exits 1 when a checkpoint's
-  declared expected fields do not match.
+  declared expected fields do not match. For a database-only Cursor fixture it applies the
+  composer instead of replaying a transcript.
 
 `agent-tail events` also accepts a single transcript path for compatibility. `--agent
 claude_code|codex|cursor|pi` overrides harness detection.

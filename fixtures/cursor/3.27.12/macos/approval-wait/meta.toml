@@ -1,0 +1,6 @@
+harness = "cursor"
+version = "3.27.12"
+os = "macos"
+capture = "donated"
+date = "2026-10-25"
+description = "Donated Cursor 3.27.12 Mac state.vscdb snapshot while a run_terminal_command_v2 approval card was up: bubble additionalData.status is pending while composerData.status is aborted; checks firm awaiting_approval from the database. Converted to cursorDiskKV rows from harness-ci/cursor/mac-smoke-dumps/waiting.json; ids, title and errors were already replaced with placeholders by the snapshot tool."

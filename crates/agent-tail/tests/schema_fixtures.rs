@@ -3,7 +3,9 @@
 //! line, every event parsed from the scenario inputs (including harnesses with no committed
 //! events file yet), and the reducer's `SessionState`.
 
-use agent_tail::{ChunkCtx, Harness, ParseMode, ReducerOptions, SessionReducer, Timestamp, parse_lines};
+use agent_tail::{
+    ChunkCtx, Harness, ParseMode, ReducerOptions, SessionReducer, Timestamp, parse_lines, read_state_vscdb_jsonl,
+};
 use jsonschema::Validator;
 use serde_json::{Value, json};
 use std::fs;
@@ -133,6 +135,15 @@ fn every_scenario_parses_to_valid_events_and_state() {
     for scenario in found {
         let harness = harness_for(&scenario, &fixtures);
         let path = scenario.join("input/session.jsonl");
+        if !path.is_file() {
+            let database = scenario.join("input/state-vscdb.jsonl");
+            if database.is_file() {
+                let bytes = fs::read(&database).unwrap_or_else(|e| panic!("{}: {e}", database.display()));
+                let state = read_state_vscdb_jsonl(&bytes).unwrap_or_else(|e| panic!("{}: {e}", database.display()));
+                assert!(!state.composers.is_empty(), "{}: no composers", database.display());
+                continue;
+            }
+        }
         let bytes = fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         for (index, event) in parse_lines(harness, &bytes, ParseMode::Full).enumerate() {
             let value = serde_json::to_value(&event).unwrap();

@@ -13,7 +13,7 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | Claude Code | **CI-verified** | 12 | 5 | `2.1.292`, `2.1.310` | 12 CI scenario(s); 0 ci-scripted, 1 donated, 4 hand-made fixture(s) |
 | Claude Desktop | **ported-unverified** | 0 | 5 | unknown | 5 hand-made/synthetic fixture(s); no real capture |
 | Codex | **CI-verified** | 9 | 5 | `0.160.1` | 9 CI scenario(s); 0 ci-scripted, 2 donated, 3 hand-made fixture(s) |
-| Cursor | **ported-unverified** | 0 | 4 | unknown | 4 hand-made/synthetic fixture(s); no real capture |
+| Cursor | **donated-verified** | 0 | 7 | `3.27.12` | 3 donated fixture(s); no CI scenario |
 | Pi | **CI-verified** | 5 | 8 | `1.4.0` | 5 CI scenario(s); 3 ci-scripted, 0 donated, 5 hand-made fixture(s) |
 | OpenCode | **CI-verified** | 2 | 8 | `1.19.4` | 2 CI scenario(s); 3 ci-scripted, 0 donated, 5 hand-made fixture(s) |
 | Gemini CLI | **CI-verified** | 3 | 4 | `0.65.0` | 3 CI scenario(s); 3 ci-scripted, 0 donated, 1 hand-made fixture(s) |
@@ -60,6 +60,9 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/plain-qa` |
 | copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/subagent-helper` |
 | copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/tool` |
+| cursor | `3.27.12` | `macos` | `donated` | `cursor/3.27.12/macos/approval-approved` |
+| cursor | `3.27.12` | `macos` | `donated` | `cursor/3.27.12/macos/approval-denied` |
+| cursor | `3.27.12` | `macos` | `donated` | `cursor/3.27.12/macos/approval-wait` |
 | cursor | `unknown` | `any` | `handmade` | `cursor/handmade/vscdb-reader` |
 | cursor | `unknown` | `any` | `handmade` | `cursor/unknown/any/awaiting-answer` |
 | cursor | `unknown` | `any` | `handmade` | `cursor/unknown/any/interrupted` |

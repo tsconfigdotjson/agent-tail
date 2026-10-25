@@ -66,23 +66,25 @@ returns. It never opens the live database; the WAL is copied because live writes
 It reads:
 
 - `composerData:*`: `name`, `status`, `generatingBubbleIds`, `lastUpdatedAt` and
-  `createdAt`. `status: completed` is firm `Done`, `aborted` is firm `Interrupted`, and
-  `generating` (or a non-empty `generatingBubbleIds` when the status is `none`) is firm
-  `Thinking`. An unknown status changes nothing. The snapshot's `lastUpdatedAt` must be at
-  least as new as the transcript's last entry, so a throttled read can't rewind a newer
-  transcript. `name` is the Cursor title; the opening prompt remains the fallback.
+  `createdAt`. `status: completed` is firm `Done`, `aborted` is firm `Interrupted` unless a
+  bubble is still pending (then the pending decision wins), and `generating` (or a non-empty
+  `generatingBubbleIds` when the status is `none`) is firm `Thinking`. An unknown status
+  changes nothing. The snapshot's `lastUpdatedAt` must be at least as new as the transcript's
+  last entry, so a throttled read can't rewind a newer transcript. `name` is the Cursor
+  title; the opening prompt remains the fallback.
 - `bubbleId:*`: `toolFormerData.name`, `status`, `userDecision`, `additionalData.status`,
   `additionalData.userDecision` and `error`. Cursor also writes `status: loading`,
   `completed`, `error` and `cancelled`, and decisions `accepted`, `rejected` or `pending`.
   A pending decision is firm **`AwaitingApproval`**; a pending ask-user tool is firm
   **`AwaitingAnswer`**. Cursor writes it at `additionalData.status: pending` while the
   shell/write review card is up in the 3.27 IDE, and as `userDecision: pending` in public
-  storage/export shapes; the reader accepts either (and `status: pending`). A completed or
-  aborted composer wins over a bubble left behind from that turn. Otherwise pending wins
-  over `generating`, because the composer can still say `generating` while the card waits.
-  The pending mapping is based on Cursor 3.27 IDE source, the public values and the committed
-  Cursor 3.27.12 Mac dumps; those live dumps show `additionalData.status: pending` while the
-  composer is `aborted` (below).
+  storage/export shapes; the reader accepts either (and `status: pending`). A completed
+  composer wins over a bubble left behind from that turn. Otherwise a pending decision wins
+  over `generating` and `aborted`, because the composer can still say `generating` or
+  `aborted` while the card waits. The pending mapping is based on Cursor 3.27 IDE source, the
+  public values and the committed Cursor 3.27.12 Mac dumps; those live dumps show
+  `additionalData.status: pending` while the composer is `aborted` (below). An `aborted`
+  composer with no pending bubble is still an interruption.
 
 The tracker checks the three files' stamps on every poll but copies them at most every 30 s,
 and only while a Cursor session is in the window. A database that hasn't changed is not
@@ -91,8 +93,9 @@ copied again. A first poll with no Cursor session never opens it.
 `generating` was not in the 2026-10-23 survey copy, which was idle. It appears in Cursor's
 stored default composer state and in third-party readers; the reader accepts it but the
 `Thinking` mapping has not been checked against a live Cursor capture yet. The live Mac
-approval wait showed `aborted`, not `generating`. Stale `generatingBubbleIds` are ignored when
-the status says `completed`.
+approval wait showed `aborted`, not `generating`; because the pending bubble is firmer, that
+snapshot still reads as awaiting approval. Stale `generatingBubbleIds` are ignored when the
+status says `completed`.
 
 ### Cursor CLI and the mock/PTY rig
 
@@ -113,8 +116,8 @@ endpoint:
 So Cursor needs its backend, or a new mock that implements Cursor's auth exchange,
 protobuf model catalogue and streaming chat protocol. **Decision:** Cursor does not join the
 mock/PTY matrix; it ships through donated fixtures and, if a key is available later, a
-budget-capped nightly real run. A freshly created IDE `state.vscdb` during a live approval
-wait is now committed from the Mac smoke.
+budget-capped nightly real run. The live Mac approval-wait/approved/denied `state.vscdb`
+dumps are now donated fixtures under `fixtures/cursor/3.27.12/macos/`.
 
 ### Live approval wait capture
 
@@ -166,7 +169,8 @@ add a Cursor login step to CI. The periodic confirmation path is
 committed Cursor 3.27.12 dumps under `harness-ci/cursor/mac-smoke-dumps/` confirm the wait
 writes `additionalData.status: pending` while `composerData.status` reads `aborted`, then
 `success`/`completed` after approve and `rejected` after deny. Run Mode was Allowlist (empty);
-Cursor 3.27 no longer has `Ask every time`.
+Cursor 3.27 no longer has `Ask every time`. The same snapshots are donated fixtures under
+`fixtures/cursor/3.27.12/macos/`, so the reader status is checked in `status_fixtures`.
 
 ## Status signals
 - **Turn end:** `turn_ended`. Firm. `status: error` with one of the `error` strings above means
@@ -178,8 +182,9 @@ Cursor 3.27 no longer has `Ask every time`.
   firm `RunningTool`.
 - **Approval pending:** a bubble's `userDecision: pending`, `status: pending`, or
   `additionalData.status: pending` is firm `AwaitingApproval`; a pending ask-user tool is
-  firm `AwaitingAnswer`. Cursor does not use the shared 20 s stall inference. The source
-  shape is from the 3.27 IDE and is confirmed by the committed Mac dumps above.
+  firm `AwaitingAnswer`. It wins over an `aborted` composer, which is the live 3.27 waiting
+  shape. Cursor does not use the shared 20 s stall inference. The source shape is from the
+  3.27 IDE and is confirmed by the committed Mac dumps above.
   The committed transcript fixtures cover a pending `AskUserQuestion` (`awaiting-answer`)
   and a `turn_ended` user stop (`interrupted`), alongside the original seed session.
 - **Times:** none in transcripts except the prompt's `<timestamp>` (to the minute). Use mtime.
@@ -191,9 +196,9 @@ Cursor 3.27 no longer has `Ask every time`.
 - Maps `turn_ended` with a user-stop error string to firm `interrupted`; it does not collapse
   every `status: error` into `done`.
 - Reads `state.vscdb` in the `sqlite` feature for `composerData.status`, bubble decisions,
-  titles via `name`, and timestamps. A completed composer is firm `done`, aborted is firm
-  `interrupted`, a pending decision is firm `awaiting_approval` (or `awaiting_answer`), and
-  generating is firm `thinking`.
+  titles via `name`, and timestamps. A completed composer is firm `done`, a pending decision
+  is firm `awaiting_approval` (or `awaiting_answer`) even over `aborted`, an aborted composer
+  with no pending decision is firm `interrupted`, and generating is firm `thinking`.
 - Follows Cursor subagent transcripts and their own `turn_ended`, so a finished helper and a
   stuck one are distinguishable.
 - Keeps tool calls pending until later assistant text indicates the result is in. Cursor is
@@ -203,10 +208,11 @@ Cursor 3.27 no longer has `Ask every time`.
 
 ## Open questions
 - The pending decision is mapped from the Cursor 3.27 IDE source, public values and the
-  committed live Mac dumps (waiting/approved/denied).
+  committed live Mac dumps (waiting/approved/denied), now also donated fixtures under
+  `fixtures/cursor/3.27.12/macos/`.
 - Whether `composerData.status` reads `generating` while an approval card waits: accepted by
   the reader (pending wins either way), not yet seen in a live capture; the Mac waiting dump
-  showed `aborted`.
+  showed `aborted`, and the donated fixture pins that pending wins over it.
 - `<cursor_commands>` and other wrappers; any ask-user tool name; how `cursor-agent` (CLI)
   sessions differ. The CLI is not in the rig; its `~/.cursor/chats/.../store.db` is not read.
 - Environment overrides Cursor honours are not researched; `state.vscdb` uses the platform

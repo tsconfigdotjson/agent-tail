@@ -5,8 +5,9 @@ needs no new Cursor login, no API key, and no CI secret. Harness CI stays offlin
 is a manual smoke run.
 
 Live Cursor 3.27.12 dumps from Lee's MacBookAir are committed under
-[`mac-smoke-dumps/`](mac-smoke-dumps/). They confirm the waiting, approval and denial shapes;
-CI still keeps the synthetic `state.vscdb` and transcript fixtures instead of running Cursor
+[`mac-smoke-dumps/`](mac-smoke-dumps/) and promoted to donated fixtures under
+`fixtures/cursor/3.27.12/macos/`. They confirm the waiting, approval and denial shapes; CI
+still keeps the synthetic `state.vscdb` and transcript fixtures instead of running Cursor
 live.
 
 Run from the repository root.

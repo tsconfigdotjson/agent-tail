@@ -2,11 +2,14 @@
 //! `status <input-dir> --checkpoints <file>`.
 //!
 //! Both read a fixture-style input directory (`session.jsonl` plus optional
-//! `subagents/`), and both write canonical JSON: object keys sorted at every depth, and, when
-//! comparing, a missing optional field is the same as an explicit `null`.
+//! `subagents/`, or a database-only `state-vscdb.jsonl`), and both write canonical JSON:
+//! object keys sorted at every depth, and, when comparing, a missing optional field is the
+//! same as an explicit `null`.
 
 use crate::{harness_for, harness_from_bytes};
-use agent_tail::{ChunkCtx, Harness, ParseMode, ReducerOptions, SessionReducer, Timestamp, parse_lines};
+use agent_tail::{
+    ChunkCtx, Harness, ParseMode, ReducerOptions, SessionReducer, Timestamp, parse_lines, read_state_vscdb_jsonl,
+};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -17,6 +20,9 @@ use std::time::Duration;
 pub fn events(args: &[String]) -> Result<(), String> {
     let (path, agent) = path_and_agent(args, "events")?;
     let input = Input::locate(&path)?;
+    if let Some(database) = &input.database {
+        return Err(format!("{}: a state.vscdb snapshot has no transcript events", database.display()));
+    }
     let bytes = std::fs::read(&input.main).map_err(|e| format!("{}: {e}", input.main.display()))?;
     let harness =
         agent.or_else(|| harness_for(&input.main)).or_else(|| harness_from_bytes(&bytes)).ok_or_else(|| {
@@ -54,16 +60,22 @@ pub fn status(args: &[String]) -> Result<ExitCode, String> {
     let checkpoints_path = checkpoints_path.ok_or("status needs --checkpoints <file>")?;
     let (path, agent) = path_and_agent(&rest, "status")?;
     let input = Input::locate(&path)?;
-    let bytes = std::fs::read(&input.main).map_err(|e| format!("{}: {e}", input.main.display()))?;
-    let harness =
-        agent.or_else(|| harness_for(&input.main)).or_else(|| harness_from_bytes(&bytes)).ok_or_else(|| {
-            format!(
-                "can't tell which harness wrote {}; pass --agent claude_code|claude_desktop|codex|cursor|pi|opencode|gemini|copilot",
-                input.main.display()
-            )
-        })?;
     let checkpoints = read_checkpoints(&checkpoints_path)?;
-    let matched = run_checkpoints(harness, &input, &checkpoints)?;
+    let matched = if let Some(database) = &input.database {
+        let bytes = std::fs::read(database).map_err(|e| format!("{}: {e}", database.display()))?;
+        let state = read_state_vscdb_jsonl(&bytes).map_err(|e| e.to_string())?;
+        run_database_checkpoints(&input, &state, &checkpoints)?
+    } else {
+        let bytes = std::fs::read(&input.main).map_err(|e| format!("{}: {e}", input.main.display()))?;
+        let harness =
+            agent.or_else(|| harness_for(&input.main)).or_else(|| harness_from_bytes(&bytes)).ok_or_else(|| {
+                format!(
+                    "can't tell which harness wrote {}; pass --agent claude_code|claude_desktop|codex|cursor|pi|opencode|gemini|copilot",
+                    input.main.display()
+                )
+            })?;
+        run_checkpoints(harness, &input, &checkpoints)?
+    };
     Ok(if matched { ExitCode::SUCCESS } else { ExitCode::FAILURE })
 }
 
@@ -85,27 +97,42 @@ fn path_and_agent(args: &[String], command: &str) -> Result<(PathBuf, Option<Har
     Ok((path.ok_or_else(|| format!("{command} needs an input directory or transcript"))?, agent))
 }
 
-/// A fixture-style input: one main transcript and the directory its helpers live under.
+/// A fixture-style input: one main transcript, or a database snapshot, and the directory
+/// its helpers live under.
 #[derive(Debug)]
 struct Input {
     main: PathBuf,
+    database: Option<PathBuf>,
     root: PathBuf,
 }
 
 impl Input {
     fn locate(path: &Path) -> Result<Input, String> {
         if path.is_file() {
-            return Ok(Input { main: path.to_path_buf(), root: path.parent().unwrap_or(Path::new(".")).to_path_buf() });
+            let database = path.file_name().is_some_and(|name| name == "state-vscdb.jsonl");
+            return Ok(Input {
+                main: path.to_path_buf(),
+                database: database.then(|| path.to_path_buf()),
+                root: path.parent().unwrap_or(Path::new(".")).to_path_buf(),
+            });
         }
         if !path.is_dir() {
             return Err(format!("{}: not a file or directory", path.display()));
         }
         // Accept a scenario directory (`input/session.jsonl`) as well as the input directory
-        // itself (`session.jsonl`).
-        let dir = if path.join("input/session.jsonl").is_file() { path.join("input") } else { path.to_path_buf() };
+        // itself (`session.jsonl`). A database-only fixture has `input/state-vscdb.jsonl`.
+        let dir = if path.join("input/session.jsonl").is_file() || path.join("input/state-vscdb.jsonl").is_file() {
+            path.join("input")
+        } else {
+            path.to_path_buf()
+        };
         let main = dir.join("session.jsonl");
         if main.is_file() {
-            return Ok(Input { main, root: dir });
+            return Ok(Input { main, database: None, root: dir });
+        }
+        let database = dir.join("state-vscdb.jsonl");
+        if database.is_file() {
+            return Ok(Input { main: database.clone(), database: Some(database), root: dir });
         }
         let mut found = Vec::new();
         for entry in std::fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))? {
@@ -117,8 +144,11 @@ impl Input {
         }
         found.sort();
         match found.as_slice() {
-            [one] => Ok(Input { main: one.clone(), root: dir }),
-            [] => Err(format!("{}: no session.jsonl (or single .jsonl) in the input directory", dir.display())),
+            [one] => Ok(Input { main: one.clone(), database: None, root: dir }),
+            [] => Err(format!(
+                "{}: no session.jsonl, state-vscdb.jsonl (or single .jsonl) in the input directory",
+                dir.display()
+            )),
             many => Err(format!(
                 "{}: expected one main transcript, found {}: {}",
                 dir.display(),
@@ -318,6 +348,63 @@ fn entry_time(entry: &Value) -> Option<Timestamp> {
         .and_then(Value::as_f64)
         .filter(|&millis| millis > 0.0)
         .map(|millis| Timestamp::from_secs_f64(millis / 1000.0))
+}
+
+fn run_database_checkpoints(
+    input: &Input,
+    database: &agent_tail::CursorState,
+    checkpoints: &[Value],
+) -> Result<bool, String> {
+    let composer =
+        database.composers.first().ok_or_else(|| format!("{}: no composerData rows", input.main.display()))?;
+    let at = composer.updated_at().unwrap_or(Timestamp::EPOCH);
+    let mut reducer = SessionReducer::new(Harness::Cursor, ReducerOptions::default());
+    reducer.set_composer_title(composer.name.as_deref());
+    reducer.set_composer_status(composer.activity().map(|activity| (activity, at)));
+
+    let mut seen = vec![false; checkpoints.len()];
+    let mut matched = true;
+    for (index, checkpoint) in checkpoints.iter().enumerate() {
+        if checkpoint["after_line"].as_u64() != Some(0) {
+            continue;
+        }
+        seen[index] = true;
+        let offset = checkpoint["now_offset_s"].as_f64().unwrap_or_default();
+        if offset < 0.0 {
+            return Err(format!("after database snapshot: now_offset_s must not be negative"));
+        }
+        let now = at + Duration::from_secs_f64(offset);
+        let state = serde_json::to_value(reducer.state(now)).map_err(|e| e.to_string())?;
+        let actual = status_object(&state, checkpoint);
+        println!("{}", serde_json::to_string(&canonical(&actual)).map_err(|e| e.to_string())?);
+        for field in STATUS_FIELDS {
+            let Some(want) = checkpoint.get(field) else { continue };
+            let got = actual.get(field).unwrap_or(&Value::Null);
+            if !equivalent(want, got) {
+                eprintln!(
+                    "{}: after database snapshot: {field}: expected {}, got {}",
+                    input.main.display(),
+                    serde_json::to_string(&canonical(want)).unwrap_or_default(),
+                    serde_json::to_string(&canonical(got)).unwrap_or_default()
+                );
+                matched = false;
+            }
+        }
+    }
+    let missing: Vec<_> = checkpoints
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !seen[*index])
+        .map(|(_, checkpoint)| checkpoint["after_line"].as_u64().unwrap_or_default())
+        .collect();
+    if !missing.is_empty() {
+        return Err(format!(
+            "{}: checkpoint after_line {} was never reached",
+            input.main.display(),
+            missing.iter().map(u64::to_string).collect::<Vec<_>>().join(", ")
+        ));
+    }
+    Ok(matched)
 }
 
 fn status_object(state: &Value, checkpoint: &Value) -> Value {
