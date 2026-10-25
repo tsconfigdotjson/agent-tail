@@ -1,0 +1,6 @@
+harness = "claude_desktop"
+version = "unknown"
+os = "any"
+capture = "handmade"
+date = "2026-10-25"
+description = "An approval-like pause synthesized from the Claude Agent SDK stream-json shape: a default-mode tool call with no result. The audit stream has no persisted permission request, so 0 s is firm running_tool and 25 s is the shared inferred awaiting_approval stall; no real Desktop install was available."

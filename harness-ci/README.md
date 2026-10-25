@@ -388,10 +388,11 @@ snapshot of the IDE's `state.vscdb`; the missing piece is the live approval-wait
 (A5 #3), which needs Lee's Mac and is written up in
 [`docs/formats/cursor.md`](../docs/formats/cursor.md#needs-lee-the-live-approval-wait-a5-3).
 
-## A9: Claude Desktop + Jev computer-use spike (docs only, 2026-10-25)
+## A9: Claude Desktop adapter + Jev computer-use spike (2026-10-25, adapter #78)
 
-**Decision: Claude Desktop stays a documentation spike, not a harness lane.** There is no
-Desktop scenario, mock handshake or GHA job in this change. The write-up is
+**Decision: Claude Desktop's local agent mode is read by a ported-unverified adapter; the
+Jev driver remains a documentation spike, not a harness lane.** There is still no Desktop
+scenario, mock handshake or GHA job. The discovery/adapter evidence is in
 [`docs/formats/claude-desktop.md`](../docs/formats/claude-desktop.md); the gap checklist for a
 future scenario is [`claude-desktop/README.md`](claude-desktop/README.md).
 
@@ -403,9 +404,12 @@ future scenario is [`claude-desktop/README.md`](claude-desktop/README.md).
   `inferenceProvider: gateway`, an Anthropic Messages `POST /v1/messages` gateway with
   streaming and tool use, and the Linux managed-settings file at
   `/etc/claude-desktop/managed-settings.json`. No Desktop↔mock handshake has been run.
-- Desktop Code-tab transcripts are Claude Code transcripts under `~/.claude/projects/`;
-  Cowork/local-agent-mode sessions are separate `local_<id>/audit.jsonl` files below app-data
-  `local-agent-mode-sessions/`. They must not be treated as the same source.
+- Desktop Code-tab transcripts are Claude Code transcripts under `~/.claude/projects/` and
+  stay on that adapter. Cowork/local-agent-mode sessions are separate
+  `local_<id>/audit.jsonl` files below app-data `local-agent-mode-sessions/`; the
+  `claude_desktop` adapter reads them with their `local_<id>.json` sidecar. They must not be
+  treated as the same source. The fixtures are handmade, so the matrix is
+  **ported-unverified**, not donated/CI-verified.
 - Jev's default auth path is **OpenRouter**, billed to the existing OpenRouter credits:
   `OPENROUTER_API_KEY`, model `typesafe/jev-1.14` / `~typesafe/jev-latest`, Decisions API
   `POST https://openrouter.ai/api/alpha/decisions`, or the TypeSafe SDK at base URL

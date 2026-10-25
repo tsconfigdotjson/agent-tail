@@ -1,5 +1,6 @@
 //! What every coding agent on this machine is doing right now, read from the transcripts
-//! the agents write: Claude Code, Codex, Cursor, Pi, OpenCode, Gemini CLI and Copilot CLI.
+//! the agents write: Claude Code, Claude Desktop's local agent mode, Codex, Cursor, Pi,
+//! OpenCode, Gemini CLI and Copilot CLI.
 //!
 //! The core is sans-IO. A [`SessionReducer`] takes one transcript's bytes, a chunk at a
 //! time, with where they came from ([`ChunkCtx`]), and says what that session is doing as
@@ -51,8 +52,8 @@ mod testutil;
 mod time;
 
 pub use discovery::{
-    AskMatch, Database, Discovery, EnvRoot, ModeRule, NeverPrompt, ProjectExample, ProjectRule, Quirk, Registry, Roots,
-    TimestampRule,
+    AskMatch, Database, Discovery, EnvRoot, ModeRule, NeverPrompt, PlatformRoot, ProjectExample, ProjectRule, Quirk,
+    Registry, Roots, TimestampRule,
 };
 pub use error::Error;
 pub use event::{

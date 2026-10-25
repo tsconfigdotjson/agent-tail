@@ -16,6 +16,9 @@ The seed corpus from tvdash now lives in the versioned layout:
 | fixture | what it is |
 |---|---|
 | `claude-code/2.1/linux/seed-session` | a real Claude Code 2.1 session: a prompt, Bash / Read / Write calls, a generated title, a cost entry |
+| `claude-desktop/handmade/any/plain-qa` | Hand-made Claude Desktop local-agent-mode audit: `system/init`, a prompt, an assistant `end_turn`, then the SDK `result` frame; checks working → done → idle |
+| `claude-desktop/handmade/any/tool-turn` | Hand-made Desktop audit: a pending `Bash` tool call, its `tool_result`, the answer, then the result frame |
+| `claude-desktop/handmade/any/tool-stall` | Hand-made Desktop audit: a default-mode pending tool is firm `running_tool` at 0 s and inferred `awaiting_approval` at 25 s, because the audit stream has no permission request record |
 | `codex/0.160/linux/seed-exec` | a real `codex exec` rollout against a stand-in model |
 | `codex/0.160/linux/seed-resume` | the same session after `codex exec resume`: a patch, a command, a `request_user_input` |
 | `cursor/unknown/any/seed-session` | a handmade Cursor transcript in the shape seen on a real Mac (October 2026) |
@@ -33,6 +36,11 @@ The seed corpus from tvdash now lives in the versioned layout:
 | `copilot/1.0.103/linux/permission-denied` | Copilot CLI 1.0.103 prompt mode with no interactive user: `permission.requested`, unattended denial, failed tool result, then the answer |
 | `copilot/1.0.103/linux/permission-approved` | Hand-made 1.0.103 shape for a user approval: `permission.completed` with `result.kind: approved`, `decisionSource: human_response`, then a successful tool run and the answer |
 | `copilot/1.0.103/linux/permission-user-denied` | Hand-made 1.0.103 shape for a user denial: `result.kind: denied-interactively-by-user`, `decisionSource: human_response`, a failed tool result, then the answer |
+
+The Claude Desktop fixtures are **handmade** from ADR's parser and contract test (the prior-art
+record shape), not captured from an install; the matrix therefore says `ported-unverified`.
+Desktop's `local_<id>.json` sidecar is read by the tracker, but fixture status checkpoints
+exercise the audit transcript only.
 
 They were already scrubbed of prose when copied from tvdash; `agenttail fixture redact`
 then replaced their fake placeholder usernames (`dev`, `sam`) with canonical

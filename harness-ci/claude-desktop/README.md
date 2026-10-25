@@ -1,8 +1,10 @@
 # Claude Desktop scenario stub
 
-**There is no scenario here yet, and no CI job runs Claude Desktop.** This folder documents
-the gap so a future Desktop lane is not mistaken for an existing harness. The investigation
-and evidence links are in [`docs/formats/claude-desktop.md`](../../docs/formats/claude-desktop.md).
+**There is no CI scenario here yet, and no CI job runs Claude Desktop.** The `claude_desktop`
+discovery spec and adapter now read local-agent-mode `audit.jsonl` files; their handmade
+fixtures are under `fixtures/claude-desktop/`. This folder documents the remaining gap so a
+future Desktop lane is not mistaken for an existing harness. The evidence is in
+[`docs/formats/claude-desktop.md`](../../docs/formats/claude-desktop.md).
 
 ## Why it is a stub
 
@@ -44,7 +46,8 @@ data-storage pages linked from the format note.
   Claude Code transcript under `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`.
 - **Cowork / agent / Chat (local agent mode):** app-data
   `local-agent-mode-sessions/…/local_<id>.json` plus `local_<id>/audit.jsonl` (HMAC-chained).
-  This is **not** `~/.claude/projects`.
+  This is **not** `~/.claude/projects`. The `claude_desktop` adapter reads it today; the
+  committed fixtures are handmade from prior art, so support stays **ported-unverified**.
 
 3P app-data roots are documented as `Claude-3p` (macOS `~/Library/Application Support`,
 Linux `~/.config`, Windows `%LOCALAPPDATA%`). Consumer builds commonly use `Claude` without
@@ -53,7 +56,6 @@ Linux `~/.config`, Windows `%LOCALAPPDATA%`). Consumer builds commonly use `Clau
 ## Before adding a job
 
 Do not add a GitHub Actions Desktop job from this stub. This month's Actions billing is
-already expended, and Linux Xvfb/KVM/accessibility support is unproven. A scenario should be
-committed only after a real run produces a redacted artifact and a readable status
-checkpoint, or after a documented manual/fixture-only run. Until then the support matrix
-must say **spike / not CI-verified**.
+already expended, and Linux Xvfb/KVM/accessibility support is unproven. A CI scenario should
+be added only after a real run produces a redacted artifact and a readable status checkpoint.
+Until then the support matrix says **ported-unverified**, not CI-verified.

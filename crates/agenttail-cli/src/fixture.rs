@@ -1082,9 +1082,10 @@ pub fn sessions(home: &Path) -> Result<Vec<SessionCandidate>, String> {
         if harness == Harness::OpenCode {
             continue;
         }
-        let root = harness_root(harness, home);
-        if root.is_dir() {
-            walk_sessions(harness, &root, &root, 0, &mut out)?;
+        for root in harness_roots(harness, home) {
+            if root.is_dir() {
+                walk_sessions(harness, &root, &root, 0, &mut out)?;
+            }
         }
     }
     out.sort_by(|a, b| a.path.cmp(&b.path));
@@ -1092,37 +1093,52 @@ pub fn sessions(home: &Path) -> Result<Vec<SessionCandidate>, String> {
     Ok(out)
 }
 
-fn harness_root(harness: Harness, home: &Path) -> PathBuf {
+/// Every root a harness may have below `home`. Most have one; Claude Desktop has consumer
+/// and 3P app-data roots for each OS.
+fn harness_roots(harness: Harness, home: &Path) -> Vec<PathBuf> {
     match harness {
-        Harness::ClaudeCode => std::env::var_os("CLAUDE_CONFIG_DIR")
-            .map(PathBuf::from)
-            .filter(|path| path.is_absolute())
-            .map_or_else(|| home.join(".claude/projects"), |dir| dir.join("projects")),
-        Harness::Codex => std::env::var_os("CODEX_HOME")
-            .map(PathBuf::from)
-            .filter(|path| path.is_absolute())
-            .map_or_else(|| home.join(".codex/sessions"), |dir| dir.join("sessions")),
-        Harness::Cursor => home.join(".cursor/projects"),
-        Harness::Pi => std::env::var_os("PI_CODING_AGENT_SESSION_DIR")
-            .map(PathBuf::from)
-            .filter(|path| path.is_absolute())
-            .or_else(|| {
-                std::env::var_os("PI_CODING_AGENT_DIR")
-                    .map(PathBuf::from)
-                    .filter(|path| path.is_absolute())
-                    .map(|dir| dir.join("sessions"))
-            })
-            .unwrap_or_else(|| home.join(".pi/agent/sessions")),
-        Harness::OpenCode => home.join(".local/share/opencode"),
-        Harness::Gemini => std::env::var_os("GEMINI_CLI_HOME")
-            .map(PathBuf::from)
-            .filter(|path| path.is_absolute())
-            .map_or_else(|| home.join(".gemini/tmp"), |dir| dir.join(".gemini/tmp")),
-        Harness::Copilot => std::env::var_os("COPILOT_HOME")
-            .map(PathBuf::from)
-            .filter(|path| path.is_absolute())
-            .map_or_else(|| home.join(".copilot/session-state"), |dir| dir.join("session-state")),
-        _ => home.join(harness.layout().root),
+        Harness::ClaudeCode => vec![
+            std::env::var_os("CLAUDE_CONFIG_DIR")
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .map_or_else(|| home.join(".claude/projects"), |dir| dir.join("projects")),
+        ],
+        Harness::Codex => vec![
+            std::env::var_os("CODEX_HOME")
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .map_or_else(|| home.join(".codex/sessions"), |dir| dir.join("sessions")),
+        ],
+        Harness::Cursor => vec![home.join(".cursor/projects")],
+        Harness::ClaudeDesktop => {
+            harness.discovery().roots.for_os(std::env::consts::OS).into_iter().map(|root| home.join(root)).collect()
+        }
+        Harness::Pi => vec![
+            std::env::var_os("PI_CODING_AGENT_SESSION_DIR")
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .or_else(|| {
+                    std::env::var_os("PI_CODING_AGENT_DIR")
+                        .map(PathBuf::from)
+                        .filter(|path| path.is_absolute())
+                        .map(|dir| dir.join("sessions"))
+                })
+                .unwrap_or_else(|| home.join(".pi/agent/sessions")),
+        ],
+        Harness::OpenCode => vec![home.join(".local/share/opencode")],
+        Harness::Gemini => vec![
+            std::env::var_os("GEMINI_CLI_HOME")
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .map_or_else(|| home.join(".gemini/tmp"), |dir| dir.join(".gemini/tmp")),
+        ],
+        Harness::Copilot => vec![
+            std::env::var_os("COPILOT_HOME")
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .map_or_else(|| home.join(".copilot/session-state"), |dir| dir.join("session-state")),
+        ],
+        _ => vec![home.join(harness.layout().root)],
     }
 }
 
@@ -1161,6 +1177,11 @@ fn walk_sessions(
 fn session_id(harness: Harness, path: &Path) -> String {
     match harness {
         Harness::Cursor => path
+            .parent()
+            .and_then(Path::file_name)
+            .map_or_else(|| file_stem(path), |name| name.to_string_lossy().into_owned()),
+        // Claude Desktop: <org>/local_<id>/audit.jsonl, or dispatch's local_ditto_<id>.
+        Harness::ClaudeDesktop => path
             .parent()
             .and_then(Path::file_name)
             .map_or_else(|| file_stem(path), |name| name.to_string_lossy().into_owned()),
@@ -1547,6 +1568,14 @@ mod tests {
     fn sanitizes_scenario_names() {
         assert_eq!(sanitize_component("A plain QA!"), "a-plain-qa");
         assert_eq!(sanitize_component("..."), "captured");
+    }
+
+    #[test]
+    fn claude_desktop_session_ids_are_the_local_folder() {
+        let path = Path::new("/h/.config/Claude/local-agent-mode-sessions/u/o/local_abc/audit.jsonl");
+        assert_eq!(session_id(Harness::ClaudeDesktop, path), "local_abc");
+        let dispatch = Path::new("/h/.config/Claude/local-agent-mode-sessions/u/o/agent/local_ditto_def/audit.jsonl");
+        assert_eq!(session_id(Harness::ClaudeDesktop, dispatch), "local_ditto_def");
     }
 
     #[test]

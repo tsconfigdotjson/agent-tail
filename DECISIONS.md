@@ -738,3 +738,44 @@ JSON path the conformance commands use; `timestamps_serialize_as_plain_seconds` 
 reducer relies on. Integer milliseconds or nanoseconds would make equality exact but add
 conversion pain now; revisit only if an adopting port proves equality is a real problem, not
 speculatively before 0.1.
+
+## Phase H: Claude Desktop local-agent-mode adapter (issue #78, 2026-10-25)
+
+**The Code tab and local agent mode are separate sources, not one Desktop adapter.** Code-tab
+transcripts are Claude Code JSONL under `~/.claude/projects` and stay on the Claude Code
+adapter. Cowork/Chat sessions are app-data `local-agent-mode-sessions/…/local_<id>/audit.jsonl`
+and get the `claude_desktop` harness. Conflating them would apply the wrong roots, project
+derivation and sidecar rules to one of the two.
+
+**The audit stream reuses the Claude record parser.** ADR's prior-art parser and the public
+Claude Agent SDK types show `system/init`, `user`, `assistant`, `result`,
+`rate_limit_event` and `tool_use_summary`. The shared Claude reader already handles the
+conversation records; `claude_desktop` adds `result` (turn end/error/interruption, cost,
+session-total usage), the two known meta records, and the sidecar. It does not copy the Claude
+Code adapter.
+
+**App-data roots are discovery data per OS.** `spec/discovery/claude-desktop.toml` lists six
+platform roots: consumer and 3P on macOS, Linux and Windows. `Tracker` scans the roots for the
+OS it runs on instead of assuming one home-relative path. The Linux consumer path is the
+single `roots.default` used by one-root tooling; the 3P roots are vendor-documented, while
+the consumer Linux/Windows rows remain prior art/TBD. A `session_dir_prefix = "local_"`
+layout field keeps the walker from treating arbitrary `audit.jsonl` files as sessions, the
+bare `audit.jsonl` pattern requires that exact file name inside each `local_*` folder, and
+the five-folder depth allows dispatch's extra `agent/` level.
+
+**The sidecar is read but is not a transcript.** The tracker reads the sibling
+`local_<id>.json` when it appears or changes and feeds its cwd/title/model/session id through
+a harness metadata hook. A missing or malformed sidecar does not reject the audit log. The
+sidecar's `lastActivityAt` is not used as a message clock; SDK message records carry no
+timestamp, so status times fall back to `audit.jsonl`'s mtime like any untimed entry.
+
+**A pending tool is not firm awaiting-approval.** Unlike Copilot CLI, the Desktop audit stream
+has no persisted permission request/completion pair. In a mode that can ask a human, a
+pending tool becomes `awaiting_approval` only through the shared 20 s stall inference; in
+`bypassPermissions`/`dontAsk` it stays firm `running_tool`. `tool-stall` pins both the
+inference and the absence of a permission record, rather than inventing one.
+
+**Support stays `ported-unverified`.** The fixtures are handmade from ADR's parser and its
+contract test; no Desktop install, consumer/3P root, sidecar or HMAC chain was verified here.
+The support matrix therefore moves Claude Desktop off the spike-only table because an adapter
+and fixtures now exist, but not to donated- or CI-verified.

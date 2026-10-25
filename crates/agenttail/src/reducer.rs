@@ -236,6 +236,14 @@ impl SessionReducer {
         }
     }
 
+    /// Apply a harness sidecar (Claude Desktop's `local_<id>.json`) that sits beside the
+    /// transcript. Malformed JSON changes nothing. Harnesses without a sidecar reader ignore
+    /// it.
+    pub fn feed_metadata(&mut self, bytes: &[u8]) {
+        let Ok(record) = serde_json::from_slice::<Value>(bytes) else { return };
+        crate::event::apply_metadata(&mut self.session, &record);
+    }
+
     /// The session's state as of `now`: a pure function of what was fed and `now`.
     pub fn state(&self, now: Timestamp) -> SessionState {
         let mut state = self.session.state(now, &self.options, self.diagnostics);

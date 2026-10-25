@@ -2,6 +2,7 @@
 //! Where its transcripts live is data, its [`Layout`](crate::Layout).
 
 pub(crate) mod claude;
+pub(crate) mod claude_desktop;
 pub(crate) mod codex;
 pub(crate) mod copilot;
 pub(crate) mod cursor;
@@ -44,4 +45,9 @@ pub(crate) trait Adapter: Sync {
     /// Turn one transcript entry (one JSON value) into the events it carries. Never fails:
     /// what an adapter doesn't know becomes `Meta` or `Unknown`, never nothing.
     fn parse(&self, state: &mut crate::event::ParseState, entry: &Value) -> Vec<EventSeed>;
+    /// Session facts from a sidecar the harness keeps beside the transcript (Claude Desktop's
+    /// `local_<id>.json`). Most harnesses have none; the default carries no events.
+    fn metadata(&self, _state: &mut crate::event::ParseState, _record: &Value) -> Vec<EventSeed> {
+        Vec::new()
+    }
 }

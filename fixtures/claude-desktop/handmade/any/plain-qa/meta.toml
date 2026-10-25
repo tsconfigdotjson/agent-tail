@@ -1,0 +1,6 @@
+harness = "claude_desktop"
+version = "unknown"
+os = "any"
+capture = "handmade"
+date = "2026-10-25"
+description = "A text turn synthesized from the Claude Agent SDK stream-json shape ADR's Claude Desktop parser and its contract test document: system/init, a prompt, an assistant end_turn, then a result frame. No real Desktop install was available; the fixture is labelled handmade."

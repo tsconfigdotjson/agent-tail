@@ -10,70 +10,79 @@ pub(crate) struct ClaudeCode;
 
 impl Adapter for ClaudeCode {
     fn parse(&self, state: &mut crate::event::ParseState, e: &Value) -> Vec<EventSeed> {
-        use crate::event::{EventKind, TitleSource};
-        let at = e["timestamp"].as_str().and_then(crate::time::parse_rfc3339);
-        let sidechain = e["isSidechain"] == true;
-        let mut out = Vec::new();
-        if let Some(info) = session_info(e) {
-            out.push(EventSeed::new(info).at(at));
-        }
-        if let Some(mode) = e["permissionMode"].as_str() {
-            out.push(EventSeed::new(EventKind::PermissionMode { mode: PermissionMode::parse(mode) }).at(at));
-        }
-        match e["type"].as_str().unwrap_or_default() {
-            "ai-title" => out.push(
-                EventSeed::new(EventKind::Title {
-                    title: e["aiTitle"].as_str().unwrap_or_default().into(),
-                    title_source: TitleSource::Generated,
-                })
-                .at(at),
-            ),
-            "cost-state" => {
-                // Written as a string or a number depending on version.
-                let c = &e["totalCostUSD"];
-                if let Some(cost) = c.as_f64().or_else(|| c.as_str()?.parse().ok()) {
-                    out.push(EventSeed::new(EventKind::Cost { usd: cost }).at(at));
-                }
-            }
-            "user" => user(state, e, at, &mut out),
-            "assistant" => assistant(state, e, at, sidechain, &mut out),
-            "system" => system(e, at, &mut out),
-            "permission-mode" if e["permissionMode"].is_null() => {}
-            kind if known_record(kind) => {
-                out.push(meta(e).at(at));
-            }
-            kind => out.push(
-                EventSeed::new(EventKind::Unknown {
-                    record_type: (!kind.is_empty()).then(|| kind.into()),
-                    reason: "unknown Claude Code record type".into(),
-                    record: e.clone(),
-                })
-                .at(at),
-            ),
-        }
-        if out.is_empty() {
-            out.push(meta(e).at(at));
-        }
-        if sidechain {
-            for seed in &mut out {
-                seed.sidechain = true;
-            }
-        }
-        out
+        parse_record(crate::Harness::ClaudeCode, state, e)
     }
 }
 
-fn session_info(e: &Value) -> Option<crate::event::EventKind> {
+/// The record reader Claude Code and Claude Desktop share. Desktop's audit.jsonl is the
+/// Claude Agent SDK's stream-json, the same user/assistant/system shape, so the Code tab's
+/// adapter is reused rather than copied; only the harness name (for ask-user matching) and
+/// Desktop-only sidecar/result handling differ.
+pub(crate) fn parse_record(harness: crate::Harness, state: &mut crate::event::ParseState, e: &Value) -> Vec<EventSeed> {
+    use crate::event::{EventKind, TitleSource};
+    let at = e["timestamp"].as_str().and_then(crate::time::parse_rfc3339);
+    let sidechain = e["isSidechain"] == true;
+    let mut out = Vec::new();
+    if let Some(info) = session_info(harness, e) {
+        out.push(EventSeed::new(info).at(at));
+    }
+    if let Some(mode) = e["permissionMode"].as_str() {
+        out.push(EventSeed::new(EventKind::PermissionMode { mode: PermissionMode::parse(mode) }).at(at));
+    }
+    match e["type"].as_str().unwrap_or_default() {
+        "ai-title" => out.push(
+            EventSeed::new(EventKind::Title {
+                title: e["aiTitle"].as_str().unwrap_or_default().into(),
+                title_source: TitleSource::Generated,
+            })
+            .at(at),
+        ),
+        "cost-state" => {
+            // Written as a string or a number depending on version.
+            let c = &e["totalCostUSD"];
+            if let Some(cost) = c.as_f64().or_else(|| c.as_str()?.parse().ok()) {
+                out.push(EventSeed::new(EventKind::Cost { usd: cost }).at(at));
+            }
+        }
+        "user" => user(state, e, at, &mut out),
+        "assistant" => assistant(harness, state, e, at, sidechain, &mut out),
+        "system" => system(e, at, &mut out),
+        "permission-mode" if e["permissionMode"].is_null() => {}
+        kind if known_record(kind) => {
+            out.push(meta(e).at(at));
+        }
+        kind => out.push(
+            EventSeed::new(EventKind::Unknown {
+                record_type: (!kind.is_empty()).then(|| kind.into()),
+                reason: "unknown Claude Code record type".into(),
+                record: e.clone(),
+            })
+            .at(at),
+        ),
+    }
+    if out.is_empty() {
+        out.push(meta(e).at(at));
+    }
+    if sidechain {
+        for seed in &mut out {
+            seed.sidechain = true;
+        }
+    }
+    out
+}
+
+fn session_info(harness: crate::Harness, e: &Value) -> Option<crate::event::EventKind> {
     let cwd = e["cwd"].as_str().map(String::from);
     let branch = e["gitBranch"].as_str().map(String::from);
     let entrypoint = e["entrypoint"].as_str().map(String::from);
-    (cwd.is_some() || branch.is_some() || entrypoint.is_some()).then_some(crate::event::EventKind::SessionInfo {
-        cwd,
-        branch,
-        session_id: None,
-        entrypoint,
-        approvals_reviewer: None,
-    })
+    // The SDK's system/init names its own session. Claude Code keeps its existing events
+    // unchanged; the Codex index is the only consumer of this field today.
+    let session_id = (harness == crate::Harness::ClaudeDesktop && e["type"] == "system" && e["subtype"] == "init")
+        .then(|| e["session_id"].as_str().filter(|id| !id.is_empty()).map(String::from))
+        .flatten();
+    (cwd.is_some() || branch.is_some() || entrypoint.is_some() || session_id.is_some()).then_some(
+        crate::event::EventKind::SessionInfo { cwd, branch, session_id, entrypoint, approvals_reviewer: None },
+    )
 }
 
 fn meta(e: &Value) -> EventSeed {
@@ -272,6 +281,7 @@ fn user(_state: &mut crate::event::ParseState, e: &Value, at: Option<f64>, out: 
 }
 
 fn assistant(
+    harness: crate::Harness,
     state: &mut crate::event::ParseState,
     e: &Value,
     at: Option<f64>,
@@ -339,7 +349,7 @@ fn assistant(
                         call_id: c["id"].as_str().filter(|id| !id.is_empty()).map(String::from),
                         kind: ToolKind::of(name, &c["input"]),
                         input: c["input"].clone(),
-                        asks_user: crate::Harness::ClaudeCode.discovery().asks_user(name),
+                        asks_user: harness.discovery().asks_user(name),
                         activity_line: Some(describe_tool(name, &c["input"])),
                     })
                     .at(at),

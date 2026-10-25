@@ -14,8 +14,12 @@ use std::str::FromStr;
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum Harness {
-    /// Claude Code (the CLI, and sessions the desktop app runs).
+    /// Claude Code (the CLI, and the Code tab's transcripts from the desktop app).
     ClaudeCode,
+    /// Claude Desktop's local agent mode (Cowork / Chat), whose sessions are app-data
+    /// `local-agent-mode-sessions/…/local_<id>/audit.jsonl`.
+    #[serde(rename = "claude_desktop")]
+    ClaudeDesktop,
     /// OpenAI's Codex CLI.
     Codex,
     /// Cursor's agent (IDE and CLI).
@@ -34,8 +38,9 @@ pub enum Harness {
 
 impl Harness {
     /// Every harness, in the order their folders are scanned.
-    pub const ALL: [Harness; 7] = [
+    pub const ALL: [Harness; 8] = [
         Harness::ClaudeCode,
+        Harness::ClaudeDesktop,
         Harness::Codex,
         Harness::Cursor,
         Harness::Pi,
@@ -44,10 +49,12 @@ impl Harness {
         Harness::Copilot,
     ];
 
-    /// A stable id: `claude_code`, `codex`, `cursor`, `pi`, `opencode`.
+    /// A stable id: `claude_code`, `claude_desktop`, `codex`, `cursor`, `pi`, `opencode`,
+    /// `gemini`, `copilot`.
     pub fn id(self) -> &'static str {
         match self {
             Harness::ClaudeCode => "claude_code",
+            Harness::ClaudeDesktop => "claude_desktop",
             Harness::Codex => "codex",
             Harness::Cursor => "cursor",
             Harness::Pi => "pi",
@@ -57,10 +64,12 @@ impl Harness {
         }
     }
 
-    /// The tool's own name: "Claude Code", "Codex", "Cursor", "Pi", "OpenCode".
+    /// The tool's own name: "Claude Code", "Claude Desktop", "Codex", "Cursor", "Pi",
+    /// "OpenCode", "Gemini CLI", "GitHub Copilot CLI".
     pub fn name(self) -> &'static str {
         match self {
             Harness::ClaudeCode => "Claude Code",
+            Harness::ClaudeDesktop => "Claude Desktop",
             Harness::Codex => "Codex",
             Harness::Cursor => "Cursor",
             Harness::Pi => "Pi",
@@ -78,6 +87,7 @@ impl Harness {
     pub(crate) fn adapter(self) -> &'static dyn Adapter {
         match self {
             Harness::ClaudeCode => &adapters::claude::ClaudeCode,
+            Harness::ClaudeDesktop => &adapters::claude_desktop::ClaudeDesktop,
             Harness::Codex => &adapters::codex::Codex,
             Harness::Cursor => &adapters::cursor::Cursor,
             Harness::Pi => &adapters::pi::Pi,
@@ -108,6 +118,9 @@ pub struct Layout {
     /// The folder sessions sit in inside each folder at the top of `root` (Cursor's
     /// `<project>/agent-transcripts`); None: anywhere. Nothing beside it is looked into.
     pub sessions_in: Option<&'static str>,
+    /// The prefix of the folder directly above a session's transcript (Claude Desktop's
+    /// `local_<id>/audit.jsonl` and `local_ditto_<id>/audit.jsonl`); None: any folder name.
+    pub session_dir_prefix: Option<&'static str>,
     /// The folder, beside a session's transcript, that holds its helpers' transcripts
     /// (Cursor's subagents: `<id>/<id>.jsonl`, and `<id>/subagents/*.jsonl` one level below
     /// `max_depth`). They aren't sessions of their own and aren't read as one: their bytes
@@ -121,6 +134,9 @@ pub struct Layout {
     pub day_folders: bool,
     /// The extension of a transcript (`jsonl`), from the discovery spec's file pattern.
     pub session_suffix: &'static str,
+    /// The exact file name a transcript must have, when the pattern is a bare name
+    /// (Claude Desktop's `audit.jsonl`); None: any file with `session_suffix`.
+    pub session_file: Option<&'static str>,
 }
 
 /// How a helper transcript names the session it belongs to.
@@ -153,6 +169,16 @@ impl Layout {
         let n = c.len();
         if let Some(within) = self.sessions_in
             && (n < 3 || c[1] != within)
+        {
+            return None;
+        }
+        if let Some(prefix) = self.session_dir_prefix
+            && (n < 2 || !c[n - 2].to_string_lossy().starts_with(prefix))
+        {
+            return None;
+        }
+        if let Some(file) = self.session_file
+            && (n == 0 || c[n - 1] != file)
         {
             return None;
         }
@@ -254,6 +280,7 @@ mod tests {
             got,
             [
                 ("claude_code", "Claude Code"),
+                ("claude_desktop", "Claude Desktop"),
                 ("codex", "Codex"),
                 ("cursor", "Cursor"),
                 ("pi", "Pi"),
@@ -267,7 +294,10 @@ mod tests {
     #[test]
     fn unknown_ids_get_a_useful_message() {
         for (id, want) in [
-            ("vim", "no agent \"vim\" (there are: claude_code, codex, cursor, pi, opencode, gemini, copilot)"),
+            (
+                "vim",
+                "no agent \"vim\" (there are: claude_code, claude_desktop, codex, cursor, pi, opencode, gemini, copilot)",
+            ),
             ("Claude Code", "no agent \"Claude Code\""),
             ("", "no agent \"\""),
         ] {
@@ -300,6 +330,18 @@ mod tests {
         assert_eq!(claude.role(Path::new("p/s.jsonl")), Some(Role::Session));
         assert_eq!(claude.role(Path::new("p/s/subagents/a.jsonl")), Some(Role::Helper(PathBuf::from("p/s.jsonl"))));
         assert_eq!(claude.role(Path::new("p/s/other/a.jsonl")), None);
+        // Claude Desktop: audit.jsonl inside local_<id>/ (and dispatch's local_ditto_<id>/).
+        let desktop = Harness::ClaudeDesktop.layout();
+        let rel = |p: &str| desktop.role(Path::new(p));
+        assert_eq!(rel("u/o/local_a/audit.jsonl"), Some(Role::Session));
+        assert_eq!(rel("u/o/agent/local_ditto_a/audit.jsonl"), Some(Role::Session));
+        for not in
+            ["u/o/other/audit.jsonl", "u/o/local_a/transcript.jsonl", "u/o/agent/notes/local_ditto_a/audit.jsonl"]
+        {
+            assert_eq!(rel(not), None, "{not}");
+        }
+        assert_eq!(desktop.walk_depth(), 5);
+        assert_eq!(desktop.session_file, Some("audit.jsonl"));
         assert_eq!(Harness::Codex.layout().role(Path::new("2026/10/22/r.jsonl")), Some(Role::Session));
         assert_eq!(cursor.walk_depth(), 5);
         assert_eq!(claude.walk_depth(), 4);

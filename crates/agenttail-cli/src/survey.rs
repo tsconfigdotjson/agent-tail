@@ -364,51 +364,54 @@ impl InputSet {
 fn default_inputs(harness: Harness, home: &Path) -> Result<InputSet, String> {
     let mut set = InputSet::default();
     let discovery = harness.discovery();
-    let mut root = home.join(discovery.roots.default);
+    let mut roots: Vec<PathBuf> =
+        discovery.roots.for_os(std::env::consts::OS).into_iter().map(|root| home.join(root)).collect();
     for override_ in discovery.roots.env {
         let Some(value) = std::env::var_os(override_.var) else { continue };
         let dir = PathBuf::from(value);
         if !override_.absolute || dir.is_absolute() {
-            root = if override_.append.is_empty() { dir } else { dir.join(override_.append) };
+            roots = vec![if override_.append.is_empty() { dir } else { dir.join(override_.append) }];
         }
     }
-    let mut files = Vec::new();
-    collect_layout_files(harness, &root, &root, &mut files)?;
-    for file in files {
-        let name = file.to_string_lossy();
-        if name.ends_with(".meta.json") {
-            set.metas.insert(file);
-        } else if file.extension().is_some_and(|ext| ext == "jsonl") {
-            set.jsonl_count += 1;
-            set.transcripts.insert(file);
+    for root in roots {
+        let mut files = Vec::new();
+        collect_layout_files(harness, &root, &root, &mut files)?;
+        for file in files {
+            let name = file.to_string_lossy();
+            if name.ends_with(".meta.json") {
+                set.metas.insert(file);
+            } else if file.extension().is_some_and(|ext| ext == "jsonl") {
+                set.jsonl_count += 1;
+                set.transcripts.insert(file);
+            }
         }
-    }
-    if harness == Harness::ClaudeCode
-        && let Some(parent) = root.parent()
-    {
-        let sessions = parent.join("sessions");
-        if let Ok(entries) = std::fs::read_dir(&sessions) {
-            for entry in entries.flatten() {
-                if entry.path().extension().is_some_and(|ext| ext == "json") {
-                    set.registry.insert(entry.path());
+        if harness == Harness::ClaudeCode
+            && let Some(parent) = root.parent()
+        {
+            let sessions = parent.join("sessions");
+            if let Ok(entries) = std::fs::read_dir(&sessions) {
+                for entry in entries.flatten() {
+                    if entry.path().extension().is_some_and(|ext| ext == "json") {
+                        set.registry.insert(entry.path());
+                    }
                 }
             }
         }
-    }
-    if harness == Harness::Codex
-        && let Some(parent) = root.parent()
-    {
-        let index = parent.join("session_index.jsonl");
-        if index.is_file() {
-            set.session_index = Some(index);
+        if harness == Harness::Codex
+            && let Some(parent) = root.parent()
+        {
+            let index = parent.join("session_index.jsonl");
+            if index.is_file() {
+                set.session_index = Some(index);
+            }
         }
-    }
-    if let Ok(entries) = std::fs::read_dir(&root) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = path.to_string_lossy();
-            if name.ends_with(".jsonl.zst") {
-                set.zst_count += 1;
+        if let Ok(entries) = std::fs::read_dir(&root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = path.to_string_lossy();
+                if name.ends_with(".jsonl.zst") {
+                    set.zst_count += 1;
+                }
             }
         }
     }

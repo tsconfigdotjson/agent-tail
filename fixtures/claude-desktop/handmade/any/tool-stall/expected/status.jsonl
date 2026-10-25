@@ -1,0 +1,4 @@
+{"after_line":2,"now_offset_s":0.0,"activity":"thinking","certainty":"firm","reason":"prompt_sent","permission":"default"}
+{"after_line":3,"now_offset_s":0.0,"activity":"running_tool","certainty":"firm","reason":"tool_call_pending","permission":"default"}
+{"after_line":3,"now_offset_s":25.0,"activity":"awaiting_approval","certainty":"inferred","reason":"tool_call_stalled","permission":"default"}
+{"after_line":3,"now_offset_s":901.0,"activity":"idle","certainty":"firm","reason":"no_writes_for"}

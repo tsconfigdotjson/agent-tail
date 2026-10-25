@@ -125,20 +125,6 @@ fn generate(root: &Path) -> Result<String, String> {
         ));
     }
     lines.push(String::new());
-    lines.push("## Spike-only (not supported)".to_string());
-    lines.push(String::new());
-    lines.push("| Target | Status | CI scenarios | Fixtures | Versions | Evidence |".to_string());
-    lines.push("|---|---|---:|---:|---|---|".to_string());
-    lines.push(
-        "| Claude Desktop (agent mode) | **spike** | 0 | 0 | unknown | docs-only Jev computer-use loop over OpenRouter; no adapter, fixture or CI run |"
-            .to_string(),
-    );
-    lines.push(String::new());
-    lines.push(
-        "Claude Desktop is a spike-only target, not a supported harness: it has no discovery spec or adapter and is not in the table above. See [docs/formats/claude-desktop.md](formats/claude-desktop.md)."
-            .to_string(),
-    );
-    lines.push(String::new());
     lines.push("## What each harness can read".to_string());
     lines.push(String::new());
     lines.push("| Harness | Root (below home) | Ask-user tools | Modes observed | Helpers | Quirks |".to_string());
@@ -176,9 +162,9 @@ fn generate(root: &Path) -> Result<String, String> {
     }
     lines.push(String::new());
     lines.push("Harnesses with no discovery spec are unsupported by definition; this generated".to_string());
-    lines.push("table lists every harness that does have one. Spike-only targets are listed".to_string());
-    lines.push("separately above and are not adapters. `agenttail survey --drift` checks".to_string());
-    lines.push("the transcript shape against `spec/baseline/`.".to_string());
+    lines.push("table lists every harness that does have one. A **spike** entry has no adapter or".to_string());
+    lines.push("artifact and is not in this table. `agenttail survey --drift` checks the transcript".to_string());
+    lines.push("shape against `spec/baseline/`.".to_string());
     lines.push(String::new());
     Ok(lines.join("\n"))
 }
@@ -307,7 +293,9 @@ mod tests {
     fn classification_prefers_ci_then_donated_then_handmade() {
         let temp = TempDir::new().unwrap();
         let root = temp.path();
-        for (harness, capture) in [("claude_code", "donated"), ("codex", "handmade"), ("pi", "ci-scripted")] {
+        for (harness, capture) in
+            [("claude_code", "donated"), ("claude_desktop", "handmade"), ("codex", "handmade"), ("pi", "ci-scripted")]
+        {
             let dir = root.join(format!("fixtures/{harness}/1/linux/s"));
             std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(
@@ -327,7 +315,6 @@ mod tests {
         assert!(text.contains("| Codex | **ported-unverified** |"), "{text}");
         assert!(text.contains("| Pi | **CI-verified** |"), "{text}");
         assert!(text.contains("| Cursor | **unsupported** |"), "{text}");
-        assert!(text.contains("| Claude Desktop (agent mode) | **spike** |"), "{text}");
-        assert!(text.contains("Jev computer-use loop over OpenRouter"), "{text}");
+        assert!(text.contains("| Claude Desktop | **ported-unverified** |"), "{text}");
     }
 }

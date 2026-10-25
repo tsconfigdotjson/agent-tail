@@ -134,6 +134,10 @@ nobody's list.
   `cliSessionId`, `sessionType`, `initialMessage`, `cwd`, `model`, `hostLoopMode` (`:239-290`).
 - Records use the SDK stream-json shape: `system/init` carries `permissionMode` and
   `claude_code_version` (`:455-468`); results are `tool_use_result` in snake case (`:498`).
+- This is the shape codified by `spec/discovery/claude-desktop.toml` and the
+  `claude_desktop` adapter. Its fixtures are handmade from this prior art, so the support
+  matrix says `ported-unverified`; see
+  [`docs/formats/claude-desktop.md`](formats/claude-desktop.md).
 
 ### Codex CLI
 | item | finding |

@@ -36,6 +36,17 @@ struct Roots {
     evidence: String,
     #[serde(default)]
     env: Vec<EnvRoot>,
+    #[serde(default)]
+    platform: Vec<PlatformRoot>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PlatformRoot {
+    os: String,
+    path: String,
+    build: String,
+    evidence: String,
 }
 
 #[derive(Deserialize)]
@@ -54,6 +65,7 @@ struct LayoutSpec {
     max_depth: Option<usize>,
     session_pattern: String,
     sessions_in: Option<String>,
+    session_dir_prefix: Option<String>,
     helpers_in: Option<String>,
     helper_owner: Option<String>,
     day_folders: bool,
@@ -172,6 +184,7 @@ fn main() {
     let spec_dir = manifest.join("../../spec/discovery");
     let files = [
         ("claude-code.toml", "ClaudeCode", "claude_code"),
+        ("claude-desktop.toml", "ClaudeDesktop", "claude_desktop"),
         ("codex.toml", "Codex", "codex"),
         ("cursor.toml", "Cursor", "cursor"),
         ("pi.toml", "Pi", "pi"),
@@ -206,6 +219,24 @@ fn validate(spec: &Spec, expected_id: &str) -> Result<(), String> {
     let roots = &spec.roots;
     relative(&roots.default, "roots.default")?;
     require(!roots.evidence.trim().is_empty(), "roots.evidence is empty")?;
+    let mut platform = std::collections::HashSet::new();
+    for root in &roots.platform {
+        require(
+            matches!(root.os.as_str(), "linux" | "macos" | "windows"),
+            format!("roots.platform os {:?} is not linux, macos or windows", root.os),
+        )?;
+        require(!root.build.trim().is_empty(), "a roots.platform build is empty")?;
+        require(
+            matches!(root.build.as_str(), "consumer" | "third_party"),
+            format!("roots.platform build {:?} is not consumer or third_party", root.build),
+        )?;
+        relative(&root.path, &format!("roots.platform[{0}]", root.os))?;
+        require(!root.evidence.trim().is_empty(), "a roots.platform entry has no evidence")?;
+        require(
+            platform.insert((root.os.clone(), root.build.clone())),
+            format!("roots.platform repeats {} {}", root.os, root.build),
+        )?;
+    }
     let mut env_vars = std::collections::HashSet::new();
     for env in &roots.env {
         require(!env.var.trim().is_empty(), "a roots.env var is empty")?;
@@ -234,9 +265,13 @@ fn validate(spec: &Spec, expected_id: &str) -> Result<(), String> {
             format!("helper_owner {owner:?} is not session_file_stem or session_folder"),
         )?;
     }
-    session_suffix(&layout.session_pattern)?;
+    session_pattern(&layout.session_pattern)?;
     if let Some(name) = &layout.sessions_in {
         require(!name.trim().is_empty(), "layout.sessions_in is empty")?;
+    }
+    if let Some(prefix) = &layout.session_dir_prefix {
+        require(!prefix.trim().is_empty(), "layout.session_dir_prefix is empty")?;
+        require(!prefix.contains(['/', '\\']), "layout.session_dir_prefix is a folder-name prefix")?;
     }
     if let Some(name) = &layout.helpers_in {
         require(!name.trim().is_empty(), "layout.helpers_in is empty")?;
@@ -333,12 +368,23 @@ fn relative(path: &str, field: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn session_suffix(pattern: &str) -> Result<&str, String> {
-    let suffix = pattern
+/// A session pattern: `*.jsonl` (any file with that extension) or a bare file name such as
+/// `audit.jsonl` (only that file). Returns the extension the walker filters on and, for a
+/// bare name, the exact file name the layout also requires.
+fn session_pattern(pattern: &str) -> Result<(&str, Option<&str>), String> {
+    if let Some(suffix) = pattern
         .strip_prefix("*.")
         .filter(|suffix| !suffix.is_empty() && !suffix.contains(['/', '\\']) && !suffix.contains('*'))
-        .ok_or_else(|| format!("session_pattern {pattern:?} is not '*.extension'"))?;
-    Ok(suffix)
+    {
+        return Ok((suffix, None));
+    }
+    let (_, suffix) = pattern
+        .split_once('.')
+        .filter(|(name, suffix)| {
+            !name.is_empty() && !suffix.is_empty() && !pattern.contains(['/', '\\']) && !pattern.contains('*')
+        })
+        .ok_or_else(|| format!("session_pattern {pattern:?} is not '*.extension' or a bare file name"))?;
+    Ok((suffix, Some(pattern)))
 }
 
 fn require(condition: bool, message: impl Into<String>) -> Result<(), String> {
@@ -347,9 +393,11 @@ fn require(condition: bool, message: impl Into<String>) -> Result<(), String> {
 
 fn render(out: &mut String, spec: &Spec, variant: &str) {
     let layout = &spec.layout;
-    let suffix = session_suffix(&layout.session_pattern).expect("validated");
+    let (suffix, session_file) = session_pattern(&layout.session_pattern).expect("validated");
+    let session_file = opt_string(session_file);
     let max_depth = opt_usize(layout.max_depth);
     let sessions_in = opt_string(layout.sessions_in.as_deref());
+    let session_dir_prefix = opt_string(layout.session_dir_prefix.as_deref());
     let helpers_in = opt_string(layout.helpers_in.as_deref());
     let helper_owner = layout
         .helper_owner
@@ -370,7 +418,7 @@ fn render(out: &mut String, spec: &Spec, variant: &str) {
     writeln!(out, "        harness: Harness::{variant},").unwrap();
     writeln!(
         out,
-        "        roots: Roots {{ default: {}, env: &[{}], evidence: {} }},",
+        "        roots: Roots {{ default: {}, env: &[{}], platform: &[{}], evidence: {} }},",
         lit(&spec.roots.default),
         spec.roots
             .env
@@ -385,12 +433,24 @@ fn render(out: &mut String, spec: &Spec, variant: &str) {
             ))
             .collect::<Vec<_>>()
             .join(", "),
+        spec.roots
+            .platform
+            .iter()
+            .map(|root| format!(
+                "PlatformRoot {{ os: {}, path: {}, build: {}, evidence: {} }}",
+                lit(&root.os),
+                lit(&root.path),
+                lit(&root.build),
+                lit(&root.evidence)
+            ))
+            .collect::<Vec<_>>()
+            .join(", "),
         lit(&spec.roots.evidence)
     )
     .unwrap();
     writeln!(
         out,
-        "        layout: Layout {{ root: {}, max_depth: {max_depth}, sessions_in: {sessions_in}, helpers_in: {helpers_in}, helper_owner: {helper_owner}, day_folders: {}, session_suffix: {} }},",
+        "        layout: Layout {{ root: {}, max_depth: {max_depth}, sessions_in: {sessions_in}, session_dir_prefix: {session_dir_prefix}, helpers_in: {helpers_in}, helper_owner: {helper_owner}, day_folders: {}, session_suffix: {}, session_file: {session_file} }},",
         lit(&spec.roots.default),
         layout.day_folders,
         lit(suffix)

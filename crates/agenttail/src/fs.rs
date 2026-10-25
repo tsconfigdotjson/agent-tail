@@ -88,6 +88,8 @@ pub struct Tracker {
     helper_offsets: HashMap<PathBuf, u64>,
     /// When each helper's `.meta.json` was last read, and its length then.
     helper_metas: HashMap<PathBuf, (SystemTime, u64)>,
+    /// When each Claude Desktop `local_<id>.json` sidecar was last read, and its length then.
+    desktop_metas: HashMap<PathBuf, (SystemTime, u64)>,
     /// Codex thread titles from `session_index.jsonl`, by thread id.
     codex_index: HashMap<String, String>,
     /// When `session_index.jsonl` was last read and how long it was; None: it was missing.
@@ -197,21 +199,24 @@ impl Tracker {
     /// Each harness's root, with the overrides from its discovery spec. `env` reads a
     /// variable, so tests don't have to touch the process environment.
     fn roots(home: &Path, env: impl Fn(&str) -> Option<std::ffi::OsString>) -> Vec<(Harness, PathBuf)> {
-        Harness::ALL
-            .into_iter()
-            .map(|harness| {
-                let discovery = harness.discovery();
-                let mut root = home.join(discovery.roots.default);
-                for override_ in discovery.roots.env {
-                    let Some(value) = env(override_.var) else { continue };
-                    let dir = PathBuf::from(value);
-                    if !override_.absolute || dir.is_absolute() {
-                        root = if override_.append.is_empty() { dir } else { dir.join(override_.append) };
-                    }
+        let mut out = Vec::new();
+        for harness in Harness::ALL {
+            let discovery = harness.discovery();
+            // A platform root replaces the default (Claude Desktop's mac/Linux/Windows
+            // app-data folders); harnesses without one keep their single default root.
+            let mut roots: Vec<PathBuf> =
+                discovery.roots.for_os(std::env::consts::OS).into_iter().map(|root| home.join(root)).collect();
+            for override_ in discovery.roots.env {
+                let Some(value) = env(override_.var) else { continue };
+                let dir = PathBuf::from(value);
+                if !override_.absolute || dir.is_absolute() {
+                    let root = if override_.append.is_empty() { dir } else { dir.join(override_.append) };
+                    roots = vec![root];
                 }
-                (harness, root)
-            })
-            .collect()
+            }
+            out.extend(roots.into_iter().map(|root| (harness, root)));
+        }
+        out
     }
 
     /// Sessions in the given roots, one per harness (a harness's folder moved by its own
@@ -225,6 +230,7 @@ impl Tracker {
             helpers: HashMap::new(),
             helper_offsets: HashMap::new(),
             helper_metas: HashMap::new(),
+            desktop_metas: HashMap::new(),
             codex_index: HashMap::new(),
             codex_index_stamp: None,
             swept: None,
@@ -288,6 +294,31 @@ impl Tracker {
             };
             self.codex_index.insert(id.into(), title.into());
         }
+    }
+
+    /// Read each followed Claude Desktop session's sibling `local_<id>.json` when it changes.
+    /// The sidecar names the cwd, title and model; the audit stream does not repeat them.
+    fn refresh_desktop_metadata(&mut self) {
+        let mut live = HashSet::new();
+        for (path, followed) in &mut self.sessions {
+            if followed.reducer.harness() != Harness::ClaudeDesktop {
+                continue;
+            }
+            let Some(meta_path) = claude_desktop_metadata(path) else { continue };
+            let Ok(meta) = std::fs::metadata(&meta_path) else { continue };
+            let Ok(mtime) = meta.modified() else { continue };
+            let stamp = (mtime, meta.len());
+            if self.desktop_metas.get(&meta_path) == Some(&stamp) {
+                live.insert(meta_path);
+                continue;
+            }
+            if let Ok(bytes) = std::fs::read(&meta_path) {
+                followed.reducer.feed_metadata(&bytes);
+                self.desktop_metas.insert(meta_path.clone(), stamp);
+                live.insert(meta_path);
+            }
+        }
+        self.desktop_metas.retain(|path, _| live.contains(path));
     }
 
     /// Snapshot Cursor's database when a Cursor session is in the window, at most every
@@ -549,6 +580,7 @@ impl Tracker {
                 followed.reducer.set_index_title(index.get(followed.reducer.session_id()).map(String::as_str));
             }
         }
+        self.refresh_desktop_metadata();
 
         #[cfg(feature = "sqlite")]
         {
@@ -641,6 +673,17 @@ impl Followed {
         reducer.set_path(path);
         Followed { reducer, ino: 0 }
     }
+}
+
+/// Claude Desktop's sidecar is the sibling of the `local_<id>/` folder:
+/// `<org>/local_<id>.json` for `<org>/local_<id>/audit.jsonl`.
+fn claude_desktop_metadata(path: &Path) -> Option<PathBuf> {
+    if path.file_name()? != "audit.jsonl" {
+        return None;
+    }
+    let session_dir = path.parent()?;
+    let org = session_dir.parent()?;
+    Some(org.join(format!("{}.json", session_dir.file_name()?.to_string_lossy())))
 }
 
 /// Cursor's composer id is the transcript's file stem (`.../<id>/<id>.jsonl`).
@@ -1368,10 +1411,23 @@ mod tests {
             _ => None,
         };
         let roots = Tracker::roots(home, custom);
-        assert_eq!(roots[0], (Harness::ClaudeCode, PathBuf::from("/custom/claude/projects")));
-        assert_eq!(roots[1], (Harness::Codex, PathBuf::from("/custom/codex/sessions")));
-        assert_eq!(roots[2], (Harness::Cursor, PathBuf::from("/h/.cursor/projects")));
-        assert_eq!(roots[3], (Harness::Pi, PathBuf::from("/custom/pi-agent/sessions")));
+        let root = |harness| roots.iter().find(|(known, _)| *known == harness).unwrap().1.clone();
+        assert_eq!(root(Harness::ClaudeCode), PathBuf::from("/custom/claude/projects"));
+        assert_eq!(root(Harness::Codex), PathBuf::from("/custom/codex/sessions"));
+        assert_eq!(root(Harness::Cursor), PathBuf::from("/h/.cursor/projects"));
+        assert_eq!(root(Harness::Pi), PathBuf::from("/custom/pi-agent/sessions"));
+        // Claude Desktop's platform roots are all scanned, not moved by another harness's env.
+        assert_eq!(
+            roots
+                .iter()
+                .filter(|(harness, _)| *harness == Harness::ClaudeDesktop)
+                .map(|(_, path)| path.clone())
+                .collect::<Vec<_>>(),
+            [
+                PathBuf::from("/h/.config/Claude/local-agent-mode-sessions"),
+                PathBuf::from("/h/.config/Claude-3p/local-agent-mode-sessions")
+            ]
+        );
         // Relative overrides are ignored, as the harnesses ignore them.
         let relative = |var: &str| match var {
             "CLAUDE_CONFIG_DIR" | "CODEX_HOME" | "PI_CODING_AGENT_DIR" | "PI_CODING_AGENT_SESSION_DIR" => {
@@ -1380,9 +1436,10 @@ mod tests {
             _ => None,
         };
         let roots = Tracker::roots(home, relative);
-        assert_eq!(roots[0].1, PathBuf::from("/h/.claude/projects"));
-        assert_eq!(roots[1].1, PathBuf::from("/h/.codex/sessions"));
-        assert_eq!(roots[3].1, PathBuf::from("/h/.pi/agent/sessions"));
+        let root = |harness| roots.iter().find(|(known, _)| *known == harness).unwrap().1.clone();
+        assert_eq!(root(Harness::ClaudeCode), PathBuf::from("/h/.claude/projects"));
+        assert_eq!(root(Harness::Codex), PathBuf::from("/h/.codex/sessions"));
+        assert_eq!(root(Harness::Pi), PathBuf::from("/h/.pi/agent/sessions"));
 
         // A custom Pi session directory replaces the whole sessions/ layout, and wins over
         // PI_CODING_AGENT_DIR.
@@ -1392,7 +1449,42 @@ mod tests {
             _ => None,
         };
         let roots = Tracker::roots(home, pi_session);
-        assert_eq!(roots[3], (Harness::Pi, PathBuf::from("/custom/pi-sessions")));
+        let root = |harness| roots.iter().find(|(known, _)| *known == harness).unwrap().1.clone();
+        assert_eq!(root(Harness::Pi), PathBuf::from("/custom/pi-sessions"));
+    }
+
+    #[test]
+    fn tracker_reads_a_claude_desktop_sidecar_beside_its_audit_log() {
+        let home = tempfile::tempdir().unwrap();
+        let org = home.path().join(".config/Claude/local-agent-mode-sessions/user/org");
+        let session = org.join("local_11111111-2222-3333-4444-555555555555");
+        std::fs::create_dir_all(&session).unwrap();
+        let audit = session.join("audit.jsonl");
+        std::fs::write(
+            &audit,
+            jsonl(&[
+                json!({"type": "system", "subtype": "init", "uuid": "init-1",
+                       "session_id": "local_11111111-2222-3333-4444-555555555555",
+                       "cwd": "/work/audit-cwd", "model": "claude-sonnet-4",
+                       "permissionMode": "default"}),
+                json!({"type": "user", "uuid": "u1", "message": {"content": "read it"}}),
+            ]),
+        )
+        .unwrap();
+        let mut t = Tracker::new(home.path(), filter(1.0, Some(&[Harness::ClaudeDesktop])));
+        let first = t.poll(wall());
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].0.harness, Harness::ClaudeDesktop);
+        assert_eq!(first[0].1.meta.project, "audit-cwd", "the audit's init cwd works alone");
+        assert_eq!(first[0].1.meta.title, "", "no title until the sidecar appears");
+
+        let sidecar = org.join("local_11111111-2222-3333-4444-555555555555.json");
+        std::fs::write(&sidecar, r#"{"sessionId":"local_11111111-2222-3333-4444-555555555555","cwd":"/work/sidecar","title":"Config review","model":"claude-sonnet-4"}"#).unwrap();
+        let second = t.poll(wall());
+        assert_eq!(second[0].1.meta.project, "sidecar");
+        assert_eq!(second[0].1.meta.title, "Config review");
+        assert_eq!(second[0].1.activity, crate::Activity::Thinking);
+        assert_eq!(second[0].1.permission, Some(crate::PermissionMode::Default), "the init record still wins for mode");
     }
 
     #[test]

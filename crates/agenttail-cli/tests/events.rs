@@ -49,6 +49,12 @@ fn prints_normalized_events_as_json_lines() {
     assert!(claude.iter().any(|event| event["type"] == "title"), "{claude:#?}");
     assert!(claude.iter().any(|event| event["type"] == "cost"), "{claude:#?}");
 
+    let desktop = events("claude-desktop/handmade/any/plain-qa/input/session.jsonl");
+    assert!(desktop.iter().any(|event| event["type"] == "model_change"), "{desktop:#?}");
+    assert!(desktop.iter().any(|event| event["type"] == "tool_result" || event["type"] == "turn_end"), "{desktop:#?}");
+    assert!(desktop.iter().any(|event| event["type"] == "cost"), "{desktop:#?}");
+    assert!(desktop.iter().all(|event| event["harness"] == "claude_desktop"));
+
     let pi = events("pi/1.4/linux/tool-call/input/session.jsonl");
     assert!(pi.iter().any(|event| event["type"] == "tool_call"), "{pi:#?}");
     assert!(pi.iter().any(|event| event["type"] == "usage"), "{pi:#?}");
@@ -69,6 +75,9 @@ fn prints_normalized_events_as_json_lines() {
 fn committed_expected_events_match_their_inputs() {
     for input in [
         "claude-code/2.1/linux/seed-session",
+        "claude-desktop/handmade/any/plain-qa",
+        "claude-desktop/handmade/any/tool-turn",
+        "claude-desktop/handmade/any/tool-stall",
         "codex/0.160/linux/seed-exec",
         "codex/0.160/linux/seed-resume",
         "cursor/unknown/any/seed-session",
