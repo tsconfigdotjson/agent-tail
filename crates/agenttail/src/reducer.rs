@@ -195,7 +195,8 @@ impl SessionReducer {
     /// Apply one event from the public parse layer to this reducer. The reducer's own
     /// chunk reader goes through the same event application, so status and events agree.
     /// Event times are used when present; a harness without times (Cursor) falls back to
-    /// the transcript mtime, as [`feed`](Self::feed) does.
+    /// the transcript mtime, as [`feed`](Self::feed) does. Sidechain events are ignored
+    /// here; a helper transcript belongs to [`feed_helper`](Self::feed_helper).
     pub fn feed_event(&mut self, event: &crate::Event) {
         self.session.apply_event(event);
     }
@@ -585,6 +586,23 @@ mod tests {
             s.feed(text.as_bytes(), ctx(0)).unwrap();
             assert_eq!(s.state(Timestamp::from_secs_f64(NOW)).diagnostics, Diagnostics { lines: 2, unparsed: 1, cut });
         }
+    }
+
+    #[test]
+    fn a_helper_reducer_applies_sidechain_events() {
+        let text = jsonl(&[json!({"type": "assistant", "isSidechain": true,
+                                  "timestamp": crate::testutil::at(1.0),
+                                  "message": {"id": "h1", "stop_reason": "tool_use",
+                                              "content": [{"type": "tool_use", "id": "t1", "name": "Bash",
+                                                           "input": {"command": "sleep 9"}}]}})]);
+        let events = crate::event::parse_events(Harness::ClaudeCode, 0, text.as_bytes(), ParseMode::Full);
+        assert!(events.iter().all(|event| event.sidechain));
+
+        let mut helper = SessionReducer::new(Harness::ClaudeCode, ReducerOptions::default());
+        helper.helper = true;
+        helper.session.is_helper = true;
+        helper.feed_events(&events);
+        assert_eq!(helper.state(Timestamp::from_secs_f64(NOW)).activity, Activity::RunningTool);
     }
 
     #[test]

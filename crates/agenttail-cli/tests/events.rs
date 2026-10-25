@@ -10,10 +10,13 @@ fn fixture(relative: &str) -> PathBuf {
 }
 
 fn events(relative: &str) -> Vec<Value> {
-    let path = fixture(relative);
+    events_at(&fixture(relative))
+}
+
+fn events_at(path: &Path) -> Vec<Value> {
     let output = Command::new(env!("CARGO_BIN_EXE_agenttail"))
         .arg("events")
-        .arg(&path)
+        .arg(path)
         .output()
         .unwrap_or_else(|e| panic!("run agenttail: {e}"));
     assert!(output.status.success(), "{}: {}", path.display(), String::from_utf8_lossy(&output.stderr));
@@ -65,4 +68,31 @@ fn committed_expected_events_match_their_inputs() {
             .collect();
         assert_eq!(got, want, "{}: regenerate expected/events.jsonl", expected.display());
     }
+}
+
+#[test]
+fn prints_the_sidechain_marker_on_helper_records() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("claude-sidechain.jsonl");
+    std::fs::write(
+        &path,
+        concat!(
+            r#"{"type":"user","timestamp":"2026-10-23T10:00:00Z","message":{"content":"parent"}}"#,
+            "\n",
+            r#"{"type":"assistant","isSidechain":true,"timestamp":"2026-10-23T10:00:01Z","message":{"id":"m1","stop_reason":"end_turn","content":[{"type":"text","text":"child"}]}}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+    let events = events_at(&path);
+    let parent = events
+        .iter()
+        .find(|event| event["type"] == "user_prompt" && event["text"] == "parent")
+        .expect("the parent prompt");
+    assert!(parent.get("sidechain").is_none(), "a parent event has no sidechain marker");
+    let child = events
+        .iter()
+        .find(|event| event["type"] == "assistant_text" && event["text"] == "child")
+        .expect("the sidechain text");
+    assert_eq!(child["sidechain"], true);
 }

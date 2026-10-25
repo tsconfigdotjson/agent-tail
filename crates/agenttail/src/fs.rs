@@ -727,12 +727,16 @@ mod tests {
                "message": {"id": format!("m{ago}"), "stop_reason": stop, "usage": {"output_tokens": 1}, "content": content}})
     }
 
-    /// Each session's project and tvdash's label, sorted.
-    fn polled(t: &mut Tracker) -> Vec<(String, String)> {
-        let mut v: Vec<_> =
-            t.poll(wall()).iter().map(|(_, s)| (s.meta.project.clone(), label(s).to_string())).collect();
+    /// Each session's project and tvdash's label, sorted, as of `now`.
+    fn polled_at(t: &mut Tracker, now: Timestamp) -> Vec<(String, String)> {
+        let mut v: Vec<_> = t.poll(now).iter().map(|(_, s)| (s.meta.project.clone(), label(s).to_string())).collect();
         v.sort();
         v
+    }
+
+    /// Each session's project and tvdash's label, sorted.
+    fn polled(t: &mut Tracker) -> Vec<(String, String)> {
+        polled_at(t, wall())
     }
 
     fn labels(t: &mut Tracker) -> Vec<&'static str> {
@@ -1550,7 +1554,9 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         cursor_session(home.path(), "w-app", "a1", &[cursor_prompt("fix it")]);
         let db = home.path().join("state.vscdb");
-        let now = wall();
+        // The transcript's mtime has sub-millisecond precision but `lastUpdatedAt` doesn't.
+        // Poll a second later so the database row is unambiguously newer than the file.
+        let now = Timestamp::from_secs_f64(wall().as_secs_f64() + 1.0);
         let updated = (now.as_secs_f64() * 1000.0) as i64;
         cursor_state_db(&db, "a1", "completed", "Database title", updated);
         let mut t = Tracker::new(home.path(), hours(1.0)).with_cursor_state_db(&db);
@@ -1597,10 +1603,12 @@ mod tests {
         assert!(t.cursor_db.is_none(), "no Cursor session: the database was not read");
 
         cursor_session(home.path(), "w-app", "a1", &[cursor_prompt("go")]);
-        let updated = (wall().as_secs_f64() * 1000.0) as i64 + 1;
+        // As above, poll after the transcript's sub-millisecond mtime can't outrun the row.
+        let now = Timestamp::from_secs_f64(wall().as_secs_f64() + 1.0);
+        let updated = (now.as_secs_f64() * 1000.0) as i64;
         cursor_state_db(&db, "a1", "completed", "Database title", updated);
         t.swept = None;
-        assert_eq!(polled(&mut t), [("app".into(), "done".into()), ("site".into(), "thinking".into())]);
+        assert_eq!(polled_at(&mut t, now), [("app".into(), "done".into()), ("site".into(), "thinking".into())]);
         assert!(t.cursor_db.is_some(), "a Cursor session: the database is read");
     }
 }
