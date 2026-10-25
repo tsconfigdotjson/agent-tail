@@ -341,14 +341,35 @@ jobs:
             --os "${{ runner.os }}" \
             --out "$RUNNER_TEMP/harness-runs/shape.json"
 
-      - name: Upload runs and shape
-        if: always()
+      - name: Upload failure evidence
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: harness-${{ matrix.label }}-${{ runner.os }}
           path: ${{ runner.temp }}/harness-runs
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
+
+      - name: Upload nightly drift input
+        # Drift downloads only this slim artifact. Linux is the drift authority, and the
+        # upload still happens when a scenario fails so a shape-changing release can open
+        # a drift PR. Keep the path list to the files survey/nightly.py actually reads.
+        if: >-
+          always() && (
+            github.event_name == 'schedule' ||
+            github.event.inputs.open_drift_pr == 'true'
+          ) && matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-drift-${{ matrix.label }}-${{ runner.os }}
+          path: |
+            ${{ runner.temp }}/harness-runs/shape.json
+            ${{ runner.temp }}/harness-runs/*/transcripts
+            ${{ runner.temp }}/harness-runs/*/subagents
+            ${{ runner.temp }}/harness-runs/*/transcript.jsonl
+            ${{ runner.temp }}/harness-runs/*/score.json
+          if-no-files-found: warn
+          retention-days: 3
 
   pi:
     name: Pi ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
@@ -424,14 +445,14 @@ jobs:
           done < harness-ci/ci/scenarios-pi.txt
           exit "$failed"
 
-      - name: Upload runs
-        if: always()
+      - name: Upload failure evidence
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: pi-${{ matrix.label }}-${{ runner.os }}
           path: ${{ runner.temp }}/pi-runs
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
 
   codex:
     name: Codex ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
@@ -518,14 +539,14 @@ jobs:
             --os "${{ runner.os }}" \
             --out "$RUNNER_TEMP/codex-runs/shape.json"
 
-      - name: Upload runs and shape
-        if: always()
+      - name: Upload failure evidence
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: codex-${{ matrix.label }}-${{ runner.os }}
           path: ${{ runner.temp }}/codex-runs
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
 
   opencode:
     name: OpenCode ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
@@ -599,14 +620,14 @@ jobs:
           done < harness-ci/ci/scenarios-opencode.txt
           exit "$failed"
 
-      - name: Upload runs
-        if: always()
+      - name: Upload failure evidence
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: opencode-${{ matrix.label }}-${{ runner.os }}
           path: ${{ runner.temp }}/opencode-runs
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
 
   cursor:
     name: Cursor Agent ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
@@ -683,14 +704,14 @@ jobs:
         # the live matrix cannot drive. They still exercise the Cursor adapter end to end.
         run: cargo test --locked -p agent-tail --test status_fixtures
 
-      - name: Upload Cursor smoke output
-        if: always()
+      - name: Upload Cursor failure evidence
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: cursor-${{ matrix.label }}-${{ runner.os }}
           path: ${{ runner.temp }}/cursor-help.txt
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
 
   gemini:
     name: Gemini CLI ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
@@ -764,14 +785,14 @@ jobs:
           done < harness-ci/ci/scenarios-gemini.txt
           exit "$failed"
 
-      - name: Upload runs
-        if: always()
+      - name: Upload failure evidence
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: gemini-${{ matrix.label }}-${{ runner.os }}
           path: ${{ runner.temp }}/gemini-runs
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
 
   copilot:
     name: Copilot CLI ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
@@ -845,14 +866,14 @@ jobs:
           done < harness-ci/ci/scenarios-copilot.txt
           exit "$failed"
 
-      - name: Upload runs
-        if: always()
+      - name: Upload failure evidence
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: copilot-${{ matrix.label }}-${{ runner.os }}
           path: ${{ runner.temp }}/copilot-runs
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
 
   drift:
     name: Nightly drift PR
@@ -884,7 +905,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          pattern: harness-*
+          pattern: harness-drift-*
           path: ${{ runner.temp }}/artifacts
 
       - name: Build the fixture redaction tool
@@ -928,15 +949,24 @@ jobs:
             exit 1
           fi
           report="$(ls -t harness-ci/drift/reports/*-to-"$version".md | head -n1)"
-          branch="harness-drift/claude-code-$version-$GITHUB_RUN_ID"
+          # Reuse one scratch branch. Force-pushing replaces an earlier drift commit, so
+          # repeated nightly runs cannot leave one harness-drift/* branch per run behind.
+          branch="harness-drift/claude-code"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$branch"
+          git checkout -B "$branch"
           git add harness-ci/drift fixtures
           git commit -m "Record Claude Code $version harness shape drift"
-          git push origin "$branch"
-          gh pr create \
-            --base main \
-            --head "$branch" \
-            --title "Harness drift: Claude Code $version" \
-            --body-file "$report"
+          git push --force origin "$branch"
+          existing="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          if [[ -n "$existing" ]]; then
+            gh pr edit "$existing" \
+              --title "Harness drift: Claude Code $version" \
+              --body-file "$report"
+          else
+            gh pr create \
+              --base main \
+              --head "$branch" \
+              --title "Harness drift: Claude Code $version" \
+              --body-file "$report"
+          fi

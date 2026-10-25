@@ -53,14 +53,14 @@ jobs:
           INSTALL_CLAUDE_DESKTOP: "0"
         run: harness-ci/desktop-xvfb/run.sh standin
 
-      - name: Upload Xvfb evidence
-        if: always()
+      - name: Upload Xvfb failure evidence
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: desktop-xvfb-standin
           path: harness-ci/desktop-xvfb/runs
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
 
   desktop-probe:
     name: Claude Desktop Xvfb launch probe
@@ -84,14 +84,14 @@ jobs:
           INSTALL_CLAUDE_DESKTOP: "1"
         run: harness-ci/desktop-xvfb/run.sh desktop-probe
 
-      - name: Upload Xvfb evidence
-        if: always()
+      - name: Upload Xvfb failure evidence
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: desktop-xvfb-probe
           path: harness-ci/desktop-xvfb/runs
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
 
   live-key:
     name: Check live-lane credentials
@@ -145,11 +145,11 @@ jobs:
           INSTALL_CLAUDE_DESKTOP: "1"
         run: harness-ci/desktop-xvfb/run.sh desktop
 
-      - name: Upload Xvfb evidence
-        if: always()
+      - name: Upload Xvfb failure evidence
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: desktop-xvfb-live
           path: harness-ci/desktop-xvfb/runs
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3

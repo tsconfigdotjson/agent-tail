@@ -152,6 +152,22 @@ target/release/agent-tail fixture scan fixtures
 No repository secret is used for capture. Set `AGENT_TAIL_BIN` to the built CLI when running
 the nightly capture helper locally.
 
+## CI artifacts and drift branches
+
+Artifacts are evidence for a failed run, not a build archive. Every harness lane uploads its
+run directory only when the job fails, and Desktop uploads its `runs/` evidence only on
+failure. Those artifacts keep a 3-day retention. The one exception is the nightly Linux
+Claude Code lane: it uploads a slim `harness-drift-*` artifact containing only the shape,
+transcripts, subagents, and scores that the drift job reads. It does not upload screens,
+timelines, or mock request logs, and artifact names stay version/OS-scoped rather than adding
+a per-run identifier.
+
+The drift PR uses one stable scratch branch, `harness-drift/claude-code`. Each nightly run
+force-pushes that branch and updates the existing open PR when there is one, so repeated
+drift cannot leave a `harness-drift/*` branch per run behind. The branch is safe to delete
+after merge; the next drift recreates it. Do not add `$GITHUB_RUN_ID` or another per-run
+suffix to the branch name.
+
 ## Adding a harness or scenario
 
 1. Add the mock scenario and driver scenario.
