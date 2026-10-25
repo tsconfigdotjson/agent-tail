@@ -19,7 +19,7 @@ and the checkpoint protocol.
 ## Events
 
 An event carries common provenance (`id`, `harness`, `source`, `offset`, `length`, `line`,
-`record_ids`, `at`, optional `sidechain`) plus a `type` and its payload. `source` is the
+`record_ids`, `at`, optional `sidechain` and `off_chain`) plus a `type` and its payload. `source` is the
 caller's file index (`0` for a single transcript), offsets and lengths are byte positions in
 the original input, and `line` is one-based. `at` is seconds since the Unix epoch, or `null`
 when the record has no time of its own. Ids are deterministic for the same harness, source
@@ -32,8 +32,9 @@ The v0.1 event types are `user_prompt`, `assistant_text`, `reasoning`, `tool_cal
 form are `meta`; records or lines this version does not understand are `unknown`, never
 dropped. Required fields are the deterministic id, provenance and the fields that make the
 event meaningful. An optional field may be absent or `null`; `agenttail` emits explicit
-`null`s, and canonical comparison treats the two as equal. `sidechain` is omitted unless
-true. A title's origin is `title_source`; a tool call's short display line is
+`null`s, and canonical comparison treats the two as equal. `sidechain` and `off_chain` are
+omitted unless true; the latter marks a record on an abandoned Pi branch that the reducer
+ignores. A title's origin is `title_source`; a tool call's short display line is
 `activity_line`, keeping both distinct from provenance `source` and `line`.
 
 The event contract is the **Full** parse. `ParseMode::Lean` is a local first-read
@@ -85,9 +86,10 @@ A checkpoint may add the expected status and fixture steps:
 ```
 
 The assertable fields are `activity`, `certainty`, `reason`, `permission`, `sandbox`,
-`title` and `error`. They are optional in a checkpoint: an input-only checkpoint (only the
-two required timing fields) is always accepted. When present, optional fields are compared;
-a missing optional field and an explicit `null` are equal. `false` is not `null`.
+`title`, `error`, `cost_usd`, `out_tokens`, `usage` and `recent`. They are optional in a
+checkpoint: an input-only checkpoint (only the two required timing fields) is always
+accepted. When present, optional fields are compared; a missing optional field and an
+explicit `null` are equal. `false` is not `null`.
 
 Helpers are fed before a checkpoint with `helper` (its key under `input/subagents/`) and
 optionally `helper_line` (how many lines have been fed so far; default all). `meta` feeds
@@ -100,7 +102,8 @@ or metadata ended it.
    [`docs/conformance.md`](../docs/conformance.md).
 2. Write canonical JSON: object keys sorted at every depth, arrays in order, a missing
    optional field equal to `null`, and all status fields (`activity`, `certainty`, `reason`,
-   `permission`, `sandbox`, `title`, `error`) emitted even when null.
+   `permission`, `sandbox`, `title`, `error`, `cost_usd`, `out_tokens`, `usage`, `recent`)
+   emitted even when null.
 3. For each checkpoint, feed the main transcript up to `after_line`, apply any helper/meta
    steps, compute the state at `now`, and compare the declared fields. Exit non-zero on a
    mismatch; an unreached checkpoint is also a failure.

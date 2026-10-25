@@ -67,6 +67,98 @@
         "workspace_write",
         "unknown"
       ]
+    },
+    "token_usage": {
+      "type": "object",
+      "properties": {
+        "input_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "output_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cache_read_input_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cache_creation_input_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "activity_line": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "prompt"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "unevaluatedProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "command"
+            },
+            "command": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "command"
+          ],
+          "unevaluatedProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "tool"
+            },
+            "name": {
+              "type": "string"
+            },
+            "detail": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "unevaluatedProperties": false
+        }
+      ]
     }
   },
   "type": "object",
@@ -129,6 +221,25 @@
         "string",
         "null"
       ]
+    },
+    "cost_usd": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "out_tokens": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "usage": {
+      "$ref": "#/$defs/token_usage"
+    },
+    "recent": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/activity_line"
+      }
     }
   },
   "required": [

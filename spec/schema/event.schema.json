@@ -56,6 +56,10 @@
         "sidechain": {
           "type": "boolean",
           "description": "Present (true) only for Claude Code sidechain records."
+        },
+        "off_chain": {
+          "type": "boolean",
+          "description": "Present (true) only for records on an abandoned Pi branch; the reducer ignores them."
         }
       },
       "required": [
