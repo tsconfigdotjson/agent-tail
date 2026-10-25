@@ -1,9 +1,9 @@
 {
   "name": "codex_approval_never",
-  "description": "approval_policy=never keeps a long command RunningTool, never AwaitingApproval.",
+  "description": "approval_policy=never keeps a long command RunningTool, never AwaitingApproval. Full access avoids Codex's Linux sandbox failing before the command starts on nested CI hosts.",
   "harness": "codex",
   "mock": "../../mock-server/scenarios/codex_approval_never.json",
-  "command": ["codex", "--no-daemon", "-a", "never"],
+  "command": ["codex", "--no-daemon", "-a", "never", "-s", "danger-full-access"],
   "prompt": "wait forever",
   "no_approval": true,
   "run_for_ms": 24000,
