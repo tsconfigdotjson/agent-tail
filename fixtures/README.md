@@ -19,6 +19,9 @@ The seed corpus from tvdash now lives in the versioned layout:
 | `codex/0.160/linux/seed-exec` | a real `codex exec` rollout against a stand-in model |
 | `codex/0.160/linux/seed-resume` | the same session after `codex exec resume`: a patch, a command, a `request_user_input` |
 | `cursor/unknown/any/seed-session` | a handmade Cursor transcript in the shape seen on a real Mac (October 2026) |
+| `pi/1.4/linux/plain-qa` | Pi 1.4.0 against the local mock: one prompt, one text answer, `stopReason: stop` |
+| `pi/1.4/linux/tool-call` | Pi 1.4.0: a `bash` tool call and result, then the final answer; proves a pending Pi tool is firm `running_tool`, not inferred approval |
+| `pi/1.4/linux/api-error` | Pi 1.4.0 with retries disabled: assistant `stopReason: error` and `errorMessage` |
 
 They were already scrubbed of prose when copied from tvdash; `agenttail fixture redact`
 then replaced their fake placeholder usernames (`dev`, `sam`) with canonical

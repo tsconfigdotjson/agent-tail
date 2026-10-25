@@ -171,7 +171,7 @@ async fn run(args: Args) -> Result<(), String> {
     let scenario: DriverScenario =
         serde_json::from_str(&scenario_text).map_err(|e| format!("parse {}: {e}", scenario_path.display()))?;
     let harness: Harness = scenario.harness.parse().map_err(|e| format!("harness: {e}"))?;
-    if !matches!(harness, Harness::ClaudeCode | Harness::Codex) {
+    if !matches!(harness, Harness::ClaudeCode | Harness::Codex | Harness::Pi) {
         return Err(format!("{} harness is not wired up yet", harness.name()));
     }
     let mock_path = scenario_path.parent().unwrap_or(Path::new(".")).join(&scenario.mock);
@@ -211,7 +211,11 @@ async fn run(args: Args) -> Result<(), String> {
     let scenario_name = scenario.name.clone();
     let run_out = out.clone();
     let outcome = tokio::task::spawn_blocking(move || {
-        run_pty(scenario, harness, addr.to_string(), run_state, run_out, &home, &work)
+        if harness == Harness::Pi {
+            run_pi_json(scenario, harness, addr.to_string(), run_state, run_out, &home, &work)
+        } else {
+            run_pty(scenario, harness, addr.to_string(), run_state, run_out, &home, &work)
+        }
     })
     .await
     .map_err(|e| format!("driver task: {e}"))?;
@@ -227,6 +231,127 @@ async fn run(args: Args) -> Result<(), String> {
         println!("  FAIL: {failure}");
     }
     if score.failures.is_empty() { Ok(()) } else { Err("scenario had hard failures (see score.json)".into()) }
+}
+
+/// Pi's JSON mode is a one-shot run, not a TUI. It still exercises the real CLI, the mock
+/// provider, the session writer and the same reducer; samples are transcript-based and the
+/// screen is `unknown`, so Pi driver scenarios assert activities without screen strings.
+fn run_pi_json(
+    scenario: DriverScenario,
+    harness: Harness,
+    addr: String,
+    mock: std::sync::Arc<MockState>,
+    out: PathBuf,
+    home: &Path,
+    work: &Path,
+) -> Result<Score, String> {
+    seed_harness(home, work, harness, &addr, &scenario.settings)?;
+    seed_files(work, &scenario.files)?;
+    let phases = materialize_phases(&scenario);
+    let origin = Instant::now();
+    let mut tail: Option<Tail> = None;
+    let mut samples = Vec::new();
+    let mut session_id = None;
+    for (index, phase) in phases.iter().enumerate() {
+        let mut command = resolve_command(&phase.command, harness, session_id.as_deref())?;
+        if let Some(prompt) = &phase.prompt {
+            command.push(prompt.clone());
+        }
+        let events = std::fs::File::create(out.join(format!("pi-events-{index}.jsonl")))
+            .map_err(|e| format!("create pi events: {e}"))?;
+        let stderr = std::fs::File::create(out.join(format!("pi-stderr-{index}.log")))
+            .map_err(|e| format!("create pi stderr: {e}"))?;
+        let mut builder = std::process::Command::new(&command[0]);
+        builder.args(&command[1..]);
+        builder.current_dir(work);
+        builder.env("HOME", home);
+        builder.env("PI_CODING_AGENT_DIR", home.join(".pi").join("agent"));
+        builder.env("PI_CODING_AGENT_SESSION_DIR", home.join(".pi").join("agent").join("sessions"));
+        builder.env("PI_OFFLINE", "1");
+        builder.env("PI_SKIP_VERSION_CHECK", "1");
+        builder.env("PI_TELEMETRY", "0");
+        builder.env("TERM", "xterm-256color");
+        for (key, value) in &phase.env {
+            builder.env(key, value);
+        }
+        builder.stdout(events).stderr(stderr);
+        let mut child = builder.spawn().map_err(|e| format!("spawn {}: {e}", command[0]))?;
+        let start = Instant::now();
+        let run_for = Duration::from_millis(phase.run_for_ms);
+        let mut last_sample = Instant::now() - SAMPLE_EVERY;
+        loop {
+            let exited = child.try_wait().map_err(|e| format!("wait {}: {e}", command[0]))?.is_some();
+            if last_sample.elapsed() >= SAMPLE_EVERY {
+                let library = library_state(&mut tail, harness, home, Timestamp::from(SystemTime::now()));
+                samples.push(Sample {
+                    elapsed_ms: origin.elapsed().as_millis() as u64,
+                    screen: ScreenState::Unknown.id(),
+                    background_agents: false,
+                    library: library.as_ref().map(score::library_point),
+                });
+                last_sample = Instant::now();
+            }
+            if exited || start.elapsed() >= run_for {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if child.try_wait().map_err(|e| e.to_string())?.is_none() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        std::thread::sleep(Duration::from_millis(250));
+        let now = Timestamp::from(SystemTime::now());
+        let library = library_state(&mut tail, harness, home, now);
+        samples.push(Sample {
+            elapsed_ms: origin.elapsed().as_millis() as u64,
+            screen: ScreenState::Unknown.id(),
+            background_agents: false,
+            library: library.as_ref().map(score::library_point),
+        });
+        if let Some(id) = read_session_id(home, harness) {
+            session_id = Some(id);
+        }
+    }
+
+    let transcript = tail.as_ref().map(|tail| tail.path.clone());
+    let dumps = collect_transcript_dumps(home, harness);
+    copy_transcripts(&dumps, &out)?;
+    let expectations: Vec<score::Expectation> =
+        scenario.expected_activity.iter().map(score::ExpectedOne::expectation).collect();
+    let score = score::score(&score::ScoreRequest {
+        scenario: &scenario.name,
+        description: scenario.description.clone(),
+        harness: harness.id(),
+        no_approval: scenario.no_approval,
+        expected: &expectations,
+        samples: &samples,
+        mock_requests: mock.requests(),
+        remaining_mock_steps: mock.remaining(),
+        transcript: transcript.as_deref().map(|path| path.display().to_string()),
+        min_screen_ms: &scenario.min_screen_ms,
+        transcripts: &dumps,
+        helpers: &[],
+        registry: &[],
+        registry_fields: &[],
+        registry_files_after_exit: None,
+        expect_registry: None,
+        expect_observations: scenario.expect_observations.as_ref(),
+    });
+    let timeline = out.join("timeline.jsonl");
+    let mut timeline_text = String::new();
+    for sample in &samples {
+        timeline_text.push_str(&serde_json::to_string(sample).expect("sample serializes"));
+        timeline_text.push('\n');
+    }
+    std::fs::write(&timeline, timeline_text).map_err(|e| format!("write {}: {e}", timeline.display()))?;
+    std::fs::write(out.join("screen.txt"), "json mode: no PTY screen\n").map_err(|e| e.to_string())?;
+    if let Some(path) = &transcript
+        && let Ok(bytes) = std::fs::read(path)
+    {
+        std::fs::write(out.join("transcript.jsonl"), bytes).map_err(|e| e.to_string())?;
+    }
+    Ok(score)
 }
 
 fn run_pty(
@@ -496,6 +621,13 @@ fn drive_phase(drive: DrivePhase<'_>) -> Result<(), String> {
             builder.env("CODEX_HOME", home.join(".codex"));
             builder.env("MOCK_API_KEY", DUMMY_KEY);
         }
+        Harness::Pi => {
+            builder.env("PI_CODING_AGENT_DIR", home.join(".pi").join("agent"));
+            builder.env("PI_CODING_AGENT_SESSION_DIR", home.join(".pi").join("agent").join("sessions"));
+            builder.env("PI_OFFLINE", "1");
+            builder.env("PI_SKIP_VERSION_CHECK", "1");
+            builder.env("PI_TELEMETRY", "0");
+        }
         _ => {}
     }
     builder.env("TERM", "xterm-256color");
@@ -743,6 +875,11 @@ fn session_id_in(jsonl: &str) -> Option<String> {
         if let Some(id) = value.get("sessionId").and_then(serde_json::Value::as_str).filter(|id| !id.is_empty()) {
             return Some(id.to_string());
         }
+        if value.get("type").and_then(serde_json::Value::as_str) == Some("session")
+            && let Some(id) = value.get("id").and_then(serde_json::Value::as_str).filter(|id| !id.is_empty())
+        {
+            return Some(id.to_string());
+        }
         let Some(payload) = value.get("payload") else { continue };
         if let Some(id) = payload
             .get("id")
@@ -820,6 +957,19 @@ fn default_command(harness: Harness) -> Vec<String> {
     match harness {
         Harness::ClaudeCode => vec!["claude".into(), "--bare".into(), "--model".into(), "claude-sonnet-4-5".into()],
         Harness::Codex => vec!["codex".into(), "--no-daemon".into()],
+        Harness::Pi => vec![
+            "pi".into(),
+            "--mode".into(),
+            "json".into(),
+            "--model".into(),
+            "mock/mock-model".into(),
+            "--no-extensions".into(),
+            "--no-skills".into(),
+            "--no-prompt-templates".into(),
+            "--no-themes".into(),
+            "--no-context-files".into(),
+            "--no-mcp".into(),
+        ],
         _ => vec![],
     }
 }
@@ -834,8 +984,42 @@ fn seed_harness(
     match harness {
         Harness::ClaudeCode => seed_claude(home, work, settings),
         Harness::Codex => seed_codex(home, mock_addr),
+        Harness::Pi => seed_pi(home, mock_addr, settings),
         _ => Err(format!("{} harness is not wired up yet", harness.name())),
     }
+}
+
+fn seed_pi(home: &Path, mock_addr: &str, extra: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+    let config_dir = home.join(".pi").join("agent");
+    std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
+    let models = serde_json::json!({
+        "providers": {
+            "mock": {
+                "name": "Mock",
+                "baseUrl": format!("http://{mock_addr}"),
+                "api": "anthropic-messages",
+                "apiKey": DUMMY_KEY,
+                "models": [{
+                    "id": "mock-model",
+                    "name": "Mock Model",
+                    "reasoning": false,
+                    "input": ["text"],
+                    "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+                    "contextWindow": 128000,
+                    "maxTokens": 8192
+                }]
+            }
+        }
+    });
+    std::fs::write(config_dir.join("models.json"), serde_json::to_vec_pretty(&models).expect("models serialize"))
+        .map_err(|e| format!("seed Pi models.json: {e}"))?;
+    let mut settings = serde_json::json!({"defaultProvider": "mock", "defaultModel": "mock-model"});
+    let object = settings.as_object_mut().expect("settings object");
+    for (key, value) in extra {
+        object.insert(key.clone(), value.clone());
+    }
+    std::fs::write(config_dir.join("settings.json"), serde_json::to_vec_pretty(&settings).expect("settings serialize"))
+        .map_err(|e| format!("seed Pi settings.json: {e}"))
 }
 
 fn seed_codex(home: &Path, mock_addr: &str) -> Result<(), String> {
@@ -1012,6 +1196,7 @@ fn transcript_root(home: &Path, harness: Harness) -> PathBuf {
     match harness {
         Harness::ClaudeCode => home.join(".claude").join("projects"),
         Harness::Codex => home.join(".codex").join("sessions"),
+        Harness::Pi => home.join(".pi").join("agent").join("sessions"),
         _ => home.join(".unwired"),
     }
 }
@@ -1565,6 +1750,47 @@ mod tests {
         assert_eq!(parallel.expect_observations.as_ref().unwrap().codex_min_pending_function_calls, Some(3));
         let resume = scenario("codex_resume.json");
         assert!(resume.phases[1].command.iter().any(|arg| arg.contains("{{session_id}}")));
+    }
+
+    #[test]
+    fn the_pi_scenarios_parse_and_point_at_valid_mocks() {
+        for name in ["pi_plain_qa.json", "pi_tool_call.json", "pi_api_error.json"] {
+            let driver = scenario(name);
+            assert_eq!(driver.harness, "pi", "{name}");
+            assert!(driver.no_approval, "{name}");
+            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scenarios").join(name);
+            let mock_path = path.parent().unwrap().join(&driver.mock);
+            let text =
+                std::fs::read_to_string(&mock_path).unwrap_or_else(|e| panic!("read {}: {e}", mock_path.display()));
+            let text = substitute_workspace(&text, Path::new("/tmp/pi work\""));
+            mock_server::scenario::Scenario::parse(&text)
+                .unwrap_or_else(|e| panic!("parse {}: {e}", mock_path.display()));
+        }
+        let tool = scenario("pi_tool_call.json");
+        assert_eq!(tool.prompt.as_deref(), Some("use the tool"));
+        let activities: Vec<_> = tool.expected_activity.iter().map(|item| item.expectation()).collect();
+        assert_eq!(activities[0].activity, "running_tool");
+        assert_eq!(activities[0].certainty.as_deref(), Some("firm"));
+        assert_eq!(activities[1].activity, "done");
+        let error = scenario("pi_api_error.json");
+        assert_eq!(error.settings["retry"]["enabled"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn pi_default_command_and_provider_follow_the_spike() {
+        let command = resolve_command(&[], Harness::Pi, None).unwrap();
+        assert_eq!(command[0], "pi");
+        assert!(command.iter().any(|arg| arg == "--mode"));
+        assert!(command.iter().any(|arg| arg == "json"));
+        assert!(command.iter().any(|arg| arg == "mock/mock-model"));
+        let home = tempfile::tempdir().unwrap();
+        seed_pi(home.path(), "127.0.0.1:1234", &serde_json::Map::new()).unwrap();
+        let models = std::fs::read_to_string(home.path().join(".pi/agent/models.json")).expect("Pi models.json");
+        assert!(models.contains("\"baseUrl\": \"http://127.0.0.1:1234\""), "{models}");
+        assert!(models.contains("anthropic-messages"), "{models}");
+        assert!(!models.contains("http://127.0.0.1:1234/v1"), "Pi appends the API path itself: {models}");
+        let settings = std::fs::read_to_string(home.path().join(".pi/agent/settings.json")).expect("Pi settings.json");
+        assert!(settings.contains("mock-model"), "{settings}");
     }
 
     #[test]

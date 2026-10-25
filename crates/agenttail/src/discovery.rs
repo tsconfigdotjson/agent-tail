@@ -212,6 +212,9 @@ mod tests {
         for name in ["AskQuestion", "ask_question", "AskUserQuestion", "request_user_input"] {
             assert!(cursor.asks_user(name), "{name}");
         }
+
+        // Pi has no built-in ask tool; an empty list is the honest answer.
+        assert!(Harness::Pi.discovery().asks_user.is_empty());
     }
 
     #[test]
@@ -224,6 +227,7 @@ mod tests {
         // A4 and the Cursor corpus didn't observe one; an empty list is the honest answer.
         assert!(Harness::Codex.discovery().never_prompt.is_empty());
         assert!(Harness::Cursor.discovery().never_prompt.is_empty());
+        assert!(Harness::Pi.discovery().never_prompt.is_empty());
     }
 
     #[test]
@@ -231,6 +235,9 @@ mod tests {
         let claude = Harness::ClaudeCode.discovery();
         assert_eq!(claude.env_root("CLAUDE_CONFIG_DIR").unwrap().append, "projects");
         assert_eq!(Harness::Codex.discovery().env_root("CODEX_HOME").unwrap().append, "sessions");
+        let pi = Harness::Pi.discovery();
+        assert_eq!(pi.env_root("PI_CODING_AGENT_DIR").unwrap().append, "sessions");
+        assert_eq!(pi.env_root("PI_CODING_AGENT_SESSION_DIR").unwrap().append, "");
         assert!(Harness::Cursor.discovery().roots.env.is_empty());
         let registry = claude.registry.as_ref().expect("Claude has a registry decision");
         assert!(!registry.used, "the tracker does not read the registry");
@@ -239,5 +246,6 @@ mod tests {
         assert!(registry.waiting_for.contains(&"dialog open"), "waiting is broader than a permission prompt");
         assert!(Harness::Codex.discovery().registry.is_none());
         assert!(Harness::Cursor.discovery().registry.is_none());
+        assert!(Harness::Pi.discovery().registry.is_none());
     }
 }

@@ -16,6 +16,7 @@ fn path(h: Harness) -> &'static Path {
     Path::new(match h {
         Harness::Cursor => "/h/.cursor/projects/Users-sam-demo-app/agent-transcripts/a1/a1.jsonl",
         Harness::Codex => "/h/.codex/sessions/2026/10/23/rollout-x.jsonl",
+        Harness::Pi => "/h/.pi/agent/sessions/--w-app--/2026-10-23T12-00-00-000Z_s1.jsonl",
         _ => "/h/.claude/projects/-w-app/s1.jsonl",
     })
 }
@@ -103,6 +104,27 @@ fn line(h: Harness, kind: u8, text: &str, n: usize) -> String {
                 json!({"timestamp": ts, "type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": {"output_tokens": n}}}})
             }
         },
+        (Harness::Pi, k) => match k {
+            0 => json!({"type": "session", "id": format!("s{n}"), "cwd": format!("/w/{text}")}),
+            1 => json!({"type": "message", "id": format!("e{n}"), "timestamp": ts,
+                        "message": {"role": "user", "content": [{"type": "text", "text": text}]}}),
+            2 => json!({"type": "message", "id": format!("e{n}"), "timestamp": ts,
+                        "message": {"role": "assistant", "content": [{"type": "toolCall", "id": format!("c{n}"), "name": "bash",
+                                                                     "arguments": {"command": text}}], "stopReason": "toolUse",
+                                    "usage": {"input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 2,
+                                              "cost": {"total": 0.1}}}}),
+            3 => json!({"type": "message", "id": format!("e{n}"), "timestamp": ts,
+                        "message": {"role": "toolResult", "toolCallId": format!("c{n}"), "toolName": "bash",
+                                    "content": [{"type": "text", "text": text.repeat(500)}], "isError": false}}),
+            4 => json!({"type": "message", "id": format!("e{n}"), "timestamp": ts,
+                        "message": {"role": "assistant", "content": [{"type": "text", "text": text}], "stopReason": "stop",
+                                    "usage": {"input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 2,
+                                              "cost": {"total": 0.1}}}}),
+            5 => json!({"type": "session_info", "id": format!("e{n}"), "timestamp": ts, "name": text}),
+            _ => {
+                json!({"type": "model_change", "id": format!("e{n}"), "timestamp": ts, "provider": "p", "modelId": text})
+            }
+        },
         (_, k) => match k {
             0 => {
                 json!({"role": "user", "message": {"content": [{"type": "text", "text": format!("<user_query>{text}</user_query>")}]}})
@@ -122,7 +144,7 @@ fn line(h: Harness, kind: u8, text: &str, n: usize) -> String {
 }
 
 fn harness() -> impl Strategy<Value = Harness> {
-    prop_oneof![Just(Harness::ClaudeCode), Just(Harness::Codex), Just(Harness::Cursor)]
+    prop_oneof![Just(Harness::ClaudeCode), Just(Harness::Codex), Just(Harness::Cursor), Just(Harness::Pi)]
 }
 
 fn mode() -> impl Strategy<Value = ParseMode> {
@@ -164,11 +186,12 @@ proptest! {
     }
 }
 
-const FIXTURES: [(Harness, &str); 4] = [
+const FIXTURES: [(Harness, &str); 5] = [
     (Harness::ClaudeCode, include_str!("../../../fixtures/claude-code/2.1/linux/seed-session/input/session.jsonl")),
     (Harness::Codex, include_str!("../../../fixtures/codex/0.160/linux/seed-exec/input/session.jsonl")),
     (Harness::Codex, include_str!("../../../fixtures/codex/0.160/linux/seed-resume/input/session.jsonl")),
     (Harness::Cursor, include_str!("../../../fixtures/cursor/unknown/any/seed-session/input/session.jsonl")),
+    (Harness::Pi, include_str!("../../../fixtures/pi/1.4/linux/plain-qa/input/session.jsonl")),
 ];
 
 proptest! {

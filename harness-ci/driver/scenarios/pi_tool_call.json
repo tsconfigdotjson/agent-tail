@@ -1,0 +1,13 @@
+{
+  "name": "pi_tool_call",
+  "description": "Pi runs a bash tool call; a pending Pi tool is firm running_tool, never approval.",
+  "harness": "pi",
+  "mock": "../../mock-server/scenarios/pi_tool_call.json",
+  "prompt": "use the tool",
+  "run_for_ms": 20000,
+  "no_approval": true,
+  "expected_activity": [
+    { "activity": "running_tool", "when": "ever", "certainty": "firm" },
+    { "activity": "done", "when": "end", "certainty": "firm" }
+  ]
+}

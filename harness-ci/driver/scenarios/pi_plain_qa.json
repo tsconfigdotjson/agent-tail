@@ -1,0 +1,10 @@
+{
+  "name": "pi_plain_qa",
+  "description": "One Pi prompt, one text answer, JSON mode ends on a firm Done.",
+  "harness": "pi",
+  "mock": "../../mock-server/scenarios/plain_qa.json",
+  "prompt": "say hello",
+  "run_for_ms": 20000,
+  "no_approval": true,
+  "expected_activity": [{ "activity": "done", "when": "end", "certainty": "firm" }]
+}

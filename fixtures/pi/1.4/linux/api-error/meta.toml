@@ -1,0 +1,7 @@
+harness = "pi"
+version = "1.4.0"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-25"
+description = "Captured offline from a Pi session (01a170a4-0c1f-7033-8cc8-eab22dec7aca) and redacted by `agenttail fixture capture`."
+redaction = "redaction.json"

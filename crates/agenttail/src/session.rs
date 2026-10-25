@@ -128,6 +128,8 @@ pub(crate) struct Session {
     title_from_index: bool,
     /// Whether `title` currently comes from Cursor's `state.vscdb`.
     title_from_db: bool,
+    /// Whether `title` currently comes from Pi's `session_info.name`.
+    title_from_name: bool,
     pub(crate) cost: Option<f64>,
     pub(crate) out_tokens: u64,
     /// Token counts, deduped by message id where the harness splits one message over rows.
@@ -142,6 +144,8 @@ pub(crate) struct Session {
     pub(crate) entrypoint_sdk: bool,
     /// Codex: an AI reviewer, not a human, handles approval requests.
     pub(crate) approval_reviewer_auto: bool,
+    /// Pi: tools run without a permission prompt, so a pending tool never waits for a human.
+    pub(crate) no_approval: bool,
     /// The error the harness recorded, if the last thing was an error.
     pub(crate) error: Option<String>,
     /// Claude Code's `turn_duration.pendingBackgroundAgentCount`, when it records one.
@@ -193,6 +197,7 @@ impl Session {
             index_title: String::new(),
             title_from_index: false,
             title_from_db: false,
+            title_from_name: false,
             cost: None,
             out_tokens: 0,
             usage: TokenUsage::default(),
@@ -201,6 +206,7 @@ impl Session {
             sandbox: None,
             entrypoint_sdk: false,
             approval_reviewer_auto: false,
+            no_approval: harness == Harness::Pi,
             error: None,
             background_agents: 0,
             background_kills: 0,
@@ -436,7 +442,7 @@ impl Session {
         if self.prompt_title.is_empty() {
             self.prompt_title = first.clone();
         }
-        if !self.title_from_index && !self.title_from_db && self.title.is_empty() {
+        if !self.title_from_index && !self.title_from_db && !self.title_from_name && self.title.is_empty() {
             self.title = first;
         }
     }
@@ -480,6 +486,22 @@ impl Session {
         }
     }
 
+    /// A title from Pi's `session_info.name`; it wins over the opening prompt. Clearing it
+    /// falls back to the prompt.
+    pub(crate) fn set_session_name_title(&mut self, title: Option<&str>) {
+        match title.map(str::trim).filter(|title| !title.is_empty()) {
+            Some(title) => {
+                self.title_from_name = true;
+                self.title = title.into();
+            }
+            None if self.title_from_name => {
+                self.title_from_name = false;
+                self.title = if self.title_from_index { self.index_title.clone() } else { self.prompt_title.clone() };
+            }
+            None => {}
+        }
+    }
+
     /// A status recorded in a harness's database (Cursor's `composerData.status`), with when
     /// it was written. `None` clears it, so the transcript rules decide again.
     pub(crate) fn set_db_status(&mut self, status: Option<(Activity, f64)>) {
@@ -510,6 +532,7 @@ impl Session {
     pub(crate) fn can_ask_human(&self) -> bool {
         !self.entrypoint_sdk
             && !self.approval_reviewer_auto
+            && !self.no_approval
             && self.permission.is_none_or(PermissionMode::can_ask_human)
     }
 

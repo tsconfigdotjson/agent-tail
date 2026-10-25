@@ -1,0 +1,20 @@
+{
+  "name": "pi_tool_call",
+  "description": "Pi calls bash, receives the result, then answers.",
+  "steps": [
+    {
+      "expect": { "user_contains": "use the tool" },
+      "reply": {
+        "content": [{ "type": "tool_use", "name": "bash", "input": { "command": "sleep 1.5; printf pi-tool-ok" } }],
+        "usage": { "input_tokens": 11, "output_tokens": 6 }
+      }
+    },
+    {
+      "expect": { "tool_result_contains": "pi-tool-ok" },
+      "reply": {
+        "content": [{ "type": "text", "text": "The tool ran." }],
+        "usage": { "input_tokens": 12, "output_tokens": 7 }
+      }
+    }
+  ]
+}

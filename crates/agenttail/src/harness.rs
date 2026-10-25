@@ -20,18 +20,21 @@ pub enum Harness {
     Codex,
     /// Cursor's agent (IDE and CLI).
     Cursor,
+    /// Pi (the `pi` coding-agent CLI).
+    Pi,
 }
 
 impl Harness {
     /// Every harness, in the order their folders are scanned.
-    pub const ALL: [Harness; 3] = [Harness::ClaudeCode, Harness::Codex, Harness::Cursor];
+    pub const ALL: [Harness; 4] = [Harness::ClaudeCode, Harness::Codex, Harness::Cursor, Harness::Pi];
 
-    /// A stable id: `claude_code`, `codex`, `cursor`.
+    /// A stable id: `claude_code`, `codex`, `cursor`, `pi`.
     pub fn id(self) -> &'static str {
         match self {
             Harness::ClaudeCode => "claude_code",
             Harness::Codex => "codex",
             Harness::Cursor => "cursor",
+            Harness::Pi => "pi",
         }
     }
 
@@ -41,6 +44,7 @@ impl Harness {
             Harness::ClaudeCode => "Claude Code",
             Harness::Codex => "Codex",
             Harness::Cursor => "Cursor",
+            Harness::Pi => "Pi",
         }
     }
 
@@ -54,6 +58,7 @@ impl Harness {
             Harness::ClaudeCode => &adapters::claude::ClaudeCode,
             Harness::Codex => &adapters::codex::Codex,
             Harness::Cursor => &adapters::cursor::Cursor,
+            Harness::Pi => &adapters::pi::Pi,
         }
     }
 }
@@ -220,13 +225,13 @@ mod tests {
     #[test]
     fn lists_every_harness() {
         let got: Vec<_> = Harness::ALL.iter().map(|h| (h.id(), h.name())).collect();
-        assert_eq!(got, [("claude_code", "Claude Code"), ("codex", "Codex"), ("cursor", "Cursor")]);
+        assert_eq!(got, [("claude_code", "Claude Code"), ("codex", "Codex"), ("cursor", "Cursor"), ("pi", "Pi")]);
     }
 
     #[test]
     fn unknown_ids_get_a_useful_message() {
         for (id, want) in [
-            ("vim", "no agent \"vim\" (there are: claude_code, codex, cursor)"),
+            ("vim", "no agent \"vim\" (there are: claude_code, codex, cursor, pi)"),
             ("Claude Code", "no agent \"Claude Code\""),
             ("", "no agent \"\""),
         ] {

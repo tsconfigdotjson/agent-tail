@@ -1,0 +1,204 @@
+{
+ "content_types": {
+  "message.assistant": [
+   "text",
+   "thinking",
+   "toolCall"
+  ],
+  "message.toolResult": [
+   "text"
+  ],
+  "message.user": [
+   "image",
+   "text"
+  ]
+ },
+ "enums": {
+  "message.role": [
+   "assistant",
+   "bashExecution",
+   "custom",
+   "system",
+   "toolResult",
+   "user"
+  ],
+  "message.stopReason": [
+   "aborted",
+   "deferred",
+   "error",
+   "length",
+   "stop",
+   "toolUse"
+  ]
+ },
+ "field_paths": {
+  "branch_summary": [
+   "type",
+   "id",
+   "parentId",
+   "timestamp",
+   "fromId",
+   "summary",
+   "usage"
+  ],
+  "compaction": [
+   "type",
+   "id",
+   "parentId",
+   "timestamp",
+   "summary",
+   "firstKeptEntryId",
+   "tokensBefore",
+   "details",
+   "usage",
+   "fromHook",
+   "systemMessage"
+  ],
+  "context_edit": [
+   "type",
+   "id",
+   "parentId",
+   "timestamp",
+   "targetId",
+   "replacement"
+  ],
+  "custom": [
+   "type",
+   "id",
+   "parentId",
+   "timestamp",
+   "customType",
+   "data"
+  ],
+  "custom_message": [
+   "type",
+   "id",
+   "parentId",
+   "timestamp",
+   "customType",
+   "content",
+   "display",
+   "details"
+  ],
+  "label": [
+   "type",
+   "id",
+   "parentId",
+   "timestamp",
+   "targetId",
+   "label"
+  ],
+  "message": [
+   "type",
+   "id",
+   "parentId",
+   "timestamp",
+   "message.role",
+   "message.content[]",
+   "message.timestamp",
+   "message.api",
+   "message.provider",
+   "message.model",
+   "message.responseModel",
+   "message.responseId",
+   "message.usage.input",
+   "message.usage.output",
+   "message.usage.cacheRead",
+   "message.usage.cacheWrite",
+   "message.usage.cacheWrite1h",
+   "message.usage.reasoning",
+   "message.usage.totalTokens",
+   "message.usage.cost.input",
+   "message.usage.cost.output",
+   "message.usage.cost.cacheRead",
+   "message.usage.cost.cacheWrite",
+   "message.usage.cost.total",
+   "message.stopReason",
+   "message.rawStopReason",
+   "message.errorMessage",
+   "message.durationMs",
+   "message.thinkingLevel",
+   "message.toolCallId",
+   "message.toolName",
+   "message.isError",
+   "message.sections",
+   "message.toolsAdded",
+   "message.toolsRemoved"
+  ],
+  "model_change": [
+   "type",
+   "id",
+   "parentId",
+   "timestamp",
+   "provider",
+   "modelId"
+  ],
+  "session": [
+   "type",
+   "version",
+   "id",
+   "timestamp",
+   "cwd",
+   "parentSession"
+  ],
+  "session_info": [
+   "type",
+   "id",
+   "parentId",
+   "timestamp",
+   "name"
+  ],
+  "thinking_level_change": [
+   "type",
+   "id",
+   "parentId",
+   "timestamp",
+   "thinkingLevel"
+  ],
+  "usage": [
+   "type",
+   "id",
+   "parentId",
+   "timestamp",
+   "kind",
+   "provider",
+   "model",
+   "usage.input",
+   "usage.output",
+   "usage.cacheRead",
+   "usage.cacheWrite",
+   "usage.totalTokens",
+   "usage.cost.total",
+   "note"
+  ]
+ },
+ "harness": "pi",
+ "host": "linux",
+ "record_types": [
+  "branch_summary",
+  "compaction",
+  "context_edit",
+  "custom",
+  "custom_message",
+  "label",
+  "message",
+  "model_change",
+  "session",
+  "session_info",
+  "thinking_level_change",
+  "usage"
+ ],
+ "surveyed": "2026-10-25",
+ "tool_names_seen": [
+  "bash",
+  "edit",
+  "find",
+  "grep",
+  "ls",
+  "read",
+  "write"
+ ],
+ "versions": [
+  "1.4.0"
+ ]
+}

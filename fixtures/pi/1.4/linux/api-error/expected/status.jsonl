@@ -1,0 +1,2 @@
+{"after_line": 5, "now_offset_s": 1.0, "activity": "thinking", "certainty": "firm", "reason": "prompt_sent", "title": "trigger an error"}
+{"after_line": 6, "now_offset_s": 30.0, "activity": "errored", "certainty": "firm", "reason": "errored", "permission": null}

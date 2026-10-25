@@ -820,6 +820,61 @@ mod tests {
     }
 
     #[test]
+    fn tracker_reads_pi_sessions_and_their_names() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(".pi/agent/sessions/--w-app--");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("2026-10-25T01-00-00-000Z_s1.jsonl");
+        std::fs::write(
+            &path,
+            jsonl(&[
+                json!({"type": "session", "version": 3, "id": "s1", "timestamp": at(3.0), "cwd": "/w/app"}),
+                json!({"type": "message", "id": "e1", "timestamp": at(2.0),
+                       "message": {"role": "user", "content": [{"type": "text", "text": "opening prompt"}]}}),
+                json!({"type": "message", "id": "e2", "timestamp": at(1.0),
+                       "message": {"role": "assistant", "content": [{"type": "text", "text": "done"}],
+                                   "stopReason": "stop",
+                                   "usage": {"input": 3, "output": 4, "cacheRead": 0, "cacheWrite": 0,
+                                             "totalTokens": 7, "cost": {"total": 0.01}}}}),
+            ]),
+        )
+        .unwrap();
+        let mut t = Tracker::new(home.path(), hours(1.0));
+        let v = t.poll(wall());
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].0.harness, Harness::Pi);
+        assert_eq!(
+            (v[0].1.meta.project.as_str(), v[0].1.meta.title.as_str(), v[0].1.activity),
+            ("app", "opening prompt", crate::Activity::Done)
+        );
+        assert_eq!(v[0].1.usage.output_tokens, Some(4));
+
+        append(&path, &jsonl(&[json!({"type": "session_info", "id": "e3", "timestamp": at(0.5), "name": "Named"})]));
+        let v = t.poll(wall());
+        assert_eq!(v[0].1.meta.title, "Named");
+    }
+
+    #[test]
+    fn tracker_reads_a_flat_pi_session_dir() {
+        let home = tempfile::tempdir().unwrap();
+        let root = home.path().join("custom-pi-sessions");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("2026-10-25T01-00-00-000Z_s1.jsonl"),
+            jsonl(&[
+                json!({"type": "session", "version": 3, "id": "s1", "timestamp": at(3.0), "cwd": "/w/custom"}),
+                json!({"type": "message", "id": "e1", "timestamp": at(2.0),
+                       "message": {"role": "user", "content": [{"type": "text", "text": "flat prompt"}]}}),
+            ]),
+        )
+        .unwrap();
+        let mut t = Tracker::with_roots(vec![(Harness::Pi, root)], hours(1.0));
+        let v = t.poll(wall());
+        assert_eq!(v.len(), 1);
+        assert_eq!((v[0].1.meta.project.as_str(), v[0].1.meta.title.as_str()), ("custom", "flat prompt"));
+    }
+
+    #[test]
     fn tracker_follows_a_new_filter() {
         let home = tempfile::tempdir().unwrap();
         two_harnesses(home.path());
@@ -1189,20 +1244,35 @@ mod tests {
         let custom = |var: &str| match var {
             "CLAUDE_CONFIG_DIR" => Some("/custom/claude".into()),
             "CODEX_HOME" => Some("/custom/codex".into()),
+            "PI_CODING_AGENT_DIR" => Some("/custom/pi-agent".into()),
             _ => None,
         };
         let roots = Tracker::roots(home, custom);
         assert_eq!(roots[0], (Harness::ClaudeCode, PathBuf::from("/custom/claude/projects")));
         assert_eq!(roots[1], (Harness::Codex, PathBuf::from("/custom/codex/sessions")));
         assert_eq!(roots[2], (Harness::Cursor, PathBuf::from("/h/.cursor/projects")));
+        assert_eq!(roots[3], (Harness::Pi, PathBuf::from("/custom/pi-agent/sessions")));
         // Relative overrides are ignored, as the harnesses ignore them.
         let relative = |var: &str| match var {
-            "CLAUDE_CONFIG_DIR" | "CODEX_HOME" => Some("relative".into()),
+            "CLAUDE_CONFIG_DIR" | "CODEX_HOME" | "PI_CODING_AGENT_DIR" | "PI_CODING_AGENT_SESSION_DIR" => {
+                Some("relative".into())
+            }
             _ => None,
         };
         let roots = Tracker::roots(home, relative);
         assert_eq!(roots[0].1, PathBuf::from("/h/.claude/projects"));
         assert_eq!(roots[1].1, PathBuf::from("/h/.codex/sessions"));
+        assert_eq!(roots[3].1, PathBuf::from("/h/.pi/agent/sessions"));
+
+        // A custom Pi session directory replaces the whole sessions/ layout, and wins over
+        // PI_CODING_AGENT_DIR.
+        let pi_session = |var: &str| match var {
+            "PI_CODING_AGENT_DIR" => Some("/custom/pi-agent".into()),
+            "PI_CODING_AGENT_SESSION_DIR" => Some("/custom/pi-sessions".into()),
+            _ => None,
+        };
+        let roots = Tracker::roots(home, pi_session);
+        assert_eq!(roots[3], (Harness::Pi, PathBuf::from("/custom/pi-sessions")));
     }
 
     #[test]

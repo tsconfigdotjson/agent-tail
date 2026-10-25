@@ -1,0 +1,14 @@
+{
+  "name": "pi_api_error",
+  "description": "Pi receives a terminal authentication error.",
+  "steps": [
+    {
+      "expect": { "user_contains": "trigger an error" },
+      "reply": {
+        "content": [{ "type": "text", "text": "unused" }],
+        "usage": { "input_tokens": 10, "output_tokens": 1 },
+        "fault": { "type": "http", "status": 401, "message": "invalid credential" }
+      }
+    }
+  ]
+}

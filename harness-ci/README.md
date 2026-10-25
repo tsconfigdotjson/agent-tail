@@ -388,9 +388,12 @@ explicitly. The root `cargo test` still does not build it.
   mock-server tests, and the Python survey tests. The `harness` matrix runs Claude Code
   **2.1.281**, **2.1.310** and npm **latest**, each on **ubuntu-latest** and **macos-latest**.
   A separate `codex` job runs pinned Codex **0.160.1** on both OSes with
-  `ci/scenarios-codex.txt`. Every job installs the CLI from npm into `$RUNNER_TEMP`, checks the
-  reported version, builds `harness-driver --release`, and runs its scenarios sequentially. A
-  hard scoring failure fails the job; run artifacts are uploaded even when a scenario fails.
+  `ci/scenarios-codex.txt`. The `pi` matrix runs pinned Pi **1.4.0** and npm **latest** on both
+  OSes with `ci/scenarios-pi.txt`; a newer release that breaks the mocked turn, transcript or
+  status fails that job loudly rather than being skipped. Every job installs the CLI from npm into
+  `$RUNNER_TEMP`, checks the reported version, builds `harness-driver --release`, and runs its
+  scenarios sequentially. A hard scoring failure fails the job; run artifacts are uploaded even
+  when a scenario fails.
 - **Offline:** `ci/offline-run.sh` wraps each driver in `sandbox-exec -f offline.sb` on macOS and
   in a fresh network namespace with loopback up on Linux. CI sets
   `HARNESS_CI_REQUIRE_OFFLINE=1`, so a host that cannot enforce either one fails instead of
@@ -413,6 +416,59 @@ explicitly. The root `cargo test` still does not build it.
 - **Deferred:** Cursor stays out: it has no offline CLI path yet. The
   `cargo bench --bench first_read` `/usr/bin/time` budget (QUESTIONS.md #10) is not wired here;
   it belongs with the Phase C performance budget.
+
+## A7: Pi real-harness spike and scenarios (2026-10-25)
+
+Pi **1.4.0** (npm latest at the time) runs fully offline against the existing mock through a
+custom Anthropic-compatible provider. `/v1/messages` needs the provider base URL **without**
+`/v1` (`http://127.0.0.1:<port>`); Pi appends the API path itself. A temp agent directory gets:
+
+```json
+{
+  "providers": {
+    "mock": {
+      "name": "Mock",
+      "baseUrl": "http://127.0.0.1:<port>",
+      "api": "anthropic-messages",
+      "apiKey": "dummy-key",
+      "models": [{ "id": "mock-model", "name": "Mock Model", "reasoning": false,
+                  "input": ["text"], "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+                  "contextWindow": 128000, "maxTokens": 8192 }]
+    }
+  }
+}
+```
+
+`settings.json` selects `mock`/`mock-model`. The driver sets `HOME`, `PI_CODING_AGENT_DIR`,
+`PI_CODING_AGENT_SESSION_DIR`, `PI_OFFLINE=1`, `PI_SKIP_VERSION_CHECK=1` and
+`PI_TELEMETRY=0`, and runs:
+
+```sh
+pi --mode json --model mock/mock-model --no-extensions --no-skills --no-prompt-templates \
+   --no-themes --no-context-files --no-mcp '<prompt>'
+```
+
+Unlike Claude Code and Codex, Pi's driver path is **JSON mode, not PTY screen scored**: it
+tails the real session file with `agenttail` and checks firm activities/events. The screen is
+recorded as `unknown`, so Pi scenarios assert activities without screen strings. The real
+`pi --version` is `1.4.0`. The `pi` GHA matrix installs pinned **1.4.0** and npm **latest**;
+the latest job is not soft-skipped, so a new Pi release fails loudly when the mocked turns,
+transcript shape or status rules break. No repository secret is used; the CLI only sees the driver's dummy key.
+
+| scenario | what it checks |
+|---|---|
+| `pi_plain_qa` | One prompt, one text answer, `stopReason: stop`; firm `done` |
+| `pi_tool_call` | A `bash` call runs for 1.5 s; firm `running_tool` while pending, then firm `done` |
+| `pi_api_error` | Retries disabled, HTTP 401; firm `errored` with the harness's error |
+
+Pi has **no approval prompt** and no built-in ask-user tool, so there is no approval/ask
+scenario to capture. A pending Pi tool is firm `RunningTool`, never inferred
+`AwaitingApproval`; this is asserted in the fixture suite and the tool-call scenario.
+
+```sh
+cd harness-ci
+cargo run -p harness-driver -- --scenario driver/scenarios/pi_plain_qa.json
+```
 
 ## A4: Codex real-harness spike and scenarios (2026-10-24)
 
