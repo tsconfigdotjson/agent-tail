@@ -27,6 +27,7 @@ serde.workspace = true
 toml = "1.1.8"
 
 [dev-dependencies]
+jsonschema = { version = "0.37.1", default-features = false }
 proptest = "1.6"
 tempfile = "3.27.0"
 

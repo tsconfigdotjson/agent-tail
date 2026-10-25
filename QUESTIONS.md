@@ -15,29 +15,29 @@ repeated here when they're still open.
 
 ## From Phase 1a (the extraction)
 
-4. **`StatusClass` in the library.** PLAN.md section 3.2 keeps StatusWall's 4-class
-   mapping in tvdash, but the Phase 1a brief asked for the status class, and the tracker
-   needs an order to sort by. It's in the library as `Activity::class()`, an enum with no
-   wording. Keep it, or move it to tvdash?
+4. **`StatusClass` in the library.** Resolved (issue #67): keep `Activity::class()` in the
+   library. It is an enum with no wording; StatusWall keeps its labels. See DECISIONS.md,
+   "Phase G".
 5. **`Idle` or `Unknown` for a session with nothing read yet?** Resolved (issue #62):
    `Unknown` with reason `no_entries`, matching PLAN.md section 4. tvdash/StatusWall can
    map `Unknown` to its display idle; the library does not present an unread session as
    idle work. StatusWall adoption (#16) is not integrated yet.
-6. **Entries with no time of their own are dated by the transcript's mtime**, not by when
-   they were read (DECISIONS.md, "Where behaviour differs", 1). This only changes anything
-   for a Claude Code or Codex line missing its `timestamp`. OK?
-7. **Time as `Timestamp(f64)` seconds**, matching tvdash and the remote frames. An integer
-   of milliseconds or nanoseconds would make equality exact; worth it before 0.1?
+6. **Entries with no time of their own are dated by the transcript's mtime.** Resolved
+   (issue #67): confirmed for v0.1. This only changes anything for a Claude Code or Codex
+   line missing its `timestamp`; Cursor prompts keep their own time. See DECISIONS.md,
+   "Phase G".
+7. **Time as `Timestamp(f64)` seconds.** Resolved (issue #67): keep `f64` seconds for v0.1,
+   matching tvdash and the remote frames. Revisit only if a port proves equality is a real
+   problem. See DECISIONS.md, "Phase G".
 8. **Harness folders moved by env vars** — resolved in B8 and A4: `Tracker::from_env`
    reads `CLAUDE_CONFIG_DIR` and `CODEX_HOME`; both CLIs use them. Claude Code 2.1.310's
    single-absolute-path semantics are confirmed in the binary and by an offline run. Codex
    0.160.1's `CODEX_HOME` is the `.codex` home with rollouts below `sessions/`; it also
    accepts relative values against the cwd, while the tracker ignores non-absolute paths.
-9. **tvdash's remote loop.** The reducer now owns the held-back partial line and the
-   offset checks that `remote::RemoteFile` does today, so `remote.rs` can drop its
-   `pending`/`received` and call `feed`. One difference to decide when wiring it: tvdash's
-   remote frames have `mtime = 0` when the remote's `stat` failed and substitute the
-   arrival time; the reducer expects the caller to do that (it can't read the clock).
+9. **tvdash's remote loop.** Resolved (issue #67): when a remote frame has `mtime = 0`
+   because the remote's `stat` failed, the caller substitutes the arrival time before
+   `feed`; `ChunkCtx::mtime_or(arrival)` makes this explicit and tested. StatusWall's remote
+   loop is still not wired (#16 remains parked).
 10. **Bench in CI.** Resolved (2026-10-25): the local Multibeast verify gate runs
     `harness-ci/ci/first-read-budget.sh`, which fails over PLAN.md section 6.2's budget (Lean
     under 3 s and peak RSS under 50 MB for a 500 MB synthetic transcript). A `first-read` GHA

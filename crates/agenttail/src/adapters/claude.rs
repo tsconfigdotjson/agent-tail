@@ -24,7 +24,7 @@ impl Adapter for ClaudeCode {
             "ai-title" => out.push(
                 EventSeed::new(EventKind::Title {
                     title: e["aiTitle"].as_str().unwrap_or_default().into(),
-                    source: TitleSource::Generated,
+                    title_source: TitleSource::Generated,
                 })
                 .at(at),
             ),
@@ -340,7 +340,7 @@ fn assistant(
                         kind: ToolKind::of(name, &c["input"]),
                         input: c["input"].clone(),
                         asks_user: crate::Harness::ClaudeCode.discovery().asks_user(name),
-                        line: Some(describe_tool(name, &c["input"])),
+                        activity_line: Some(describe_tool(name, &c["input"])),
                     })
                     .at(at),
                 );

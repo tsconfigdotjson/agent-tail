@@ -15,6 +15,13 @@ understanding `agenttail`'s internals.
 which contains `input/`). It holds `session.jsonl` as the main transcript and may hold
 `subagents/<agent>.jsonl` plus `subagents/<agent>.meta.json` for helpers.
 
+The language-neutral contract is frozen in [`spec/schema/`](../spec/schema/):
+`event.schema.json` for events, `session-state.schema.json` for the full state object, and
+`status.schema.json` for a checkpoint line. [`spec/status.md`](../spec/status.md) explains
+the status fields, checkpoint protocol, canonical output and how a port passes. The
+committed fixtures' expected events and statuses are validated against these schemas by
+`crates/agenttail/tests/schema_fixtures.rs`.
+
 - **events** writes one normalized event per line. It reads the main transcript only;
   helper transcripts are reducer inputs, not part of `expected/events.jsonl`.
 - **status** replays the main transcript and each checkpoint's helper/meta steps, then writes

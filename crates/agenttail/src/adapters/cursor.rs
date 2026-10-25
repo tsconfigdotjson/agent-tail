@@ -142,7 +142,7 @@ fn assistant(content: &Value, out: &mut Vec<EventSeed>) {
                     kind: ToolKind::of(name, input),
                     input: input.clone(),
                     asks_user: crate::Harness::Cursor.discovery().asks_user(name),
-                    line: (!name.is_empty()).then(|| describe_tool(name, input)),
+                    activity_line: (!name.is_empty()).then(|| describe_tool(name, input)),
                 }));
             }
             // Cursor doesn't record tools' results: the model writing again means they're in.

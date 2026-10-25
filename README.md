@@ -104,7 +104,10 @@ paths/usernames/hosts/emails and secrets, shows a value-free diff/report, and wr
 versioned fixture directory. `fixture redact` is deterministic and structure-preserving;
 `fixture scan` is what the pre-commit hook and CI use. Everything is offline. See
 [fixtures/README.md](fixtures/README.md) and [docs/conformance.md](docs/conformance.md) for
-the language-neutral `events`/`status` contract, canonical JSON and `survey --drift`.
+the language-neutral `events`/`status` contract, canonical JSON and `survey --drift`. The
+frozen v0.1 shapes live in [`spec/schema/`](spec/schema/) and
+[`spec/status.md`](spec/status.md); committed expected events and statuses are validated
+against them by the test suite.
 
 ## What it reads, and what it touches
 
