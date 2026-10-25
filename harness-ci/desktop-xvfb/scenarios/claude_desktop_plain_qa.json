@@ -1,10 +1,10 @@
 {
   "name": "claude_desktop_plain_qa",
-  "description": "Live Claude Desktop through the Jev/OpenRouter choose loop and the 3P Anthropic Messages mock. Requires OPENROUTER_API_KEY. The mock scenario allows Desktop's \".\" gateway probe without consuming the say-hello step. Typing uses AT-SPI when an editable is exposed, otherwise the loopback DevTools composer.",
+  "description": "Live Claude Desktop through the Jev/OpenRouter choose loop and the 3P Anthropic Messages mock. Requires OPENROUTER_API_KEY. The mock scenario allows Desktop's \".\" gateway probe without consuming the say-hello step. Typing uses an AT-SPI editable when one is exposed. On Desktop 3.6556.2 the composer is only a document web node, so the driver clicks that field with xdotool and presses Enter. The launch does not pass --remote-debugging-port.",
   "target": "claude-desktop",
   "chooser": "jev",
   "window_title": "Claude",
-  "goal": "Get to the Chat composer, type the prompt into the chat prompt field, send it, and wait until the turn is done. Prefer the chat prompt over New, Menu, or the account button.",
+  "goal": "Get to the Chat composer, type the prompt into the control named Chat prompt, click Send prompt to submit it with Enter, and wait until the turn is done. Prefer Chat prompt and Send prompt over New, Menu, or the account button.",
   "prompt": "say hello",
   "agents": "claude_desktop,claude_code",
   "mock_scenario": "../mock-server/scenarios/desktop_plain_qa.json",

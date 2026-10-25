@@ -4,8 +4,11 @@
 [`../desktop-xvfb/`](../desktop-xvfb/README.md): Docker + Xvfb can install the Linux Desktop
 package, render its standard sign-in and 3P gateway welcome screens, and expose them over
 AT-SPI for an observe/Jev/act loop. The stand-in scenario in that folder passes locally. A
-live Jev call reached the Chat UI and the mock probe, but no scored Desktop turn has been
-completed, so this is still a stub for matrix purposes. The `claude_desktop` discovery spec
+live Jev call reached the Chat UI and the mock probe. Desktop `3.6556.2` then refused
+`--remote-debugging-port`, and with that switch off AT-SPI still had no editable (push
+buttons and `document web` only). The driver clicks that document with `xdotool` and
+presses Enter; that path is unit-tested and has not scored a live turn, so this is still
+a stub for matrix purposes. The `claude_desktop` discovery spec
 and adapter read local-agent-mode
 `audit.jsonl` files; their handmade fixtures are under `fixtures/claude-desktop/`. The
 evidence is in [`docs/formats/claude-desktop.md`](../../docs/formats/claude-desktop.md).
@@ -26,8 +29,10 @@ driver is a Jev computer-use loop, not a PTY prompt:
   `TYPESAFE_BASE_URL=https://openrouter.ai/api` so the key and endpoint stay paired.
 
 The Xvfb container launches the real Linux Desktop package. A live Jev run got past the 3P
-welcome screen into Chat and hit the mock with a `"."` probe; it did not type a prompt or
-write a Desktop disk artifact. Source inspection of `typesafe-computer-use` shows its bare
+welcome screen into Chat and hit the mock with a `"."` probe. A later run accepted that
+probe and still could not type: the app rejects `--remote-debugging-port`, and the
+composer is not an AT-SPI editable. No run has written a Desktop disk artifact. Source
+inspection of `typesafe-computer-use` shows its bare
 `TypeSafeClient()` inherits `TYPESAFE_BASE_URL` from `typesafe-sdk` 0.6.0, but that handoff
 has not been run.
 

@@ -10,11 +10,16 @@ Sign-in and the 3P gateway welcome render under Xvfb, and the stand-in scenario
 passes locally. A live Jev run on Multibeast (2026-10-25, package `3.6556.2`,
 `typesafe/jev-1.14`) reached the Chat UI and the mock, then failed: Desktop's
 `"."` gateway probe was rejected, and AT-SPI exposed no editable, so the prompt
-was never typed and `agenttail` stayed at `idle_no_session`. This tree accepts
-that probe, fixes the mock scenario path, and types through a loopback DevTools
-composer when AT-SPI has no editable. **A scored Chat turn has not been
-re-run.** The adapter matrix remains **ported-unverified**, not CI-verified.
-Do not spend OpenRouter credits in CI; the live Jev path stays manual.
+was never typed and `agenttail` stayed at `idle_no_session`. The probe allowlist
+and mock path are in tree and worked on a later box re-run. That re-run also
+showed `3.6556.2` refuses to start when the command line includes
+`--remote-debugging-port`, and with that switch omitted the tree is still push
+buttons plus `document web` — no editable — so the turn stayed
+`idle_no_session`. This tree types by clicking that document and pressing Enter
+with `xdotool`. The default launch does not pass the rejected debugging switch.
+**A scored Chat turn has not been re-run.** The adapter matrix remains
+**ported-unverified**, not CI-verified. Do not spend OpenRouter credits in CI;
+the live Jev path stays manual.
 
 ## What runs, and what does not
 
@@ -53,13 +58,15 @@ cd harness-ci/desktop-xvfb
 # fall back to a writer LLM or any other model.
 # AGENTTAIL_JEV_CONFIDENCE is optional. Unset, the Desktop scenario uses 0.25
 # because Jev scored Continue at 0.31 and the generic 0.55 floor stopped the run.
-# AGENTTAIL_CDP_PORT=0 disables the DevTools typing fallback (default port 9223).
+# Leave AGENTTAIL_CDP_PORT unset. Desktop 3.6556.2 exits on --remote-debugging-port.
+# A positive port is opt-in only, for a build that still accepts the switch.
 OPENROUTER_API_KEY=... AGENTTAIL_JEV_MODEL=typesafe/jev-1.14 ./run.sh desktop
 ```
 
 Each run gets a timestamped directory under `runs/` (ignored by git) with:
 
-- `score.json` or `probe.json`
+- `score.json` or `probe.json` (`remote_debugging_port` is null unless
+  `AGENTTAIL_CDP_PORT` is a positive opt-in)
 - `timeline.jsonl`, `jev.jsonl` (Jev request/response, no key)
 - `step-NN.png` and `step-NN-atspi.txt`
 - app and mock logs
@@ -73,11 +80,18 @@ paths.
    candidates (role, name, description, bounds, actions). A node with
    `STATE_EDITABLE` is a type target even when its role is `section` rather
    than `entry`. Non-click AT-SPI actions on non-editables are dropped, and
-   Jev is not called until the candidate list is non-empty. When the tree
-   still has no editable, the driver reads the page DOM on loopback DevTools
-   (`--remote-debugging-port`, default `9223`) and adds the bottom composer
-   plus a Send button or Enter key. A screenshot is saved as evidence but is
-   never sent to a VLM and is never the scorer.
+   Jev is not called until the candidate list is non-empty. Desktop `3.6556.2`
+   exposes Chat as push buttons plus one `document web` and no editable. The
+   driver walks that document, including embedded web areas whose bounds overlap
+   the window. If the accessibility text contains a composer placeholder, the
+   type target is that range's screen extents. Otherwise it is a point in the
+   upper part of the composer card, estimated from the document-web bounds
+   (the card sits under the greeting on the empty Chat screen, and the card's
+   vertical center is the Chat/Cowork tabs). `Send prompt` focuses that point
+   and presses Enter. The welcome screen's `Continue` button suppresses the
+   estimate so the driver does not type into the gateway page. A screenshot is
+   saved as evidence but is never sent to a VLM and is never the scorer.
+   `step-NN-atspi.txt` includes `document web` bounds and a short text sample.
 2. **Choose** — for Desktop, `desktop_driver.py` sends a typed `choice` request
    to OpenRouter's Decisions API at `typesafe/jev-1.14`. The model only returns
    an option and confidence; our code performs the click/type. The confidence
@@ -87,10 +101,15 @@ paths.
    clicked. There is no `ANTHROPIC_API_KEY`, `CLICKER_WRITER_*` or writer call
    in the path; the driver also scrubs those variables from the app environment.
 3. **Act** — AT-SPI `doAction` first, with an `xdotool` click/type fallback from
-   the candidate's screen bounds. A DevTools candidate is typed with
-   `Input.insertText` after focusing the DOM node our code found, or clicked
-   with `element.click()` / Enter. Our code owns every action. DevTools URLs
-   that are not loopback are refused.
+   the candidate's screen bounds. The document-web composer is node-less: the
+   driver clicks the type point, then `xdotool type` writes the scenario prompt,
+   and `Send prompt` is `xdotool key Return`. Our code owns every action.
+   `--remote-debugging-port` is not part of the default launch. Claude Desktop
+   `3.6556.2` refuses to start when that switch is present. Set
+   `AGENTTAIL_CDP_PORT` to a positive port only for a build that still accepts
+   it; the driver will then type through loopback DevTools (`Input.insertText`
+   and Enter) and will refuse a DevTools URL that is not loopback. `0` or an
+   empty value leaves the switch off.
 4. **Score** — poll `agenttail ls --hours 2 --agents …` with `HOME` pointed at
    the container user's home. The Desktop scenario reads both
    `claude_desktop` (`local-agent-mode-sessions/.../audit.jsonl`) and
@@ -143,8 +162,8 @@ AGENTTAIL_DOCKER_NETWORK=host OPENROUTER_API_KEY=... ./run.sh desktop
 `network_mode` defaults to `bridge`, which is the right mode when Docker's
 embedded DNS works. `host` shares the host network namespace: loopback in the
 container is the host's loopback, which is also what the mock
-(`127.0.0.1:8765`) and the DevTools port use. Do not publish extra ports for
-this; the harness is still one container.
+(`127.0.0.1:8765`) uses. Do not publish extra ports for this; the harness is
+still one container. The default Desktop launch does not open a DevTools port.
 
 ## Local evidence, 2026-10-25 (Multibeast)
 
@@ -173,8 +192,17 @@ not passed to the container. No GitHub Actions run was made.
   `audit.jsonl`, no Code-tab session). AT-SPI candidates were push buttons
   only (`Menu`, `Continue`, `New`, `claude Gateway`, …), so Jev had nothing
   to type into and looped on chrome. About $0.001 of OpenRouter spend. That
-  run is why the probe allowlist, the `../` mock path, the confidence floor,
-  and the DevTools composer exist. It is not a scored turn.
+  run is why the probe allowlist, the `../` mock path, and the confidence floor
+  exist. It is not a scored turn.
+- Re-run on main `7840438` (same box, host network, `typesafe/jev-1.14`,
+  scenario confidence `0.25`): the probe allowlist worked (`probe: true`,
+  mock `ok`, step not consumed). The default launch passed
+  `--remote-debugging-port` and Desktop `3.6556.2` refused to start. With
+  `AGENTTAIL_CDP_PORT=0` the app reached New chat (16 clicks, about $0.0014)
+  and AT-SPI was push buttons plus `document web` only, so nothing was typed.
+  `seen=['idle_no_session']` at 150s. The xdotool composer above is the
+  follow-up for that tree. It has unit tests with fake accessibility nodes and
+  has not been re-run live.
 
 Known noise that did not block the probes: Chromium logs repeated GPU-process
 launch failures under Xvfb, and xdg-desktop-portal reports that the document

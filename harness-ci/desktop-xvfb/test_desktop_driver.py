@@ -49,6 +49,33 @@ class FakeNode:
         return mock.Mock(getExtents=mock.Mock(return_value=box))
 
 
+class TreeNode(FakeNode):
+    def __init__(self, role, name, children=None, bounds=None, text="", ranges=None):
+        super().__init__(role, name, bounds=bounds)
+        self._children = list(children or [])
+        self._text = text
+        self._ranges = ranges or {}
+
+    def __iter__(self):
+        return iter(self._children)
+
+    def queryText(self):
+        node = self
+
+        class Text:
+            characterCount = len(node._text)
+
+            def getText(self, start, end):
+                return node._text[start:end]
+
+            def getRangeExtents(self, start, end, _coord):
+                if (start, end) not in node._ranges:
+                    raise RuntimeError("no range")
+                return node._ranges[(start, end)]
+
+        return Text()
+
+
 def candidate(role="push button", name="Send", actions=None, cid="c-1"):
     return driver.Candidate(
         id=cid,
@@ -284,19 +311,34 @@ class ConfidenceAndChooseTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"AGENTTAIL_JEV_CONFIDENCE": "0.4"}):
             self.assertEqual(driver.resolve_confidence(explicit, {"confidence": 0.25}), 0.9)
 
-    def test_desktop_launch_opens_a_loopback_devtools_port(self):
-        command = driver.desktop_launch_command(9223)
-        self.assertIn("--remote-debugging-port=9223", command)
-        self.assertIn("--remote-debugging-address=127.0.0.1", command)
-        self.assertIn("--force-renderer-accessibility", command)
-        self.assertNotIn("--remote-debugging-port=9223", driver.desktop_launch_command(None))
+    def test_desktop_launch_leaves_remote_debugging_off_unless_opted_in(self):
+        plain = driver.desktop_launch_command(None)
+        self.assertEqual(
+            plain,
+            [
+                "claude-desktop",
+                "--no-sandbox",
+                "--force-renderer-accessibility",
+                "--disable-gpu",
+                "--enable-logging=stderr",
+            ],
+        )
+        self.assertFalse(any("remote-debugging" in arg for arg in plain))
+        opted = driver.desktop_launch_command(9223)
+        self.assertIn("--remote-debugging-port=9223", opted)
+        self.assertIn("--remote-debugging-address=127.0.0.1", opted)
         args = driver.parse_args(["--target", "standin"])
         self.assertIsNone(driver.desktop_cdp_port(args))
         desktop = driver.parse_args(["--target", "claude-desktop"])
-        with mock.patch.dict(os.environ, {"AGENTTAIL_CDP_PORT": "0"}):
+        with mock.patch.dict(os.environ, {}, clear=True):
             self.assertIsNone(driver.desktop_cdp_port(desktop))
         with mock.patch.dict(os.environ, {"AGENTTAIL_CDP_PORT": ""}):
+            self.assertIsNone(driver.desktop_cdp_port(desktop))
+        with mock.patch.dict(os.environ, {"AGENTTAIL_CDP_PORT": "0"}):
+            self.assertIsNone(driver.desktop_cdp_port(desktop))
+        with mock.patch.dict(os.environ, {"AGENTTAIL_CDP_PORT": "9223"}):
             self.assertEqual(driver.desktop_cdp_port(desktop), 9223)
+            self.assertIn("--remote-debugging-port=9223", driver.desktop_launch_command(driver.desktop_cdp_port(desktop)))
 
     def test_jev_waits_until_candidates_exist(self):
         now = 10.0
@@ -305,6 +347,175 @@ class ConfidenceAndChooseTests(unittest.TestCase):
         self.assertFalse(driver.can_choose({"candidates": [candidate()]}, now, now, 0, 8))
         self.assertFalse(driver.can_choose({"candidates": [candidate()]}, now, 0, 8, 8))
         self.assertTrue(driver.can_choose({"candidates": [candidate()]}, now, 0, 0, 8))
+
+
+class ComposerFallbackTests(unittest.TestCase):
+    def document(self, bounds=(200, 40, 1200, 820), text="", ranges=None, children=None):
+        return TreeNode("document web", "Claude", children=children, bounds=list(bounds), text=text, ranges=ranges)
+
+    def test_placeholder_extents_become_the_type_target(self):
+        text = "You're here!\nHow can I help you today?"
+        needle = "how can i help you today"
+        start = text.lower().find(needle)
+        span = (start, start + len(needle))
+        doc = self.document(text=text, ranges={span: (640, 560, 480, 22)})
+        found = driver.composer_from_areas(driver.collect_web_areas(doc))
+        self.assertEqual([item.name for item in found], ["Chat prompt", "Send prompt"])
+        self.assertEqual(found[0].role, "entry")
+        self.assertEqual(found[0].actions, ["type"])
+        self.assertEqual(found[0].bounds, [640, 560, 480, 22])
+        self.assertIsNone(found[0].node)
+        self.assertIsNone(found[0].dom_socket)
+        self.assertEqual(found[1].actions, ["click"])
+        self.assertEqual(found[1].input_key, "Return")
+        self.assertIsNone(found[1].dom_socket)
+
+    def test_missing_text_range_clicks_the_upper_composer_card(self):
+        doc_bounds = [200, 40, 1200, 820]
+        doc = self.document(bounds=doc_bounds, text="How can I help you today?")
+        found = driver.composer_from_areas(driver.collect_web_areas(doc))
+        card = driver.scale_box(doc_bounds, *driver.COMPOSER_CARD)
+        bounds = found[0].bounds
+        center_x = bounds[0] + bounds[2] // 2
+        center_y = bounds[1] + bounds[3] // 2
+        self.assertEqual(bounds, driver.composer_type_bounds(doc_bounds))
+        self.assertGreater(center_x, card[0])
+        self.assertLess(center_x, card[0] + card[2])
+        self.assertGreater(center_y, card[1])
+        self.assertLess(center_y, card[1] + int(card[3] * 0.45))
+
+    def test_welcome_continue_does_not_invent_a_composer(self):
+        areas = driver.collect_web_areas(self.document())
+        welcome = driver.merge_composer_candidates([candidate("push button", "Continue")], areas)
+        self.assertEqual([item.name for item in welcome], ["Continue"])
+        chat = driver.merge_composer_candidates([candidate("push button", "New")], areas)
+        self.assertEqual([item.name for item in chat], ["New", "Chat prompt", "Send prompt"])
+
+    def test_an_existing_editable_suppresses_the_estimated_composer(self):
+        areas = driver.collect_web_areas(self.document())
+        merged = driver.merge_composer_candidates(
+            [candidate("entry", "Prompt", ["click", "type"], "c-entry")],
+            areas,
+        )
+        self.assertEqual([item.name for item in merged], ["Prompt"])
+
+    def test_child_text_inside_document_web_is_walked(self):
+        text = "How can I help you today?"
+        child = TreeNode("text", text, bounds=[610, 548, 420, 24], text=text, ranges={(0, len(text)): (610, 548, 420, 24)})
+
+        class State:
+            def contains(self, flag):
+                return flag == "SHOWING"
+
+        child.getState = lambda: State()
+        doc = self.document(children=[child])
+        frame = TreeNode("frame", "Claude", children=[TreeNode("push button", "New", bounds=[8, 8, 40, 24]), doc])
+        pyatspi = mock.Mock()
+        pyatspi.STATE_SHOWING = "SHOWING"
+        pyatspi.STATE_EDITABLE = "EDITABLE"
+        pyatspi.DESKTOP_COORDS = 0
+        with mock.patch.dict(sys.modules, {"pyatspi": pyatspi}):
+            found = driver.candidates_for_window(frame, "say hello", 80, None)
+        typed = [item for item in found if "type" in item.actions]
+        self.assertEqual([item.name for item in typed], ["Chat prompt"])
+        self.assertEqual(typed[0].bounds, [610, 548, 420, 24])
+        self.assertTrue(all(item.dom_socket is None for item in found))
+
+    def test_overlapping_embedded_document_outside_the_window_is_kept(self):
+        window = TreeNode("frame", "Claude", bounds=[0, 0, 1440, 900])
+        page = TreeNode("document web", "Page", bounds=[180, 40, 1200, 820])
+        other = TreeNode("frame", "Other", bounds=[2000, 0, 80, 80])
+        desktop = TreeNode(
+            "desktop frame",
+            "",
+            children=[
+                TreeNode("application", "claude-desktop", children=[window, page]),
+                TreeNode("application", "openbox", children=[other]),
+            ],
+        )
+        pyatspi = mock.Mock()
+        pyatspi.Registry.getDesktop.return_value = desktop
+        pyatspi.DESKTOP_COORDS = 0
+        with mock.patch.dict(sys.modules, {"pyatspi": pyatspi}):
+            roots = driver.embedded_roots(window)
+        self.assertIn(page, roots)
+        self.assertNotIn(window, roots)
+        self.assertNotIn(other, roots)
+
+    def test_observation_records_document_web_text_and_bounds(self):
+        text = "You're here! How can I help you today?"
+        doc = self.document(bounds=(200, 40, 1000, 800), text=text)
+        frame = TreeNode("frame", "Claude", children=[TreeNode("push button", "New"), doc])
+        dump = driver.observation_text(frame)
+        self.assertIn("document web:", dump)
+        self.assertIn("How can I help you today?", dump)
+        self.assertIn("bounds=[200, 40, 1000, 800]", dump)
+        self.assertIn("push button: 'New'", dump)
+
+    def test_xdotool_types_the_prompt_and_presses_enter(self):
+        doc_bounds = [200, 40, 1200, 820]
+        frame = TreeNode(
+            "frame",
+            "Claude",
+            bounds=[0, 0, 1440, 900],
+            children=[
+                TreeNode("push button", "New", bounds=[8, 8, 40, 24]),
+                self.document(bounds=doc_bounds),
+            ],
+        )
+        found = driver.candidates_for_window(frame, "say hello", 80, None)
+        observation = {"candidates": found, "window": "Claude"}
+        typed_choice = driver.choose_scripted(
+            observation,
+            [{"action": "type", "role": "entry", "name": "Chat prompt"}],
+            0,
+            "say hello",
+        )
+        send_choice = driver.choose_scripted(
+            observation,
+            [{"action": "click", "role": "push button", "name": "Send prompt"}],
+            0,
+            "say hello",
+        )
+        self.assertEqual(typed_choice.text, "say hello")
+        self.assertEqual(send_choice.candidate.input_key, "Return")
+        calls = []
+
+        def run(cmd, **_kwargs):
+            calls.append(list(cmd))
+            return mock.Mock(returncode=0)
+
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(driver.subprocess, "run", side_effect=run):
+            typed = driver.act(typed_choice, Path(temp))
+            sent = driver.act(send_choice, Path(temp))
+        x, y, width, height = typed_choice.candidate.bounds
+        self.assertEqual(typed["method"], "xdotool-type")
+        self.assertEqual(typed["text_length"], len("say hello"))
+        self.assertEqual(calls[0][:3], ["xdotool", "mousemove", "--sync"])
+        self.assertEqual(calls[0][3:5], [str(x + width // 2), str(y + height // 2)])
+        self.assertEqual(calls[1], ["xdotool", "type", "--clearmodifiers", "--delay", "20", "--", "say hello"])
+        self.assertEqual(sent["method"], "xdotool-key")
+        self.assertEqual(sent["key"], "Return")
+        self.assertEqual(calls[3], ["xdotool", "key", "--clearmodifiers", "Return"])
+        self.assertFalse(any("remote-debugging" in arg for arg in driver.desktop_launch_command(None)))
+
+    def test_opt_in_devtools_composer_wins_over_the_estimate(self):
+        frame = TreeNode(
+            "frame",
+            "Claude",
+            children=[
+                TreeNode("push button", "New", bounds=[8, 8, 40, 24]),
+                self.document(),
+            ],
+        )
+        dom = driver.dom_nodes_to_candidates(
+            [("ws://127.0.0.1:9223/devtools/page/1", dom_node("textbox", "How can I help you today?", 1, 40, 700, 600, 80))]
+        )
+        with mock.patch.object(driver, "dom_candidates_for_port", return_value=dom):
+            found = driver.candidates_for_window(frame, "say hello", 80, 9223)
+        typed = [item for item in found if "type" in item.actions]
+        self.assertEqual([item.name for item in typed], ["How can I help you today?"])
+        self.assertEqual(typed[0].dom_socket, "ws://127.0.0.1:9223/devtools/page/1")
 
 
 def dom_node(kind, name, index, x, y, width, height):

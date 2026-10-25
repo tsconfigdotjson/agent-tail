@@ -51,7 +51,18 @@ ACTIONABLE_ROLES = {
 }
 EDITABLE_ROLES = {"entry", "password text", "document text"}
 TEXT_ROLES = {"text"}
-DEFAULT_CDP_PORT = 9223
+WEB_AREA_ROLES = {"document web", "document frame", "embedded", "html container"}
+COMPOSER_NEEDLES = (
+    "how can i help you today",
+    "how can i help",
+    "message claude",
+    "send a message",
+    "ask anything",
+)
+COMPOSER_CARD = (0.30, 0.52, 0.55, 0.16)
+COMPOSER_TYPE_POINT = (0.50, 0.28)
+COMPOSER_POINT_SIZE = 28
+LOG_ROLES = WEB_AREA_ROLES | {"entry", "push button"}
 _DOM_CACHE: dict[str, Any] = {"port": None, "at": 0.0, "candidates": []}
 COMPOSER_EXPRESSION = r"""
 (() => {
@@ -132,6 +143,7 @@ class Candidate:
     dom_index: int | None = None
     dom_socket: str | None = None
     dom_key: str | None = None
+    input_key: str | None = None
 
     def public(self) -> dict[str, Any]:
         value = {
@@ -144,7 +156,23 @@ class Candidate:
         }
         if self.dom_socket:
             value["via"] = "cdp"
+        if self.input_key:
+            value["key"] = self.input_key
         return value
+
+
+@dataclass
+class TextHit:
+    needle: str
+    bounds: list[int]
+
+
+@dataclass
+class WebArea:
+    role: str
+    name: str
+    bounds: list[int] | None
+    hits: list[TextHit] = field(default_factory=list)
 
 
 @dataclass
@@ -286,9 +314,7 @@ def desktop_cdp_port(args: argparse.Namespace) -> int | None:
     if args.target != "claude-desktop":
         return None
     raw = os.environ.get("AGENTTAIL_CDP_PORT", "").strip()
-    if not raw:
-        return DEFAULT_CDP_PORT
-    if raw == "0":
+    if not raw or raw == "0":
         return None
     try:
         port = int(raw)
@@ -296,7 +322,7 @@ def desktop_cdp_port(args: argparse.Namespace) -> int | None:
         raise DriverError(f"AGENTTAIL_CDP_PORT must be an integer, got {raw!r}") from error
     if port == 0:
         return None
-    if port < 0 or port > 65535:
+    if port < 1 or port > 65535:
         raise DriverError(f"AGENTTAIL_CDP_PORT is out of range: {port}")
     return port
 
@@ -320,14 +346,267 @@ def desktop_launch_command(cdp_port: int | None) -> list[str]:
     return command
 
 
-def extents(node: Any) -> list[int] | None:
+def desktop_coords() -> int:
     try:
         import pyatspi
 
-        box = node.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+        return int(pyatspi.DESKTOP_COORDS)
+    except Exception:
+        return 0
+
+
+def extents(node: Any) -> list[int] | None:
+    try:
+        box = node.queryComponent().getExtents(desktop_coords())
         return [int(box.x), int(box.y), int(box.width), int(box.height)]
     except Exception:
         return None
+
+
+def box_of(value: Any) -> list[int] | None:
+    if isinstance(value, (list, tuple)) and len(value) >= 4:
+        try:
+            x, y, width, height = (int(value[0]), int(value[1]), int(value[2]), int(value[3]))
+        except (TypeError, ValueError):
+            return None
+    else:
+        try:
+            x, y, width, height = int(value.x), int(value.y), int(value.width), int(value.height)
+        except Exception:
+            return None
+    if width <= 0 or height <= 0:
+        return None
+    return [x, y, width, height]
+
+
+def line_box(bounds: list[int] | None) -> bool:
+    return bounds is not None and bounds[2] >= 40 and 8 <= bounds[3] <= 80
+
+
+def document_box(bounds: list[int] | None) -> bool:
+    return bounds is not None and bounds[2] >= 200 and bounds[3] >= 200
+
+
+def bounds_overlap(left: list[int] | None, right: list[int] | None) -> bool:
+    if not left or not right:
+        return False
+    ax, ay, aw, ah = left
+    bx, by, bw, bh = right
+    return ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
+
+
+def scale_box(bounds: list[int], fx: float, fy: float, fw: float, fh: float) -> list[int]:
+    x, y, width, height = bounds
+    return [
+        x + int(width * fx),
+        y + int(height * fy),
+        max(1, int(width * fw)),
+        max(1, int(height * fh)),
+    ]
+
+
+def point_bounds(bounds: list[int], fx: float, fy: float, size: int = COMPOSER_POINT_SIZE) -> list[int]:
+    x, y, width, height = bounds
+    center_x = x + int(width * fx)
+    center_y = y + int(height * fy)
+    half = size // 2
+    return [center_x - half, center_y - half, size, size]
+
+
+def composer_type_bounds(document_bounds: list[int]) -> list[int]:
+    return point_bounds(scale_box(document_bounds, *COMPOSER_CARD), *COMPOSER_TYPE_POINT)
+
+
+def text_of(node: Any) -> str:
+    try:
+        text = node.queryText()
+        count = int(text.characterCount)
+    except Exception:
+        return ""
+    if count <= 0:
+        return ""
+    try:
+        return str(text.getText(0, min(count, 4000)) or "")
+    except Exception:
+        return ""
+
+
+def range_extents(node: Any, start: int, end: int) -> list[int] | None:
+    try:
+        box = node.queryText().getRangeExtents(start, end, desktop_coords())
+    except Exception:
+        return None
+    return box_of(box)
+
+
+def match_composer_needle(text: str) -> str | None:
+    lowered = text.lower()
+    collapsed = " ".join(lowered.split())
+    for needle in COMPOSER_NEEDLES:
+        if needle in lowered or needle in collapsed:
+            return needle
+    return None
+
+
+def needle_span(text: str, needle: str) -> tuple[int, int] | None:
+    index = text.lower().find(needle)
+    if index < 0:
+        return None
+    return index, index + len(needle)
+
+
+def composer_hit(node: Any, name: str, text: str, bounds: list[int] | None) -> TextHit | None:
+    needle = match_composer_needle(f"{name}\n{text}")
+    if needle is None:
+        return None
+    span = needle_span(text, needle)
+    hit_bounds = range_extents(node, *span) if span else None
+    if not line_box(hit_bounds):
+        hit_bounds = bounds if line_box(bounds) else None
+    if hit_bounds is None:
+        return None
+    return TextHit(needle, hit_bounds)
+
+
+def same_accessible(left: Any, right: Any) -> bool:
+    if left is right:
+        return True
+    try:
+        return (left.getRoleName(), left.name, extents(left)) == (right.getRoleName(), right.name, extents(right))
+    except Exception:
+        return False
+
+
+def collect_web_areas(node: Any, found: list[WebArea] | None = None, depth: int = 0) -> list[WebArea]:
+    if found is None:
+        found = []
+    if depth > 18:
+        return found
+    try:
+        role = node.getRoleName()
+        name = (node.name or "").strip()
+    except Exception:
+        return found
+    bounds = extents(node)
+    text = ""
+    if role not in ACTIONABLE_ROLES or role in EDITABLE_ROLES:
+        text = text_of(node)
+    hit = None
+    if role not in ACTIONABLE_ROLES or role in EDITABLE_ROLES:
+        hit = composer_hit(node, name, text, bounds)
+    if role in WEB_AREA_ROLES or hit is not None:
+        found.append(WebArea(role=role, name=name, bounds=bounds, hits=[hit] if hit else []))
+    try:
+        children = list(node)
+    except Exception:
+        children = []
+    for child in children:
+        collect_web_areas(child, found, depth + 1)
+    return found
+
+
+def embedded_roots(window: Any) -> list[Any]:
+    try:
+        import pyatspi
+
+        desktop = pyatspi.Registry.getDesktop(0)
+    except Exception:
+        return []
+    window_box = extents(window)
+    roots: list[Any] = []
+    seen: list[Any] = []
+
+    def consider(node: Any, depth: int) -> None:
+        if depth > 4 or len(roots) >= 8:
+            return
+        if any(node is item or same_accessible(node, item) for item in seen):
+            return
+        seen.append(node)
+        if same_accessible(node, window):
+            return
+        try:
+            role = node.getRoleName()
+        except Exception:
+            role = ""
+        box = extents(node)
+        if role in WEB_AREA_ROLES and bounds_overlap(window_box, box):
+            roots.append(node)
+            return
+        if depth >= 3:
+            return
+        try:
+            children = list(node)
+        except Exception:
+            children = []
+        for child in children:
+            consider(child, depth + 1)
+
+    try:
+        apps = list(desktop)
+    except Exception:
+        return []
+    for app in apps:
+        consider(app, 0)
+    return roots
+
+
+def web_areas_for_window(window: Any) -> list[WebArea]:
+    areas = collect_web_areas(window)
+    for root in embedded_roots(window):
+        areas.extend(collect_web_areas(root))
+    return areas
+
+
+def _stable_id(prefix: str, role: str, name: str, bounds: list[int] | None) -> str:
+    digest = hashlib.sha1(f"{prefix}|{role}|{name}|{bounds}".encode("utf-8", "replace")).hexdigest()[:10]
+    return f"c-{digest}"
+
+
+def composer_from_areas(areas: list[WebArea]) -> list[Candidate]:
+    hits = [hit for area in areas for hit in area.hits if line_box(hit.bounds)]
+    chosen_hit = max(hits, key=lambda hit: hit.bounds[1] + hit.bounds[3], default=None)
+    documents = [area for area in areas if area.role in WEB_AREA_ROLES and document_box(area.bounds)]
+    document = max(documents, key=lambda area: area.bounds[2] * area.bounds[3], default=None) if documents else None
+    if chosen_hit is not None:
+        type_bounds = list(chosen_hit.bounds)
+        description = f"Chat composer from the AT-SPI text range {chosen_hit.needle!r}."
+    elif document is not None and document.bounds is not None:
+        type_bounds = composer_type_bounds(document.bounds)
+        description = (
+            "Chat composer estimated from the document web bounds of Claude Desktop 3.6556.2. "
+            "That build exposes the page as document web and refuses --remote-debugging-port."
+        )
+    else:
+        return []
+    prompt = Candidate(
+        id=_stable_id("composer", "entry", "Chat prompt", type_bounds),
+        role="entry",
+        name="Chat prompt",
+        description=description,
+        actions=["type"],
+        bounds=type_bounds,
+        node=None,
+    )
+    send = Candidate(
+        id=_stable_id("send", "push button", "Send prompt", type_bounds),
+        role="push button",
+        name="Send prompt",
+        description="Focus the chat composer and press Enter. Claude Desktop 3.6556.2 submits on Enter.",
+        actions=["click"],
+        bounds=type_bounds,
+        node=None,
+        input_key="Return",
+    )
+    return [prompt, send]
+
+
+def merge_composer_candidates(atspi: list[Candidate], areas: list[WebArea]) -> list[Candidate]:
+    if any("type" in candidate.actions for candidate in atspi):
+        return list(atspi)
+    names = {candidate.name.strip().lower() for candidate in atspi}
+    if "continue" in names and not any(area.hits for area in areas):
+        return list(atspi)
+    return list(atspi) + composer_from_areas(areas)
 
 
 def node_actions(node: Any) -> list[str]:
@@ -465,13 +744,23 @@ def observation_text(window: Any) -> str:
     lines: list[str] = []
 
     def walk(node: Any, depth: int = 0) -> None:
-        if depth > 12:
+        if depth > 18:
             return
         try:
             name = (node.name or "").strip()
             role = node.getRoleName()
-            if name or role in {"entry", "push button"}:
-                lines.append("  " * depth + f"{role}: {name!r}")
+            sample = ""
+            if role in WEB_AREA_ROLES or role in TEXT_ROLES or role in EDITABLE_ROLES or role in {"section", "paragraph"}:
+                sample = " ".join(text_of(node).split())[:80]
+            if name or role in LOG_ROLES or sample:
+                line = "  " * depth + f"{role}: {name!r}"
+                if sample:
+                    line += f" text={sample!r}"
+                if role in WEB_AREA_ROLES:
+                    box = extents(node)
+                    if box:
+                        line += f" bounds={box}"
+                lines.append(line)
             for child in node:
                 walk(child, depth + 1)
         except Exception:
@@ -926,6 +1215,17 @@ def perform_cdp(choice: Choice, record: dict[str, Any]) -> None:
     raise DriverError(f"cannot perform {choice.action} through DevTools")
 
 
+def candidates_for_window(window: Any, prompt: str, budget: int, cdp_port: int | None) -> list[Candidate]:
+    candidates: list[Candidate] = []
+    walk_candidates(window, prompt, candidates, budget)
+    dom = dom_candidates_for_port(cdp_port)
+    if not any("type" in candidate.actions for candidate in candidates) and not any(
+        "type" in candidate.actions for candidate in dom
+    ):
+        candidates = merge_composer_candidates(candidates, web_areas_for_window(window))
+    return merge_dom_candidates(candidates, dom)
+
+
 def observe(
     window_title: str,
     prompt: str,
@@ -938,9 +1238,7 @@ def observe(
     if not windows:
         return {"found": False, "window": None, "candidates": [], "atspi": "", "screenshot": None}
     window = windows[0]
-    candidates: list[Candidate] = []
-    walk_candidates(window, prompt, candidates, budget)
-    candidates = merge_dom_candidates(candidates, dom_candidates_for_port(cdp_port))
+    candidates = candidates_for_window(window, prompt, budget, cdp_port)
     shot = out / f"step-{step:02d}.png"
     shot_ok = screenshot(shot)
     atspi = observation_text(window)
@@ -1102,6 +1400,25 @@ def choose_jev(
     )
 
 
+def click_center(bounds: list[int]) -> None:
+    x, y, width, height = bounds
+    subprocess.run(
+        ["xdotool", "mousemove", "--sync", str(x + width // 2), str(y + height // 2), "click", "1"],
+        check=True,
+        capture_output=True,
+        timeout=10,
+    )
+
+
+def press_key(key: str) -> None:
+    subprocess.run(
+        ["xdotool", "key", "--clearmodifiers", key],
+        check=True,
+        capture_output=True,
+        timeout=10,
+    )
+
+
 def act(choice: Choice, out: Path) -> dict[str, Any]:
     candidate = choice.candidate
     record: dict[str, Any] = {
@@ -1115,6 +1432,19 @@ def act(choice: Choice, out: Path) -> dict[str, Any]:
     try:
         if candidate.dom_socket and (choice.action == "type" or candidate.node is None):
             perform_cdp(choice, record)
+        elif choice.action == "click" and candidate.input_key:
+            focused = False
+            if candidate.node is not None:
+                try:
+                    candidate.node.queryAction().doAction(0)
+                    focused = True
+                except Exception:
+                    focused = False
+            if not focused and candidate.bounds:
+                click_center(candidate.bounds)
+            press_key(candidate.input_key)
+            record["method"] = "xdotool-key"
+            record["key"] = candidate.input_key
         elif choice.action == "click":
             try:
                 candidate.node.queryAction().doAction(0)
@@ -1122,13 +1452,7 @@ def act(choice: Choice, out: Path) -> dict[str, Any]:
             except Exception as error:
                 if not candidate.bounds:
                     raise DriverError(f"cannot click {candidate.role} {candidate.name!r}: {error}") from error
-                x, y, width, height = candidate.bounds
-                subprocess.run(
-                    ["xdotool", "mousemove", "--sync", str(x + width // 2), str(y + height // 2), "click", "1"],
-                    check=True,
-                    capture_output=True,
-                    timeout=10,
-                )
+                click_center(candidate.bounds)
                 record["method"] = "xdotool"
                 record["error"] = str(error)
         elif choice.action == "type":
@@ -1138,13 +1462,7 @@ def act(choice: Choice, out: Path) -> dict[str, Any]:
                 candidate.node.queryAction().doAction(0)
             except Exception:
                 if candidate.bounds:
-                    x, y, width, height = candidate.bounds
-                    subprocess.run(
-                        ["xdotool", "mousemove", "--sync", str(x + width // 2), str(y + height // 2), "click", "1"],
-                        check=True,
-                        capture_output=True,
-                        timeout=10,
-                    )
+                    click_center(candidate.bounds)
             subprocess.run(
                 ["xdotool", "type", "--clearmodifiers", "--delay", "20", "--", choice.text],
                 check=True,
@@ -1356,6 +1674,7 @@ def run_probe(args: argparse.Namespace, scenario: dict[str, Any], out: Path, hom
     result = {
         "kind": "probe",
         "target": args.target,
+        "remote_debugging_port": cdp_port,
         "window_title": window_title,
         "claude_desktop_version": desktop_version(),
         "mock_error": mock_error,
@@ -1499,6 +1818,7 @@ def run_scenario(args: argparse.Namespace, scenario: dict[str, Any], out: Path, 
         "scenario": scenario.get("name", args.target),
         "description": scenario.get("description"),
         "target": args.target,
+        "remote_debugging_port": cdp_port,
         "chooser": chooser,
         "confidence": confidence if chooser == "jev" else None,
         "jev_model": args.jev_model if chooser == "jev" else None,

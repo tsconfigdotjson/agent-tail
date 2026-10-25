@@ -463,10 +463,15 @@ replacement for a future GHA Desktop regression lane.
   the Chat UI and one Desktop→mock `POST /v1/messages`, then failed: the body was the
   `"."` / `max_tokens: 1` gateway probe, which `plain_qa` rejected, and AT-SPI listed
   only push buttons so the prompt was never typed. `agenttail` stayed at
-  `idle_no_session`. See [`desktop-xvfb/README.md`](desktop-xvfb/README.md) for the
-  probe allowlist, the `../` mock path, the DevTools composer, and the
-  `--iptables=false` bridge-DNS note (`AGENTTAIL_DOCKER_NETWORK=host`). That run is
-  not a scored turn and did not change the support matrix.
+  `idle_no_session`. A re-run after that fix confirmed the probe allowlist, and
+  Desktop `3.6556.2` refused to start with `--remote-debugging-port`. With the
+  switch off, AT-SPI was still push buttons plus `document web`, so the prompt
+  was not typed. The driver now clicks that document with `xdotool` and presses
+  Enter; the default launch does not pass the rejected switch. See
+  [`desktop-xvfb/README.md`](desktop-xvfb/README.md) for the probe allowlist, the
+  `../` mock path, the document-web type path, and the `--iptables=false`
+  bridge-DNS note (`AGENTTAIL_DOCKER_NETWORK=host`). Neither live run is a scored
+  turn, and neither changed the support matrix.
 - Cowork is out of scope: the compose file does not pass `/dev/kvm`, and the box lacks the
   required ~8 GB RAM / ~25 GB disk headroom for the Linux Cowork VM. Chromium GPU-process
   warnings and a missing FUSE document portal are known Xvfb noise; they did not stop the
