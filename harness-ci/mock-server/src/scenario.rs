@@ -21,7 +21,17 @@ pub struct Scenario {
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub count_tokens: Option<u64>,
+    #[serde(default)]
+    pub probes: Probes,
     pub steps: Vec<Step>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct Probes {
+    #[serde(default)]
+    pub user_texts: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens_at_most: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -197,6 +207,23 @@ impl Scenario {
         Ok(())
     }
 
+    pub fn is_probe(&self, body: &Value, user_text: &str) -> bool {
+        if self.probes.user_texts.is_empty() {
+            return false;
+        }
+        let text = user_text.trim();
+        if !self.probes.user_texts.iter().any(|allowed| allowed == text) {
+            return false;
+        }
+        if let Some(limit) = self.probes.max_tokens_at_most {
+            match body.get("max_tokens").and_then(Value::as_u64) {
+                Some(max_tokens) if max_tokens <= limit => {}
+                _ => return false,
+            }
+        }
+        true
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if self.steps.is_empty() {
             return Err("scenario has no steps".into());
@@ -244,6 +271,7 @@ mod tests {
             dispatch: Dispatch::Sequential,
             title: None,
             count_tokens: None,
+            probes: Probes::default(),
             steps: vec![Step {
                 expect: Expect::default(),
                 reply: Reply {
@@ -289,5 +317,45 @@ mod tests {
             r#"{"name":"bg","dispatch":"first_match","steps":[{"reply":{"content":[{"type":"text","text":"x"}]}}]}"#;
         let scenario = Scenario::parse(text).unwrap();
         assert_eq!(scenario.dispatch, Dispatch::FirstMatch);
+    }
+
+    #[test]
+    fn probes_default_off_and_the_dot_probe_is_exact() {
+        let bare =
+            Scenario::parse(r#"{"name":"x","steps":[{"reply":{"content":[{"type":"text","text":"x"}]}}]}"#).unwrap();
+        assert!(bare.probes.user_texts.is_empty());
+        assert!(!bare.is_probe(&serde_json::json!({"max_tokens": 1}), "."));
+
+        let text = r#"{
+            "name": "desktop",
+            "probes": {"user_texts": ["."], "max_tokens_at_most": 1},
+            "steps": [{"reply": {"content": [{"type": "text", "text": "x"}]}}]
+        }"#;
+        let scenario = Scenario::parse(text).unwrap();
+        let capped = serde_json::json!({"max_tokens": 1});
+        assert!(scenario.is_probe(&capped, "."));
+        assert!(scenario.is_probe(&capped, " . "));
+        assert!(!scenario.is_probe(&serde_json::json!({"max_tokens": 2}), "."));
+        assert!(!scenario.is_probe(&serde_json::json!({}), "."));
+        assert!(!scenario.is_probe(&capped, "say hello"));
+        assert!(!scenario.is_probe(&capped, ".\nsay hello"));
+    }
+
+    #[test]
+    fn desktop_scenario_keeps_plain_qa_steps_and_allows_only_the_probe() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("scenarios");
+        let plain_text = std::fs::read_to_string(root.join("plain_qa.json")).unwrap();
+        let desktop_text = std::fs::read_to_string(root.join("desktop_plain_qa.json")).unwrap();
+        let plain: Value = serde_json::from_str(&plain_text).unwrap();
+        let desktop: Value = serde_json::from_str(&desktop_text).unwrap();
+        assert!(plain.get("probes").is_none(), "CLI plain_qa stays strict");
+        assert_eq!(plain["steps"], desktop["steps"]);
+        let strict = Scenario::parse(&plain_text).unwrap();
+        let allowed = Scenario::parse(&desktop_text).unwrap();
+        let probe = serde_json::json!({"max_tokens": 1});
+        assert!(!strict.is_probe(&probe, "."));
+        assert!(allowed.is_probe(&probe, "."));
+        assert_eq!(allowed.probes.max_tokens_at_most, Some(1));
+        assert_eq!(allowed.steps[0].expect.user_contains.as_deref(), Some("say hello"));
     }
 }

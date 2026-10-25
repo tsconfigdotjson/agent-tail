@@ -4,9 +4,10 @@ There are two independent stories here. **Reading Desktop sessions is now produc
 discovery spec, a `claude_desktop` adapter, sidecar handling, fixtures and reduce tests.
 **Driving the Desktop now has a local Docker + Xvfb implementation** at
 [`harness-ci/desktop-xvfb/`](../../harness-ci/desktop-xvfb/README.md): the real Linux package
-installs and renders its standard sign-in and 3P gateway welcome screens under AT-SPI. It is
-still not a verified Desktop lane: no live Jev/OpenRouter call, completed Chat/Code turn or
-Desktop disk artifact exists yet.
+installs and renders its standard sign-in, 3P gateway welcome, and Chat screens under Xvfb.
+A live Jev/OpenRouter run reached Chat and the mock, then stopped before a disk session
+existed. It is still not a verified Desktop lane: no completed Chat/Code turn or Desktop
+disk artifact exists yet.
 
 Evidence is labelled **documented** (vendor docs), **source-inspected** (public repository or
 pinned package source, not a live call), **prior art** (another project's code or survey),
@@ -154,16 +155,19 @@ install. `expected/events.jsonl` and `expected/status.jsonl` are generated and c
 normal fixture tests; the adapter also has unit tests for the sidecar, error/abort results,
 no-prompt modes and the shared record parser. `agenttail fixture scan` is clean.
 
-What is still missing: a real redacted artifact, a Desktop↔mock handshake, a CI lane, a
-desktop-drive run, and verification of the consumer/3P roots on macOS, Linux and Windows.
+What is still missing: a real redacted artifact, a scored Desktop turn, a CI lane, and
+verification of the consumer/3P roots on macOS, Linux and Windows. A live Xvfb Jev run has
+reached the Chat UI and a mock probe; see the Docker section below. It did not leave a
+session on disk.
 
 ---
 
 # Driver spike: Jev via OpenRouter
 
-**Status: documentation spike only.** No live OpenRouter/Jev or TypeSafe request was made, no
-key was used, and no Desktop install was launched or driven. The adapter above is independent
-of this driver story and does not require Jev.
+**Status: the clicker/`typesafe-computer-use` path is still a documentation spike.** No
+TypeSafe console key was used and that clicker was not launched. The Linux Xvfb driver
+below is a separate loop and has made one live OpenRouter/Jev call; it is not a scored
+turn. The adapter above does not require Jev.
 
 ## What is being proposed
 
@@ -372,7 +376,10 @@ cd harness-ci/desktop-xvfb
 ./run.sh standin        # offline AT-SPI + act + agenttail disk-score plumbing
 ./run.sh probe          # standard Desktop sign-in screen
 ./run.sh desktop-probe  # 3P gateway welcome screen, root-owned managed settings
-OPENROUTER_API_KEY=... ./run.sh desktop   # Jev choose; refuses without a key
+# Live Jev. Refuses without a key. Confidence defaults to the scenario's 0.25.
+# If dockerd was started with --iptables=false, bridge DNS cannot resolve
+# openrouter.ai; set AGENTTAIL_DOCKER_NETWORK=host (see the desktop-xvfb README).
+OPENROUTER_API_KEY=... AGENTTAIL_JEV_MODEL=typesafe/jev-1.14 ./run.sh desktop
 ```
 
 What the local runs proved on Multibeast (Ubuntu 26.04, Docker 29.1.3, 2 vCPU, 3.7 GiB RAM):
@@ -386,9 +393,16 @@ What the local runs proved on Multibeast (Ubuntu 26.04, Docker 29.1.3, 2 vCPU, 3
   `audit.jsonl` as `idle -> working (thinking/prompt_sent) -> done (done/turn_ended)`.
   The stand-in writes that audit file itself; it is plumbing evidence, **not** a Desktop
   runtime capture.
-- No `OPENROUTER_API_KEY` was available, so `./run.sh desktop` stops before launch with a
-  missing-key blocker. No live Jev, TypeSafe or writer request was made, and no
-  Desktop↔mock request or real Desktop turn exists.
+- A live `./run.sh desktop` with `OPENROUTER_API_KEY`, `typesafe/jev-1.14`, and confidence
+  `0.25` (host networking; dockerd `--iptables=false` broke bridge DNS) drove Continue into
+  the Chat UI and produced one mock `POST /v1/messages`. The body was a provider probe
+  (`user` text `"."`, `max_tokens` 1). The strict `plain_qa` step expected `"say hello"`,
+  the gateway banner reported an error, and AT-SPI never listed an editable, so Jev could
+  not type. Score: `idle_no_session` only. The follow-up in the desktop-xvfb harness
+  accepts that probe without consuming the say-hello step, resolves the mock scenario with
+  `../` from `desktop-xvfb/`, and types into a DOM composer over loopback DevTools when
+  AT-SPI has no editable. That follow-up has not been re-run live, and it is not a scored
+  turn.
 
 The driver observes through AT-SPI (screenshot saved only as evidence), asks Jev on
 OpenRouter for a typed `choice` with model `typesafe/jev-1.14`, performs the chosen
@@ -412,14 +426,19 @@ run plus a real redacted artifact exists.
 - No real Claude Desktop artifact was captured or parsed; all Desktop fixtures are handmade.
 - Consumer roots on Linux/Windows, 3P roots, dispatch sessions, the HMAC chain and a real
   sidecar were not checked on an install.
-- No Desktop↔mock-gateway handshake or 3P managed-settings run exists.
-- No live OpenRouter/Jev or TypeSafe request was made, and no key was used.
+- The 3P managed-settings file is read under Xvfb (welcome screen, then Chat). The mock
+  saw the gateway's `"."` probe and rejected it; a say-hello turn has not been accepted.
+- One live OpenRouter/Jev Desktop run was made on the Multibeast box (model
+  `typesafe/jev-1.14`, well under a cent). It chose clicks and reached Chat, and the
+  mock saw the gateway probe. It did not score a turn. No CI job calls OpenRouter.
 - The `typesafe-computer-use` → OpenRouter handoff is source-inspected only; no `clicker`
   dry-run decision was made.
-- The clicker writer/`type_text` path was not evaluated through OpenRouter.
-- Linux AT-SPI now observes and acts on the stand-in and sees the real Desktop welcome
-  screens, but no Jev-chosen action, live Desktop turn or Desktop↔mock request has run.
-  Linux Cowork under KVM and any GHA desktop job are unproven.
+- The clicker writer/`type_text` path was not evaluated through OpenRouter. The Xvfb
+  driver does not use a writer.
+- Linux AT-SPI observes and acts on the stand-in and sees the real Desktop welcome and
+  Chat chrome. The live run's tree had no editable, which is why the driver now also
+  types through loopback DevTools. A Jev-typed prompt, a scored Desktop turn, Linux
+  Cowork under KVM, and any GHA desktop job are still unproven.
 
 The support matrix therefore says **ported-unverified** for the adapter, not CI-verified and
 not donated-verified.
