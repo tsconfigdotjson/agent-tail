@@ -861,16 +861,7 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        assert!(body.contains("NESTED_AGENT"), "{body}");
-
-        let (status, body) = post(
-            app.clone(),
-            "/v1/messages",
-            json!({"stream": false, "messages": [{"role": "user", "content": "NESTED_AGENT: reply with the single word nested-done."}]}),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK, "{body}");
-        assert!(body.contains("nested-done"), "{body}");
+        assert!(body.contains("outer-done"), "{body}");
 
         let (status, body) = post(
             app.clone(),
@@ -887,7 +878,24 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert!(body.contains("has started"), "{body}");
-        assert_eq!(state.remaining(), 3);
+
+        let (status, body) = post(
+            app,
+            "/v1/messages",
+            json!({
+                "stream": false,
+                "messages": [
+                    {"role": "user", "content": "delegate the summary"},
+                    {"role": "assistant", "content": [{"type": "tool_use", "name": "Agent", "input": {"prompt": "OUTER_AGENT: launch"}}]},
+                    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_mock_0_0", "content": "async_launched OUTER_AGENT"}]},
+                    {"role": "user", "content": "<task-notification><status>completed</status></task-notification>"}
+                ]
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("finished"), "{body}");
+        assert_eq!(state.remaining(), 0);
     }
 
     #[tokio::test]

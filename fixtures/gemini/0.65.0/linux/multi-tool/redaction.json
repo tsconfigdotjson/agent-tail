@@ -1,0 +1,125 @@
+{
+  "format": 1,
+  "files": [
+    {
+      "format": 1,
+      "file": "session.jsonl",
+      "lorem": false,
+      "lines": 12,
+      "bytes_before": 3469,
+      "bytes_after": 3468,
+      "replacements": {
+        "home_path": 1
+      },
+      "offsets": [
+        {
+          "line": 1,
+          "before_start": 0,
+          "before_end": 228,
+          "after_start": 0,
+          "after_end": 228,
+          "delta": 0
+        },
+        {
+          "line": 2,
+          "before_start": 228,
+          "before_end": 808,
+          "after_start": 228,
+          "after_end": 807,
+          "delta": -1
+        },
+        {
+          "line": 3,
+          "before_start": 808,
+          "before_end": 860,
+          "after_start": 807,
+          "after_end": 859,
+          "delta": -1
+        },
+        {
+          "line": 4,
+          "before_start": 860,
+          "before_end": 995,
+          "after_start": 859,
+          "after_end": 994,
+          "delta": -1
+        },
+        {
+          "line": 5,
+          "before_start": 995,
+          "before_end": 1047,
+          "after_start": 994,
+          "after_end": 1046,
+          "delta": -1
+        },
+        {
+          "line": 6,
+          "before_start": 1047,
+          "before_end": 1279,
+          "after_start": 1046,
+          "after_end": 1278,
+          "delta": -1
+        },
+        {
+          "line": 7,
+          "before_start": 1279,
+          "before_end": 1331,
+          "after_start": 1278,
+          "after_end": 1330,
+          "delta": -1
+        },
+        {
+          "line": 8,
+          "before_start": 1331,
+          "before_end": 2605,
+          "after_start": 1330,
+          "after_end": 2604,
+          "delta": -1
+        },
+        {
+          "line": 9,
+          "before_start": 2605,
+          "before_end": 3118,
+          "after_start": 2604,
+          "after_end": 3117,
+          "delta": -1
+        },
+        {
+          "line": 10,
+          "before_start": 3118,
+          "before_end": 3170,
+          "after_start": 3117,
+          "after_end": 3169,
+          "delta": -1
+        },
+        {
+          "line": 11,
+          "before_start": 3170,
+          "before_end": 3417,
+          "after_start": 3169,
+          "after_end": 3416,
+          "delta": -1
+        },
+        {
+          "line": 12,
+          "before_start": 3417,
+          "before_end": 3469,
+          "after_start": 3416,
+          "after_end": 3468,
+          "delta": -1
+        }
+      ],
+      "findings": [
+        {
+          "line": 2,
+          "kind": "home_path",
+          "placeholder": "<user>"
+        }
+      ],
+      "malformed_lines": []
+    }
+  ],
+  "replacements": {
+    "home_path": 1
+  }
+}

@@ -10,13 +10,13 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 
 | Harness | Status | CI scenarios | Fixtures | Versions | Evidence |
 |---|---|---:|---:|---|---|
-| Claude Code | **CI-verified** | 11 | 5 | `2.1.292`, `2.1.310` | 11 CI scenario(s); 0 ci-scripted, 1 donated, 4 hand-made fixture(s) |
+| Claude Code | **CI-verified** | 12 | 5 | `2.1.292`, `2.1.310` | 12 CI scenario(s); 0 ci-scripted, 1 donated, 4 hand-made fixture(s) |
 | Claude Desktop | **ported-unverified** | 0 | 5 | unknown | 5 hand-made/synthetic fixture(s); no real capture |
 | Codex | **CI-verified** | 9 | 5 | `0.160.1` | 9 CI scenario(s); 0 ci-scripted, 2 donated, 3 hand-made fixture(s) |
 | Cursor | **ported-unverified** | 0 | 4 | unknown | 4 hand-made/synthetic fixture(s); no real capture |
 | Pi | **CI-verified** | 5 | 8 | `1.4.0` | 5 CI scenario(s); 3 ci-scripted, 0 donated, 5 hand-made fixture(s) |
 | OpenCode | **CI-verified** | 2 | 8 | `1.19.4` | 2 CI scenario(s); 3 ci-scripted, 0 donated, 5 hand-made fixture(s) |
-| Gemini CLI | **CI-verified** | 2 | 3 | `0.65.0` | 2 CI scenario(s); 2 ci-scripted, 0 donated, 1 hand-made fixture(s) |
+| Gemini CLI | **CI-verified** | 3 | 4 | `0.65.0` | 3 CI scenario(s); 3 ci-scripted, 0 donated, 1 hand-made fixture(s) |
 | GitHub Copilot CLI | **CI-verified** | 5 | 9 | `1.0.103` | 5 CI scenario(s); 4 ci-scripted, 0 donated, 5 hand-made fixture(s) |
 
 ## What each harness can read
@@ -65,6 +65,7 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | cursor | `unknown` | `any` | `handmade` | `cursor/unknown/any/interrupted` |
 | cursor | `unknown` | `any` | `handmade` | `cursor/unknown/any/seed-session` |
 | gemini | `0.65.0` | `linux` | `handmade` | `gemini/0.65.0/linux/error` |
+| gemini | `0.65.0` | `linux` | `ci-scripted` | `gemini/0.65.0/linux/multi-tool` |
 | gemini | `0.65.0` | `linux` | `ci-scripted` | `gemini/0.65.0/linux/plain-qa` |
 | gemini | `0.65.0` | `linux` | `ci-scripted` | `gemini/0.65.0/linux/tool` |
 | opencode | `1.19.4` | `linux` | `handmade` | `opencode/1.19.4/linux/child-session` |

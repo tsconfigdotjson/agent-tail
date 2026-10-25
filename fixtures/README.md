@@ -44,6 +44,7 @@ The committed corpus lives in the versioned layout:
 | `opencode/1.19.4/linux/child-session` | Hand-made parent/child row export: the parent ends done while a child session with `parent_id` set still runs a tool; feeding the child as a helper makes the parent `background_work` |
 | `gemini/0.65.0/linux/plain-qa` | Gemini CLI 0.65.0 against the mock: a session-context record, a prompt, one text answer |
 | `gemini/0.65.0/linux/tool` | Gemini CLI 0.65.0: a `run_shell_command` call written after completion with its result, then the final answer |
+| `gemini/0.65.0/linux/multi-tool` | Captured offline from Gemini CLI 0.65.0 against the mock: one completed `gemini` record carries two `run_shell_command` calls in its `toolCalls` array, the following `user` record carries both `functionResponse` parts, and the final text ends the turn done |
 | `gemini/0.65.0/linux/error` | Hand-made Gemini 0.65.0 journal with a terminal `type: "error"` record and its message; exercises the adapter's error mapping because a real API failure rewinds the prompt instead of writing this record |
 | `copilot/1.0.103/linux/plain-qa` | Copilot CLI 1.0.103 against the mock: a prompt, one text answer, normal shutdown |
 | `copilot/1.0.103/linux/tool` | Copilot CLI 1.0.103: a bash call pending for two seconds, then the answer after its result |

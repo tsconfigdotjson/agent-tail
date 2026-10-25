@@ -1,0 +1,9 @@
+{
+  "name": "gemini_multi_tool",
+  "description": "Gemini issues two shell calls in one completed tool record, then answers. The calls are written only after both results complete, so the turn returns to thinking and then ends Done.",
+  "harness": "gemini",
+  "mock": "../../mock-server/scenarios/gemini_multi_tool.json",
+  "prompt": "use the tool",
+  "run_for_ms": 30000,
+  "expected_activity": [{ "activity": "done", "when": "end", "certainty": "firm" }]
+}

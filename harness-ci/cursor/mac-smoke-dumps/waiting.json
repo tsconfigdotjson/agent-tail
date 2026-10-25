@@ -1,0 +1,69 @@
+{
+  "bubbles": [
+    {
+      "key": "bubbleId:<composer>:<bubble-1>",
+      "toolFormerData": {
+        "additionalStatus": null,
+        "additionalUserDecision": null,
+        "error": null,
+        "name": null,
+        "status": null,
+        "userDecision": null
+      },
+      "type": 1
+    },
+    {
+      "key": "bubbleId:<composer>:<bubble-2>",
+      "toolFormerData": {
+        "additionalStatus": null,
+        "additionalUserDecision": null,
+        "error": null,
+        "name": null,
+        "status": null,
+        "userDecision": null
+      },
+      "type": 2
+    },
+    {
+      "key": "bubbleId:<composer>:<bubble-3>",
+      "toolFormerData": {
+        "additionalStatus": null,
+        "additionalUserDecision": null,
+        "error": null,
+        "name": null,
+        "status": null,
+        "userDecision": null
+      },
+      "type": 2
+    },
+    {
+      "key": "bubbleId:<composer>:<bubble-4>",
+      "toolFormerData": {
+        "additionalStatus": "pending",
+        "additionalUserDecision": null,
+        "error": null,
+        "name": "run_terminal_command_v2",
+        "status": "loading",
+        "userDecision": null
+      },
+      "type": 2
+    }
+  ],
+  "composer": {
+    "createdAt": 1792953082122,
+    "generatingBubbleIds": {
+      "count": 0
+    },
+    "key": "composerData:<composer>",
+    "lastUpdatedAt": 1792953082400,
+    "name": "<redacted>",
+    "status": "aborted"
+  },
+  "database": {
+    "main": true,
+    "shm": true,
+    "wal": true
+  },
+  "phase": "waiting",
+  "platform": "macos"
+}
