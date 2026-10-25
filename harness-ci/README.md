@@ -85,6 +85,12 @@ The pinned versions are the ones the committed fixtures were captured against. T
 matrix also resolves and runs npm `latest` for each harness, so a release that changes the
 transcript shape fails loudly.
 
+Two Codex scenarios avoid host-dependent false failures. `codex_token_count` sends its second
+prompt on the first idle after a delay because a fast turn can finish without leaving the TUI
+idle screen long enough to count a second idle occurrence. `codex_approval_never` runs with
+`danger-full-access` so a nested CI host cannot fail Codex's bubblewrap sandbox before the
+long command starts; the policy under test is still `approval_policy = never`.
+
 `.github/workflows/harness-ci.yml` runs:
 
 - unit, lint, format, and Python tool tests;

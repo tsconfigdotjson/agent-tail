@@ -1950,6 +1950,10 @@ mod tests {
         assert!(never.no_approval);
         assert!(never.command.iter().any(|arg| arg == "--no-daemon"));
         assert!(never.command.iter().any(|arg| arg == "never"));
+        assert!(never.command.windows(2).any(|args| args == ["-s", "danger-full-access"]));
+        let tokens = scenario("codex_token_count.json");
+        assert_eq!(tokens.keys[0].on, ScreenState::Idle);
+        assert_eq!(tokens.keys[0].occurrence, 0, "fast turns may not leave idle long enough for occurrence 1");
         let ask = scenario("codex_request_user_input.json");
         assert_eq!(ask.prompt.as_deref(), Some("/plan"));
         assert_eq!(ask.keys[1].on, ScreenState::AskUserQuestion);

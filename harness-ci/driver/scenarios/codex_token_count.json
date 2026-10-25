@@ -1,10 +1,10 @@
 {
   "name": "codex_token_count",
-  "description": "Two turns; token_count running totals increase from 5 to 12 output tokens.",
+  "description": "Two turns; token_count running totals increase from 5 to 12 output tokens. The second prompt is sent on the first idle after a delay so a fast turn cannot hide the idle transition.",
   "harness": "codex",
   "mock": "../../mock-server/scenarios/codex_token_count.json",
   "prompt": "say hello",
-  "keys": [{ "on": "idle", "send": "now say goodbye\r", "occurrence": 1, "after_ms": 1500 }],
+  "keys": [{ "on": "idle", "send": "now say goodbye\r", "occurrence": 0, "after_ms": 1500 }],
   "run_for_ms": 18000,
   "expected_activity": [{ "activity": "done", "when": "end", "screen": "idle", "certainty": "firm" }],
   "expect_observations": { "codex_token_output_totals": [5, 12] }
