@@ -211,6 +211,11 @@ A driver scenario adds the CLI command, prompt, key actions and run time:
 }
 ```
 
+`run_for_ms` is the observation window **after the prompt is typed**, not including CLI
+startup. A prompt-driven phase gets up to 60 s to reach the composer, so a newer, slower CLI
+startup is not scored as a transcript regression. A phase with no prompt uses `run_for_ms` from
+launch as before.
+
 Hard failures: `AwaitingApproval` when the screen shows no permission prompt (a sample within
 1 s of a real prompt is write latency, not a failure), `AwaitingApproval` in a `no_approval`
 scenario or a bypass / dontAsk / never permission mode, a real prompt left un-inferred past
@@ -360,7 +365,8 @@ cargo run -p harness-driver -- --scenario driver/scenarios/claude_sessions_regis
 
 **Decision: Cursor does not join the mock/PTY rig for v0.1.** It goes through donated
 fixtures (Phase C `fixture capture`), plus a budget-capped real run later if a key is
-available. The IDE is out of scope for CI anyway.
+available. The IDE is out of scope for CI anyway. The A6 lane still installs pinned and latest
+`cursor-agent` and runs its offline fixture suite; it does not claim a live chat.
 
 Tested on Linux with `cursor-agent` **2026.10.01-e373342**, a temp `HOME`, a dummy
 `CURSOR_API_KEY`, and `--endpoint` / `CURSOR_API_ENDPOINT` pointed at a local request logger:
@@ -451,26 +457,43 @@ cargo run -p harness-driver -- --scenario driver/scenarios/opencode_tool.json
 [`.github/workflows/harness-ci.yml`](../.github/workflows/harness-ci.yml) builds this workspace
 explicitly. The root `cargo test` still does not build it.
 
+- **Pinned + latest:** users autoupdate constantly, so the scheduled/PR lanes always install
+  the **latest** release as well as the pinned known-good releases used for reproduction. They
+  are separate matrix entries, not an either/or choice: a pinned job can replay an old failure,
+  while the latest job is the alarm that an upstream update broke a scenario. A latest install,
+  version check, launch or scenario failure fails the job loudly (with artifacts) rather than
+  being skipped.
 - **PR/push:** one `unit` job runs `cargo fmt --check`, `cargo clippy -D warnings`, the driver and
-  mock-server tests, and the Python survey tests. The `harness` matrix runs Claude Code
+  mock-server tests, and the Python survey/matrix tests. The `harness` matrix runs Claude Code
   **2.1.281**, **2.1.310** and npm **latest**, each on **ubuntu-latest** and **macos-latest**.
-  A separate `codex` job runs pinned Codex **0.160.1** on both OSes with
-  `ci/scenarios-codex.txt`. The `pi` matrix runs pinned Pi **1.4.0** and npm **latest** on both
-  OSes with `ci/scenarios-pi.txt`; a newer release that breaks the mocked turn, transcript or
-  status fails that job loudly rather than being skipped. The `opencode` job runs pinned
-  OpenCode **1.19.4** and npm **latest** on both OSes with `ci/scenarios-opencode.txt`, so its
-  latest lane also fails loudly on upstream drift. Every job installs the CLI from npm into
-  `$RUNNER_TEMP`, checks the reported version, builds `harness-driver --release`, and runs its
-  scenarios sequentially. A hard scoring failure fails the job; run artifacts are uploaded even
-  when a scenario fails.
+  The `pi` matrix runs pinned Pi **1.4.0** and npm **latest** on both OSes with
+  `ci/scenarios-pi.txt`; the `codex` matrix runs pinned Codex **0.160.1** and npm **latest**
+  with `ci/scenarios-codex.txt`; the `opencode` matrix runs pinned OpenCode **1.19.4** and npm
+  **latest** with `ci/scenarios-opencode.txt`; and the `cursor` matrix runs pinned Cursor
+  Agent **2026.10.01-e373342** and the latest build. Every lane runs on both
+  **ubuntu-latest** and **macos-latest**. Every job installs exactly the version named in its
+  matrix entry into `$RUNNER_TEMP`, checks the binary's reported version, builds
+  `harness-driver --release`, and runs its scenarios sequentially. A hard scoring failure
+  fails the job; run artifacts are uploaded even when a scenario fails.
+- **Cursor:** Cursor needs its own backend for a chat, so it still cannot join the mock/PTY rig
+  (A5). Its pinned + latest lane installs the versioned official download, proves `cursor-agent`
+  reports that version and renders `--help` with networking blocked, and runs the offline
+  transcript/status fixture suite (including Cursor). A backend-gated live chat is not claimed.
+  The install and launch failure modes are loud, not soft-skipped.
 - **Offline:** `ci/offline-run.sh` wraps each driver in `sandbox-exec -f offline.sb` on macOS and
   in a fresh network namespace with loopback up on Linux. CI sets
   `HARNESS_CI_REQUIRE_OFFLINE=1`, so a host that cannot enforce either one fails instead of
-  silently running with egress. The CLI only ever receives the driver's dummy
-  `ANTHROPIC_API_KEY`; no repository secret is configured or read.
+  silently running with egress. The Claude/Codex/Pi/OpenCode jobs only ever receive the
+  driver's dummy keys; the Cursor smoke uses a temp `HOME`. No repository secret is configured
+  or read.
+- **Version resolution:** `ci/matrix.py` owns the pinned versions and builds the pinned + latest
+  matrix for every lane. `ci/cursor_version.py` reads the versioned download URL from Cursor's
+  official installer; it does not execute the script. npm latest is resolved with `npm view`.
+  An empty, ambiguous or unexpectedly formatted version fails the prepare job, so dependent
+  lanes do not run with a guessed version.
 - **Nightly:** the same workflow runs on the `43 3 * * *` schedule (and by hand with
-  `open_drift_pr`). It installs npm `latest`, runs the matrix, and surveys the transcripts with
-  `ci/survey.py`. `ci/nightly.py` compares the Linux shape to
+  `open_drift_pr`). It installs each lane's `latest`, runs the matrix, and surveys the Claude and
+  Codex transcripts with `ci/survey.py`. `ci/nightly.py` compares the Linux Claude shape to
   `drift/baseline/claude-code/<version>.json`. When a new version adds/removes record types,
   field paths, content-block types or enum values, it writes `drift/reports/` plus redacted
   fixtures under `fixtures/claude-code/<version>/<os>/ci-<scenario>/`, and the workflow opens a
@@ -478,13 +501,15 @@ explicitly. The root `cargo test` still does not build it.
   A committed baseline that changes under the same version is reported as a regression and does
   not get silently rewritten. The workflow builds `agenttail-cli`, passes it as
   `AGENTTAIL_BIN` so the capture uses the same Rust redactor as `fixture redact`, and runs
-  `agenttail fixture scan fixtures` before the PR step.
+  `agenttail fixture scan fixtures` before the PR step. Latest Codex/Pi/OpenCode artifacts
+  are uploaded even when they fail; Cursor is fixture-backed until the backend-gated live path
+  exists.
 - **Proof:** `drift/reports/claude-code-2.1.281-to-2.1.310.md` is the report from running the
   same suite on both versions locally. It catches the new `api-request*` records, `turnPosition`,
   `renderedRole`/`renderedBesideToolResult`, request fields and permission-decision fields.
-- **Deferred:** Cursor stays out: it has no offline CLI path yet. The
-  `cargo bench --bench first_read` `/usr/bin/time` budget (QUESTIONS.md #10) is not wired here;
-  it belongs with the Phase C performance budget.
+- **Deferred:** Cursor's live mock/PTY chat remains out until its auth/protobuf/streaming backend
+  can be mocked. The `cargo bench --bench first_read` `/usr/bin/time` budget (QUESTIONS.md #10)
+  is not wired here; it belongs with the Phase C performance budget.
 
 ## A7: Pi real-harness spike and scenarios (2026-10-25)
 
@@ -542,9 +567,10 @@ cargo run -p harness-driver -- --scenario driver/scenarios/pi_plain_qa.json
 ## A4: Codex real-harness spike and scenarios (2026-10-24)
 
 Codex CLI **0.160.1** (the version that wrote the committed rollout fixtures) runs fully
-offline against the mock. npm latest at spike time was 0.164.0; the harness matrix pins
-0.160.1 because the scenario shapes and `sessions/YYYY/MM/DD` rollout format are the ones the
-repository already reads.
+offline against the mock. npm latest at spike time was 0.164.0; the harness matrix keeps
+0.160.1 as the pinned reproduction lane because the scenario shapes and `sessions/YYYY/MM/DD`
+rollout format are the ones the repository already reads, and runs npm latest beside it so a
+new Codex release that breaks those turns fails the latest job loudly.
 
 ### Pointing it at the mock
 
