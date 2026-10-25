@@ -19,16 +19,18 @@ For each session you get a `SessionState`:
 | `awaiting_answer` | the last entry calls an ask-the-user tool (`AskUserQuestion`, `ExitPlanMode`, `request_user_input`, Cursor's ask tools) | firm |
 | `awaiting_approval` | a tool call has had no result for 20 s **and the mode can ask a human**: perhaps a permission prompt | **inferred** |
 | `running_tool` | a tool call is waiting for its result, including under bypass/`dontAsk`/`never`, an SDK entrypoint or an AI approval reviewer | firm |
-| `thinking` | a prompt was sent, or a tool's result came back | firm |
-| `done` | the turn ended normally (Claude `end_turn`/`stop_hook_summary`/`turn_duration`/`agents_killed`, or a rejected tool use; Codex `task_complete`/`turn_complete`; Cursor `turn_ended`) | firm |
-| `interrupted` | the user interrupted or aborted (Claude's interrupt text, Codex `turn_aborted`, Cursor's abort status/user-stop string) | firm |
+| `thinking` | a prompt was sent, a tool's result came back, or Cursor's composer status is `generating` | firm |
+| `done` | the turn ended normally (Claude `end_turn`/`stop_hook_summary`/`turn_duration`/`agents_killed`, or a rejected tool use; Codex `task_complete`/`turn_complete`; Cursor `turn_ended` or `composerData.status: completed`) | firm |
+| `interrupted` | the user interrupted or aborted (Claude's interrupt text, Codex `turn_aborted`, Cursor's `turn_ended` or `composerData.status: aborted`) | firm |
 | `errored` | the harness recorded an error ending the turn (Claude's synthetic API row, Codex `task_complete.error`, Cursor's error status and message) | firm |
 | `background_work` | the turn ended, but a subagent or background task is still writing (Claude's `pendingBackgroundAgentCount` makes this firm; a helper's own transcript makes it inferred) | firm / **inferred** |
 | `idle` | nothing written for 15 min, or nothing read yet | firm |
 
 Each state also carries the harness's last `permission` mode (Claude Code and Codex) and
 Codex `sandbox` policy, the `background` helpers still running, and, for `errored`, the
-harness's `error` kind/message.
+harness's `error` kind/message. For Cursor, the `sqlite` feature (on by default) reads the
+IDE's `state.vscdb` from a private snapshot: `composerData.name` becomes the title, and
+`composerData.status` can firm up thinking/done/interrupted where the transcript is older.
 
 Each state also says *why* (`reason`, one value per rule), and carries the project, branch,
 title, cost (where the harness records it), token usage (`input`, `output`, cache read and
@@ -90,14 +92,19 @@ agenttail events [--agent ID] <path>                           # normalized even
   moves it),
   `~/.codex/sessions/YYYY/MM/DD/*.jsonl` and `~/.codex/session_index.jsonl` (Codex;
   `CODEX_HOME` moves both; compressed `.jsonl.zst` history is skipped),
-  `~/.cursor/projects/*/agent-transcripts/**.jsonl` (Cursor). Claude Code subagent
-  transcripts and their sibling `.meta.json` are read too. Only the bytes appended since
-  the last poll are read; a session's first read goes 1 MB at a time.
+  `~/.cursor/projects/*/agent-transcripts/**.jsonl` and Cursor's
+  `User/globalStorage/state.vscdb` (Cursor). Claude Code subagent transcripts and their
+  sibling `.meta.json` are read too. Only the bytes appended since the last poll are read;
+  a session's first read goes 1 MB at a time. Cursor's database is never opened in place:
+  it is copied with `-wal`/`-shm` into a private temporary folder, opened `mode=ro`, and
+  that folder is deleted afterwards. Copies are throttled to once every 30 s and only
+  happen while a Cursor session is in the window.
 - **Does not read** `~/.claude/sessions/<pid>.json`: the A3 registry run showed `waiting`
   also covers dialogs and a SIGKILL leaves a stale file, so it is evidence, not a source
   (see DECISIONS.md). No pid liveness probe is made.
-- **Touches nothing**: no writes anywhere, no hooks or config changes in any agent, no
-  subprocesses, **no network**. Symlinks are not followed.
+- **Touches nothing** in the agents: no hooks, config changes or subprocesses, and **no
+  network**. Symlinks are not followed. The only write is the private, read-only Cursor
+  database snapshot in the system temp folder, removed before the read returns.
 - **Keeps** a small state per session in memory (never the transcript), plus the start of
   a line still being written.
 
@@ -107,7 +114,7 @@ agenttail events [--agent ID] <path>                           # normalized even
 |---|---|---|
 | Claude Code | `~/.claude/projects/<project>/<id>.jsonl` | a scrubbed 2.1 recording |
 | Codex CLI | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | scrubbed 0.160.1 recordings |
-| Cursor agent | `~/.cursor/projects/<project>/agent-transcripts/<id>/<id>.jsonl` | a handmade transcript in the shape seen on a real Mac |
+| Cursor agent | `~/.cursor/projects/<project>/agent-transcripts/<id>/<id>.jsonl`, plus the IDE's `state.vscdb` | a handmade transcript and synthetic SQLite rows in the shape seen on a real Mac; live approval waits still need a donated capture |
 
 ## Building
 

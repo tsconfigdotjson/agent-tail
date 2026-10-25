@@ -41,6 +41,8 @@ mod harness;
 mod lean;
 mod reducer;
 mod session;
+#[cfg(feature = "sqlite")]
+mod sqlite;
 mod state;
 #[cfg(test)]
 mod testutil;
@@ -59,6 +61,11 @@ pub use event::{
 pub use fs::{Filter, READ_CHUNK, SWEEP_EVERY, SessionKey, Tracker, read_from};
 pub use harness::{Harness, Layout, Role};
 pub use reducer::{ChunkCtx, ParseMode, ReducerOptions, SessionReducer};
+#[cfg(feature = "sqlite")]
+pub use sqlite::{
+    ComposerStatus, CursorComposer, CursorState, CursorToolCall, read_state_vscdb, read_state_vscdb_for,
+    state_vscdb_path,
+};
 pub use state::{
     Activity, ActivityLine, Certainty, Diagnostics, PermissionMode, Reason, SandboxPolicy, SessionMeta, SessionState,
     StatusClass, TokenUsage,

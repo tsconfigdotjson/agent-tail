@@ -353,6 +353,32 @@ cd harness-ci
 cargo run -p harness-driver -- --scenario driver/scenarios/claude_sessions_registry.json
 ```
 
+## A5: Cursor CLI spike (2026-10-24)
+
+**Decision: Cursor does not join the mock/PTY rig for v0.1.** It goes through donated
+fixtures (Phase C `fixture capture`), plus a budget-capped real run later if a key is
+available. The IDE is out of scope for CI anyway.
+
+Tested on Linux with `cursor-agent` **2026.10.01-e373342**, a temp `HOME`, a dummy
+`CURSOR_API_KEY`, and `--endpoint` / `CURSOR_API_ENDPOINT` pointed at a local request logger:
+
+- The endpoint override is honoured, but it is not a model API endpoint. The CLI first
+  `POST`s `/auth/exchange_user_api_key` and expects `accessToken`/`refreshToken`.
+- It then uses Cursor's own Connect/protobuf services:
+  `aiserver.v1.DashboardService/*`, `ServerConfigService/GetServerConfig`,
+  `AiService/AvailableModels`, `GetUsableModels`, `GetDefaultModelForCli`, and analytics.
+  A hand-made token plus a model catalogue got it past login and model selection.
+- The actual chat is a streaming Cursor RPC (HTTP/2/gRPC-style), not Anthropic
+  `/v1/messages` or OpenAI `/v1/responses`. Against an HTTP/1.1 mock it ended in
+  `ERR_HTTP2_ERROR` / `[internal] Protocol error`.
+
+Joining the rig would mean implementing Cursor's auth exchange, protobuf model catalogue and
+streaming chat protocol, not extending the existing mock by a scenario. That is not v0.1
+work. The library still reads Cursor transcripts and, through the `sqlite` feature, a
+snapshot of the IDE's `state.vscdb`; the missing piece is the live approval-waiting capture
+(A5 #3), which needs Lee's Mac and is written up in
+[`docs/formats/cursor.md`](../docs/formats/cursor.md#needs-lee-the-live-approval-wait-a5-3).
+
 ## A6: GitHub Actions, version matrix and nightly drift
 
 [`.github/workflows/harness-ci.yml`](../.github/workflows/harness-ci.yml) builds this workspace

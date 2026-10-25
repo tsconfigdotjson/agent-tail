@@ -9,6 +9,8 @@
 
 use crate::harness::{Harness, Role};
 use crate::reducer::{ChunkCtx, ReducerOptions, SessionReducer};
+#[cfg(feature = "sqlite")]
+use crate::sqlite::{self, CursorState};
 use crate::state::SessionState;
 use crate::time::{Timestamp, epoch};
 use std::collections::{HashMap, HashSet};
@@ -21,6 +23,12 @@ use std::time::{Duration, SystemTime};
 /// started within the window. Sessions started earlier that come back to life (a resumed
 /// Codex session writes to its old day folder) show up at most this late.
 pub const SWEEP_EVERY: Duration = Duration::from_secs(10);
+
+/// How often Cursor's `state.vscdb` is copied and read while a Cursor session is in the
+/// window. The database can be several gigabytes, so its stamp is checked on every poll but
+/// it is only copied at this interval.
+#[cfg(feature = "sqlite")]
+pub const CURSOR_STATE_DB_EVERY: Duration = Duration::from_secs(30);
 
 /// How much of a transcript is read at once (tvdash #203): a session's first read holds
 /// this, and the line it ends in, rather than the whole file (a long session is hundreds of
@@ -90,6 +98,12 @@ pub struct Tracker {
     /// looked at anyway. With hundreds of projects, reading every one each second cost
     /// thousands of `stat`s.
     folders: HashMap<PathBuf, Folder>,
+    /// Cursor's global `state.vscdb`, if the tracker should read one.
+    #[cfg(feature = "sqlite")]
+    cursor_db_path: Option<PathBuf>,
+    /// The last snapshot of it, and when it was read.
+    #[cfg(feature = "sqlite")]
+    cursor_db: Option<CursorDatabase>,
 }
 
 /// A transcript being followed.
@@ -106,11 +120,44 @@ struct Folder {
     folders: Vec<PathBuf>,
 }
 
+/// A Cursor database snapshot and the sidecar stamps it was taken at.
+#[cfg(feature = "sqlite")]
+struct CursorDatabase {
+    path: PathBuf,
+    stamp: CursorDbStamp,
+    read_at: Timestamp,
+    state: CursorState,
+}
+
+/// The mtimes and lengths of `state.vscdb`, `-wal` and `-shm`. A changed sidecar is a
+/// changed database even when the main file's mtime hasn't moved.
+#[cfg(feature = "sqlite")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CursorDbStamp {
+    main: Option<FileStamp>,
+    wal: Option<FileStamp>,
+    shm: Option<FileStamp>,
+}
+
+#[cfg(feature = "sqlite")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FileStamp {
+    mtime: SystemTime,
+    len: u64,
+}
+
 impl Tracker {
     /// The sessions under `home` (each harness's [`Layout::root`](crate::Layout::root) in
     /// it) that `filter` lets through.
     pub fn new(home: &Path, filter: Filter) -> Self {
-        Self::with_roots(Self::roots(home, |_| None), filter)
+        let tracker = Self::with_roots(Self::roots(home, |_| None), filter);
+        #[cfg(feature = "sqlite")]
+        let tracker = {
+            let mut tracker = tracker;
+            tracker.cursor_db_path = Some(sqlite::state_vscdb_path(home));
+            tracker
+        };
+        tracker
     }
 
     /// Like [`new`](Self::new), but honouring the harnesses' own folder overrides:
@@ -119,7 +166,14 @@ impl Tracker {
     /// treats `CLAUDE_CONFIG_DIR` as one path, not a comma-separated list; a relative path
     /// is ignored, as Claude Code does.
     pub fn from_env(home: &Path, filter: Filter) -> Self {
-        Self::with_roots(Self::roots(home, |var| std::env::var_os(var)), filter)
+        let tracker = Self::with_roots(Self::roots(home, |var| std::env::var_os(var)), filter);
+        #[cfg(feature = "sqlite")]
+        let tracker = {
+            let mut tracker = tracker;
+            tracker.cursor_db_path = Some(sqlite::state_vscdb_path(home));
+            tracker
+        };
+        tracker
     }
 
     /// Each harness's root, with the overrides from its discovery spec. `env` reads a
@@ -157,7 +211,20 @@ impl Tracker {
             codex_index_stamp: None,
             swept: None,
             folders: HashMap::new(),
+            #[cfg(feature = "sqlite")]
+            cursor_db_path: None,
+            #[cfg(feature = "sqlite")]
+            cursor_db: None,
         }
+    }
+
+    /// Read Cursor's `state.vscdb` from `path` instead of the platform default below `home`.
+    /// This is the file to point at a copy in tests or a non-standard Cursor install.
+    #[cfg(feature = "sqlite")]
+    pub fn with_cursor_state_db(mut self, path: impl Into<PathBuf>) -> Self {
+        self.cursor_db_path = Some(path.into());
+        self.cursor_db = None;
+        self
     }
 
     /// Read with `options` (sessions already followed are read again).
@@ -198,6 +265,81 @@ impl Tracker {
                 continue;
             };
             self.codex_index.insert(id.into(), title.into());
+        }
+    }
+
+    /// Snapshot Cursor's database when a Cursor session is in the window, at most every
+    /// [`CURSOR_STATE_DB_EVERY`]. The stamp is checked every poll, so an unchanged database
+    /// is not copied again.
+    #[cfg(feature = "sqlite")]
+    fn refresh_cursor_db(&mut self, now: Timestamp) {
+        if !self.filter.shows(Harness::Cursor) {
+            return;
+        }
+        let Some(path) = self.cursor_db_path.clone() else { return };
+        let ids: Vec<String> = self
+            .sessions
+            .iter()
+            .filter(|(_, followed)| followed.reducer.harness() == Harness::Cursor)
+            .filter_map(|(path, _)| cursor_composer_id(path).map(str::to_string))
+            .collect();
+        if ids.is_empty() {
+            return;
+        }
+        let stamp = cursor_db_stamp(&path);
+        if stamp.main.is_none() {
+            self.cursor_db = None;
+            return;
+        }
+        let due = self.cursor_db.as_ref().is_none_or(|database| {
+            database.path != path
+                || now.as_secs_f64() - database.read_at.as_secs_f64() >= CURSOR_STATE_DB_EVERY.as_secs_f64()
+        });
+        if !due {
+            return;
+        }
+        if let Some(database) = self.cursor_db.as_mut()
+            && database.path == path
+            && database.stamp == stamp
+        {
+            database.read_at = now;
+            return;
+        }
+        let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+        match sqlite::read_state_vscdb_for(&path, &ids) {
+            Ok(state) => self.cursor_db = Some(CursorDatabase { path, stamp, read_at: now, state }),
+            Err(_) => {
+                if let Some(database) = self.cursor_db.as_mut().filter(|database| database.path == path) {
+                    database.stamp = stamp;
+                    database.read_at = now;
+                } else {
+                    self.cursor_db = Some(CursorDatabase { path, stamp, read_at: now, state: CursorState::default() });
+                }
+            }
+        }
+    }
+
+    /// Apply the snapshot's title and firm turn status to each Cursor session. A status older
+    /// than the transcript's last entry is ignored by the reducer, so a throttled read never
+    /// rewinds newer transcript activity.
+    #[cfg(feature = "sqlite")]
+    fn apply_cursor_db(&mut self, now: Timestamp) {
+        let idle = self.options.idle_after.as_secs_f64();
+        let database = self.cursor_db.as_ref();
+        for (path, followed) in &mut self.sessions {
+            if followed.reducer.harness() != Harness::Cursor {
+                continue;
+            }
+            let composer =
+                database.and_then(|database| cursor_composer_id(path).and_then(|id| database.state.composer(id)));
+            followed.reducer.set_composer_title(composer.and_then(|composer| composer.name.as_deref()));
+            let status = composer.and_then(|composer| {
+                let at = composer.updated_at()?;
+                let activity = composer.activity()?;
+                let fresh = at.as_secs_f64() <= now.as_secs_f64() && now.as_secs_f64() - at.as_secs_f64() <= idle;
+                fresh.then_some((activity, at))
+            });
+            followed.reducer.set_composer_status(status);
         }
     }
 
@@ -320,6 +462,12 @@ impl Tracker {
             }
         }
 
+        #[cfg(feature = "sqlite")]
+        {
+            self.refresh_cursor_db(now);
+            self.apply_cursor_db(now);
+        }
+
         let mut views: Vec<_> = self
             .sessions
             .iter()
@@ -369,6 +517,34 @@ impl Followed {
         reducer.set_path(path);
         Followed { reducer, ino: 0 }
     }
+}
+
+/// Cursor's composer id is the transcript's file stem (`.../<id>/<id>.jsonl`).
+#[cfg(feature = "sqlite")]
+fn cursor_composer_id(path: &Path) -> Option<&str> {
+    path.file_stem().and_then(|stem| stem.to_str()).filter(|stem| !stem.is_empty())
+}
+
+#[cfg(feature = "sqlite")]
+fn cursor_db_stamp(path: &Path) -> CursorDbStamp {
+    CursorDbStamp {
+        main: file_stamp(path),
+        wal: file_stamp(&cursor_sidecar(path, "-wal")),
+        shm: file_stamp(&cursor_sidecar(path, "-shm")),
+    }
+}
+
+#[cfg(feature = "sqlite")]
+fn file_stamp(path: &Path) -> Option<FileStamp> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some(FileStamp { mtime: meta.modified().ok()?, len: meta.len() })
+}
+
+#[cfg(feature = "sqlite")]
+fn cursor_sidecar(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_os_string();
+    name.push(suffix);
+    PathBuf::from(name)
 }
 
 /// A file's identity: its inode where there are inodes.
@@ -1335,5 +1511,77 @@ mod tests {
         let options = ReducerOptions { recent_lines: 2, ..Default::default() };
         let mut t = Tracker::new(home.path(), hours(1.0)).with_options(options);
         assert_eq!(recent(&t.poll(wall())[0].1), ["› two", "› three"]);
+    }
+    #[cfg(feature = "sqlite")]
+    fn cursor_state_db(path: &Path, composer: &str, status: &str, name: &str, updated_ms: i64) {
+        use rusqlite::{Connection, params};
+        let connection = Connection::open(path).unwrap();
+        connection
+            .execute_batch("CREATE TABLE IF NOT EXISTS cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);")
+            .unwrap();
+        let value = json!({
+            "name": name,
+            "status": status,
+            "lastUpdatedAt": updated_ms,
+            "createdAt": updated_ms - 60_000,
+            "generatingBubbleIds": [],
+        });
+        connection
+            .execute(
+                "INSERT OR REPLACE INTO cursorDiskKV (key, value) VALUES (?1, ?2)",
+                params![format!("composerData:{composer}"), value.to_string()],
+            )
+            .unwrap();
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn cursor_db_gives_a_firm_title_and_turn_status_until_the_transcript_moves_on() {
+        let home = tempfile::tempdir().unwrap();
+        cursor_session(home.path(), "w-app", "a1", &[cursor_prompt("fix it")]);
+        let db = home.path().join("state.vscdb");
+        let now = wall();
+        let updated = (now.as_secs_f64() * 1000.0) as i64;
+        cursor_state_db(&db, "a1", "completed", "Database title", updated);
+        let mut t = Tracker::new(home.path(), hours(1.0)).with_cursor_state_db(&db);
+        let state = &t.poll(now)[0].1;
+        assert_eq!(state.meta.title, "Database title");
+        assert_eq!(
+            (state.activity, state.certainty, state.reason),
+            (crate::Activity::Done, crate::Certainty::Firm, crate::Reason::ComposerStatus)
+        );
+
+        // The tracker throttles a large database but notices a changed one when it is due.
+        cursor_state_db(&db, "a1", "aborted", "Renamed", updated + 1);
+        if let Some(database) = t.cursor_db.as_mut() {
+            database.read_at = Timestamp::from_secs_f64(now.as_secs_f64() - CURSOR_STATE_DB_EVERY.as_secs_f64());
+        }
+        let later = Timestamp::from_secs_f64(now.as_secs_f64() + 1.0);
+        let state = &t.poll(later)[0].1;
+        assert_eq!(state.meta.title, "Renamed");
+        assert_eq!(state.activity, crate::Activity::Interrupted);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn cursor_db_is_read_only_while_a_cursor_session_is_in_the_window() {
+        let home = tempfile::tempdir().unwrap();
+        let db = home.path().join("state.vscdb");
+        let now = wall();
+        cursor_state_db(&db, "a1", "completed", "Database title", (now.as_secs_f64() * 1000.0) as i64);
+        let project = home.path().join(".claude/projects/-w-site");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(project.join("s.jsonl"), jsonl(&[claude_prompt("/w/site", "hi", 1.0)])).unwrap();
+
+        let mut t = Tracker::new(home.path(), hours(1.0)).with_cursor_state_db(&db);
+        assert_eq!(polled(&mut t), [("site".into(), "thinking".into())]);
+        assert!(t.cursor_db.is_none(), "no Cursor session: the database was not read");
+
+        cursor_session(home.path(), "w-app", "a1", &[cursor_prompt("go")]);
+        let updated = (wall().as_secs_f64() * 1000.0) as i64 + 1;
+        cursor_state_db(&db, "a1", "completed", "Database title", updated);
+        t.swept = None;
+        assert_eq!(polled(&mut t), [("app".into(), "done".into()), ("site".into(), "thinking".into())]);
+        assert!(t.cursor_db.is_some(), "a Cursor session: the database is read");
     }
 }

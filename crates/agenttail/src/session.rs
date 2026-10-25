@@ -122,8 +122,12 @@ pub(crate) struct Session {
     pub(crate) title: String,
     /// The opening prompt's first line, kept so an index title can fall back if it goes away.
     prompt_title: String,
+    /// The last title Codex's `session_index.jsonl` gave, kept while a Cursor title wins.
+    index_title: String,
     /// Whether `title` currently comes from Codex's `session_index.jsonl`.
     title_from_index: bool,
+    /// Whether `title` currently comes from Cursor's `state.vscdb`.
+    title_from_db: bool,
     pub(crate) cost: Option<f64>,
     pub(crate) out_tokens: u64,
     /// Token counts, deduped by message id where the harness splits one message over rows.
@@ -161,6 +165,10 @@ pub(crate) struct Session {
     pub(crate) mtime: f64,
     /// When a helper's transcript (a Cursor subagent's) was last written.
     pub(crate) helper_mtime: f64,
+    /// A status read from a harness's database (Cursor's `composerData.status`) and when it
+    /// was written. The transcript rules use it only while it is at least as new as the last
+    /// transcript entry, so a throttled read can't rewind a newer transcript.
+    pub(crate) db_status: Option<(Activity, f64)>,
     /// State carried across records while they are parsed into events (prompt-format
     /// dedupe and usage high-water marks).
     pub(crate) parse_state: crate::event::ParseState,
@@ -175,7 +183,9 @@ impl Session {
             branch: String::new(),
             title: String::new(),
             prompt_title: String::new(),
+            index_title: String::new(),
             title_from_index: false,
+            title_from_db: false,
             cost: None,
             out_tokens: 0,
             usage: TokenUsage::default(),
@@ -197,6 +207,7 @@ impl Session {
             pending_tools: HashMap::new(),
             mtime: 0.0,
             helper_mtime: 0.0,
+            db_status: None,
             parse_state: crate::event::ParseState::default(),
         }
     }
@@ -222,13 +233,17 @@ impl Session {
     /// The session as of `now`.
     pub(crate) fn state(&self, now: Timestamp, o: &ReducerOptions, diagnostics: Diagnostics) -> SessionState {
         let (activity, certainty, reason) = self.activity(now.as_secs_f64(), o);
+        let since = self
+            .db_signal(now.as_secs_f64(), o)
+            .map(|(_, at)| at)
+            .unwrap_or_else(|| if self.last_at > 0.0 { self.last_at } else { self.mtime });
         let some = |t: f64| (t > 0.0).then(|| Timestamp::from_secs_f64(t));
         SessionState {
             harness: self.harness,
             activity,
             certainty,
             reason,
-            since: some(if self.last_at > 0.0 { self.last_at } else { self.mtime }),
+            since: some(since),
             last_at: some(self.last_at),
             last_write: some(self.active_at()),
             background: Vec::new(),
@@ -252,14 +267,19 @@ impl Session {
     /// The status rules, unchanged from tvdash (decided on its #4).
     fn activity(&self, now: f64, o: &ReducerOptions) -> (Activity, Certainty, Reason) {
         use {Activity::*, Certainty::*, Reason::*};
-        if self.last == Last::Nothing {
+        let db = self.db_signal(now, o);
+        if self.last == Last::Nothing && db.is_none() {
             return (Idle, Firm, NoEntries);
         }
-        let age = now - self.last_at.max(self.active_at());
-        // A transcript untouched this long belongs to a session that was closed or
+        let db_at = self.db_status.map_or(0.0, |(_, at)| at);
+        let age = now - self.last_at.max(self.active_at()).max(db_at);
+        // Neither transcript nor database touched this long: the session was closed or
         // abandoned mid-turn, whatever its last entry says.
         if age > o.idle_after.as_secs_f64() {
             return (Idle, Firm, NoWritesFor);
+        }
+        if let Some((activity, _)) = db {
+            return (activity, Firm, ComposerStatus);
         }
         match self.last {
             Last::Question => (AwaitingAnswer, Firm, AskUserTool),
@@ -275,6 +295,19 @@ impl Session {
             Last::Errored => (Activity::Errored, Firm, Reason::Errored),
             Last::Nothing => unreachable!("handled above"),
         }
+    }
+
+    /// A database status that may decide the activity: fresh enough, not older than the last
+    /// transcript entry, and not promoting a pending ask-the-user question to thinking.
+    fn db_signal(&self, now: f64, o: &ReducerOptions) -> Option<(Activity, f64)> {
+        let (activity, at) = self.db_status?;
+        if at < self.last_at || !(0.0..=o.idle_after.as_secs_f64()).contains(&(now - at)) {
+            return None;
+        }
+        if self.last == Last::Question && activity == Activity::Thinking {
+            return None;
+        }
+        Some((activity, at))
     }
 
     // What adapters call as they read entries.
@@ -385,31 +418,60 @@ impl Session {
         }
     }
 
-    /// The opening prompt, kept as the fallback title even after an index title wins.
+    /// The opening prompt, kept as the fallback title even after an index or database title
+    /// wins.
     pub(crate) fn set_title_from_prompt(&mut self, first: String) {
         if self.prompt_title.is_empty() {
             self.prompt_title = first.clone();
         }
-        if !self.title_from_index && self.title.is_empty() {
+        if !self.title_from_index && !self.title_from_db && self.title.is_empty() {
             self.title = first;
         }
     }
 
     /// A title from Codex's `session_index.jsonl`; it wins over the opening prompt. Without
     /// one (the index is absent, malformed, or no longer names this thread), fall back to
-    /// that opening prompt rather than keeping a stale index title.
+    /// that opening prompt rather than keeping a stale index title. A Cursor database title
+    /// still wins while it is present.
     pub(crate) fn set_index_title(&mut self, title: Option<&str>) {
         match title.map(str::trim).filter(|title| !title.is_empty()) {
             Some(title) => {
+                self.index_title = title.into();
                 self.title_from_index = true;
+                if !self.title_from_db {
+                    self.title = title.into();
+                }
+            }
+            None => {
+                self.index_title.clear();
+                if !self.title_from_db && self.title_from_index {
+                    self.title_from_index = false;
+                    self.title = self.prompt_title.clone();
+                }
+            }
+        }
+    }
+
+    /// A title from Cursor's `state.vscdb` (`composerData.name`). It wins over the opening
+    /// prompt and Codex's index; without one, fall back to whichever source is still there.
+    pub(crate) fn set_db_title(&mut self, title: Option<&str>) {
+        match title.map(str::trim).filter(|title| !title.is_empty()) {
+            Some(title) => {
+                self.title_from_db = true;
                 self.title = title.into();
             }
-            None if self.title_from_index => {
-                self.title_from_index = false;
-                self.title = self.prompt_title.clone();
+            None if self.title_from_db => {
+                self.title_from_db = false;
+                self.title = if self.title_from_index { self.index_title.clone() } else { self.prompt_title.clone() };
             }
             None => {}
         }
+    }
+
+    /// A status recorded in a harness's database (Cursor's `composerData.status`), with when
+    /// it was written. `None` clears it, so the transcript rules decide again.
+    pub(crate) fn set_db_status(&mut self, status: Option<(Activity, f64)>) {
+        self.db_status = status;
     }
 
     /// The harness recorded a permission mode (`None`: it doesn't record one).
@@ -636,6 +698,42 @@ mod tests {
             assert_eq!(log(&s).first().unwrap(), &format!("l{}", 2));
             assert_eq!(log(&s).last().unwrap(), &format!("l{}", n + 1));
         }
+    }
+
+    #[test]
+    fn database_titles_win_and_database_statuses_are_firm_only_when_newer() {
+        let o = ReducerOptions::default();
+        let mut s = Session::new(Harness::Cursor, LOG_LINES);
+        s.set_title_from_prompt("first prompt".into());
+        s.set_db_title(Some("database title"));
+        assert_eq!(s.title, "database title");
+        s.set_title_from_prompt("later prompt".into());
+        assert_eq!(s.title, "database title", "a later prompt doesn't overwrite it");
+        s.set_index_title(Some("index title"));
+        assert_eq!(s.title, "database title", "it also wins over Codex's index title");
+        s.set_db_title(None);
+        assert_eq!(s.title, "index title", "without it, the index title is back");
+        s.set_index_title(None);
+        assert_eq!(s.title, "first prompt", "then the opening prompt");
+
+        s.set(Last::ToolUse, at_secs(1.0));
+        s.set_db_status(Some((Activity::Done, at_secs(0.5))));
+        let st = s.state(Timestamp::from_secs_f64(NOW), &o, Diagnostics::default());
+        assert_eq!(
+            (st.activity, st.certainty, st.reason, st.since),
+            (Activity::Done, Certainty::Firm, Reason::ComposerStatus, Some(Timestamp::from_secs_f64(NOW - 0.5)))
+        );
+        s.set_db_status(Some((Activity::Thinking, at_secs(2.0))));
+        assert_eq!(status(&s), (StatusClass::Working, "working"), "an older database status is ignored");
+        s.set_db_status(None);
+        assert_eq!(status(&s), (StatusClass::Working, "working"), "and clearing it is the transcript again");
+
+        // A pending question is firmer than a database that only says the model is generating.
+        s.set(Last::Question, at_secs(1.0));
+        s.set_db_status(Some((Activity::Thinking, at_secs(0.5))));
+        assert_eq!(status(&s), (StatusClass::NeedsYou, "needs your answer"));
+        s.set_db_status(Some((Activity::Done, at_secs(0.5))));
+        assert_eq!(status(&s), (StatusClass::Done, "done"), "but a completed status closes it");
     }
 
     #[test]

@@ -78,11 +78,11 @@ summary = "The <project> folder is a lossy encoding of the workspace path, so th
 evidence = "docs/formats/cursor.md#paths-and-layout; crates/agenttail/src/adapters/cursor.rs"
 
 [[quirks]]
-id = "state-vscdb-not-read"
-summary = "`state.vscdb` has statuses and times, but the tracker reads only agent-transcripts; the toolFormerData approval state remains unverified."
-evidence = "docs/formats/cursor.md#state-vscdb-quick-look; docs/formats/cursor.md#open-questions"
+id = "state-vscdb-snapshot"
+summary = "`state.vscdb` is copied with -wal/-shm to a private temp dir and opened read-only; composerData status/name and bubbleId toolFormerData are read, while the live approval-waiting value remains unverified."
+evidence = "docs/formats/cursor.md#reader-b9-2026-10-24; DECISIONS.md#phase-b9-cursor-statevscdb-and-the-a5-decision-2026-10-24"
 
 [[quirks]]
 id = "no-real-harness-run"
-summary = "Cursor has no harness-CI run or version string in its artifacts; the format is seen on a real Mac but not reproduced in CI."
-evidence = "docs/formats/cursor.md; harness-ci/README.md#remaining-a0a2-work"
+summary = "The A5 spike found cursor-agent needs Cursor's auth and private Connect/protobuf streaming protocol, so Cursor is not in the mock/PTY CI; donated fixtures are the v0.1 path."
+evidence = "harness-ci/README.md#a5-cursor-cli-spike-2026-10-24; docs/formats/cursor.md#a5-the-cursor-cli-cannot-join-the-mockpty-rig-yet-2026-10-24"
