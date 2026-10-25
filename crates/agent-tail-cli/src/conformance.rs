@@ -157,7 +157,7 @@ fn read_checkpoints(path: &Path) -> Result<Vec<Value>, String> {
 
 /// The status fields a checkpoint can assert. Always emitted, `null` when absent, so a port
 /// can diff its own canonical output against the same file.
-const STATUS_FIELDS: [&str; 11] = [
+const STATUS_FIELDS: [&str; 12] = [
     "activity",
     "certainty",
     "reason",
@@ -169,6 +169,7 @@ const STATUS_FIELDS: [&str; 11] = [
     "out_tokens",
     "usage",
     "recent",
+    "background",
 ];
 
 fn run_checkpoints(harness: Harness, input: &Input, checkpoints: &[Value]) -> Result<bool, String> {
@@ -334,6 +335,7 @@ fn status_object(state: &Value, checkpoint: &Value) -> Value {
         "out_tokens",
         "usage",
         "recent",
+        "background",
     ] {
         object.insert(field.into(), state.get(field).cloned().unwrap_or(Value::Null));
     }

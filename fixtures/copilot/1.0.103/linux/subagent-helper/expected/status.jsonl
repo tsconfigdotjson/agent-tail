@@ -1,0 +1,4 @@
+{"after_line":16,"now_offset_s":0,"activity":"background_work","certainty":"inferred","reason":"background_helpers","background":[{"id":"efd693e4-5603-47d6-9905-91653db20ebe","activity":"running_tool","certainty":"inferred","reason":"tool_call_pending","since":1792946515.374,"last_write":1792946515.374}]}
+{"after_line":22,"now_offset_s":0,"activity":"background_work","certainty":"inferred","reason":"background_helpers","background":[{"id":"efd693e4-5603-47d6-9905-91653db20ebe","activity":"running_tool","certainty":"firm","reason":"tool_call_pending","since":1792946515.49,"last_write":1792946515.492}]}
+{"after_line":29,"now_offset_s":0,"activity":"done","certainty":"firm","reason":"turn_ended","background":[]}
+{"after_line":37,"now_offset_s":0,"activity":"done","certainty":"firm","reason":"turn_ended","background":[]}

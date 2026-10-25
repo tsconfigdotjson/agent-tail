@@ -17,7 +17,7 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | Pi | **CI-verified** | 5 | 6 | `1.4.0` | 5 CI scenario(s); 3 ci-scripted, 0 donated, 3 hand-made fixture(s) |
 | OpenCode | **CI-verified** | 2 | 5 | `1.19.4` | 2 CI scenario(s); 3 ci-scripted, 0 donated, 2 hand-made fixture(s) |
 | Gemini CLI | **CI-verified** | 2 | 3 | `0.65.0` | 2 CI scenario(s); 2 ci-scripted, 0 donated, 1 hand-made fixture(s) |
-| GitHub Copilot CLI | **CI-verified** | 5 | 8 | `1.0.103` | 5 CI scenario(s); 3 ci-scripted, 0 donated, 5 hand-made fixture(s) |
+| GitHub Copilot CLI | **CI-verified** | 5 | 9 | `1.0.103` | 5 CI scenario(s); 4 ci-scripted, 0 donated, 5 hand-made fixture(s) |
 
 ## What each harness can read
 
@@ -30,7 +30,7 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | Pi | `.pi/agent/sessions` | none observed | none observed | no | 7 |
 | OpenCode | `.local/share/opencode` | `question`, `plan_exit` | none observed | no | 5 |
 | Gemini CLI | `.gemini/tmp` | none observed | none observed | no | 5 |
-| GitHub Copilot CLI | `.copilot/session-state` | none observed | `manual` | no | 5 |
+| GitHub Copilot CLI | `.copilot/session-state` | none observed | `manual` | no | 6 |
 
 ## Fixture detail
 
@@ -58,6 +58,7 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/permission-denied` |
 | copilot | `1.0.103` | `linux` | `handmade` | `copilot/1.0.103/linux/permission-user-denied` |
 | copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/plain-qa` |
+| copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/subagent-helper` |
 | copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/tool` |
 | cursor | `unknown` | `any` | `handmade` | `cursor/handmade/vscdb-reader` |
 | cursor | `unknown` | `any` | `handmade` | `cursor/unknown/any/awaiting-answer` |

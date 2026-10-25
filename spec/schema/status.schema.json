@@ -159,6 +159,70 @@
           "unevaluatedProperties": false
         }
       ]
+    },
+    "helper_state": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "activity": {
+          "enum": [
+            "awaiting_answer",
+            "awaiting_approval",
+            "running_tool",
+            "thinking",
+            "background_work",
+            "done",
+            "interrupted",
+            "errored",
+            "idle",
+            "unknown"
+          ]
+        },
+        "certainty": {
+          "enum": [
+            "firm",
+            "inferred"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "no_entries",
+            "no_writes_for",
+            "ask_user_tool",
+            "approval_requested",
+            "tool_call_stalled",
+            "tool_call_pending",
+            "prompt_sent",
+            "tool_result_in",
+            "turn_ended",
+            "interrupted",
+            "errored",
+            "background_helpers",
+            "composer_status"
+          ]
+        },
+        "since": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "last_write": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "activity",
+        "certainty",
+        "reason"
+      ],
+      "unevaluatedProperties": false
     }
   },
   "type": "object",
@@ -239,6 +303,12 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/activity_line"
+      }
+    },
+    "background": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/helper_state"
       }
     }
   },

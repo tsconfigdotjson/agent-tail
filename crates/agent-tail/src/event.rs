@@ -55,6 +55,11 @@ pub struct Event {
     /// [`SessionReducer`](crate::SessionReducer) ignores these events.
     #[serde(skip_serializing_if = "is_false")]
     pub sidechain: bool,
+    /// The helper whose conversation this record belongs to, when a harness writes helper
+    /// activity into the parent's transcript (GitHub Copilot CLI's top-level `agentId`).
+    /// The reducer keeps these records in a separate helper state, not the parent's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub helper_id: Option<String>,
     /// Whether this record is on an abandoned Pi branch: it is in the file, but not on the
     /// current leaf's parent chain. Such events are emitted for a lossless dump, marked so
     /// callers can tell; [`SessionReducer`](crate::SessionReducer) ignores them for status,
@@ -337,6 +342,7 @@ pub(crate) fn parse_events(harness: Harness, source: u32, bytes: &[u8], mode: Pa
                                 record: value,
                             },
                             false,
+                            None,
                         );
                         continue;
                     }
@@ -356,10 +362,19 @@ pub(crate) fn parse_events(harness: Harness, source: u32, bytes: &[u8], mode: Pa
                                 record: value,
                             },
                             false,
+                            None,
                         );
                     } else {
                         for seed in seeds {
-                            push_event(harness, &mut out, provenance.clone(), seed.at, seed.kind, seed.sidechain);
+                            push_event(
+                                harness,
+                                &mut out,
+                                provenance.clone(),
+                                seed.at,
+                                seed.kind,
+                                seed.sidechain,
+                                seed.helper_id,
+                            );
                         }
                     }
                 }
@@ -383,6 +398,7 @@ pub(crate) fn parse_events(harness: Harness, source: u32, bytes: &[u8], mode: Pa
                         record: Value::String(String::from_utf8_lossy(line).into_owned()),
                     },
                     false,
+                    None,
                 );
             }
             Err(()) => {}
@@ -423,6 +439,7 @@ fn push_event(
     at: Option<f64>,
     kind: EventKind,
     sidechain: bool,
+    helper_id: Option<String>,
 ) {
     let id = format!(
         "{}:{}:{}:{}:{}:{}",
@@ -439,6 +456,7 @@ fn push_event(
         provenance,
         at: at.map(Timestamp::from_secs_f64),
         sidechain,
+        helper_id,
         off_chain: false,
         kind,
     });
@@ -543,6 +561,20 @@ pub(crate) fn record_ids(record: &Value) -> Vec<String> {
     ids
 }
 
+/// Copilot's parser state for one conversation: the parent's, or one interleaved helper's.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct CopilotParseState {
+    /// The current model step contains tool requests: its `assistant.turn_end` is not the
+    /// end of the user interaction.
+    pub(crate) tools_pending: bool,
+    /// Tool call ids already emitted from `assistant.message` or a tool event.
+    pub(crate) tools: HashSet<String>,
+    /// A terminal `abort` or `session.error` was written for this interaction. The CLI writes
+    /// a routine `session.shutdown` after either one, which may not turn the
+    /// interrupted/errored turn back into Done.
+    pub(crate) terminal: bool,
+}
+
 /// Parse state shared across records: which Codex prompt format appeared first, and the
 /// highest usage seen per Claude message / the running Codex total.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -559,16 +591,10 @@ pub(crate) struct ParseState {
     pub(crate) gemini_tools: HashSet<String>,
     /// Gemini tool call ids whose result has already been emitted.
     pub(crate) gemini_results: HashSet<String>,
-    /// Copilot's current model step contains tool requests: its `assistant.turn_end` is not
-    /// the end of the user interaction.
-    pub(crate) copilot_tools_pending: bool,
-    /// Copilot tool call ids already emitted from `assistant.message` or a tool event.
-    pub(crate) copilot_tools: HashSet<String>,
-    /// Copilot wrote a terminal `abort` or `session.error` record for this interaction.
-    /// The CLI writes a routine `session.shutdown` after either one (and may have written a
-    /// model-step `assistant.turn_end` just before), neither of which may turn the
-    /// interrupted/errored turn back into Done.
-    pub(crate) copilot_terminal: bool,
+    /// Copilot's parent conversation state.
+    pub(crate) copilot: CopilotParseState,
+    /// Copilot's interleaved helper conversations, keyed by top-level `agentId`.
+    pub(crate) copilot_helpers: HashMap<String, CopilotParseState>,
 }
 
 /// A prompt's tag wrappers (`<user_query>…</user_query>`, `<timestamp>…</timestamp>`, …).
@@ -595,6 +621,19 @@ pub(crate) fn prompt_wrappers(text: &str) -> Vec<PromptWrapper> {
 /// The reducer's event application: the one place an event becomes session state.
 impl Session {
     pub(crate) fn apply_event(&mut self, event: &Event) {
+        if !self.is_helper
+            && let Some(helper_id) = event.helper_id.as_deref().filter(|id| !id.is_empty())
+        {
+            let (harness, log_lines, mtime) = (self.harness, self.log_lines, self.mtime);
+            let helper = self.embedded_helpers.entry(helper_id.to_string()).or_insert_with(|| {
+                let mut helper = Session::new(harness, log_lines);
+                helper.is_helper = true;
+                helper
+            });
+            helper.mtime = mtime;
+            helper.apply_event(event);
+            return;
+        }
         if event.sidechain && !self.is_helper {
             return;
         }
@@ -771,6 +810,7 @@ fn apply_seeds(session: &mut Session, seeds: Vec<crate::adapters::EventSeed>) {
             provenance: Provenance::default(),
             at: seed.at.map(Timestamp::from_secs_f64),
             sidechain: seed.sidechain,
+            helper_id: seed.helper_id,
             off_chain: false,
             kind: seed.kind,
         };
@@ -1260,7 +1300,7 @@ mod tests {
 
     #[test]
     fn the_reducer_consumes_the_events_parse_lines_returns() {
-        const FIXTURES: [(Harness, &str); 5] = [
+        const FIXTURES: [(Harness, &str); 6] = [
             (
                 Harness::ClaudeCode,
                 include_str!("../../../fixtures/claude-code/2.1/linux/seed-session/input/session.jsonl"),
@@ -1269,6 +1309,10 @@ mod tests {
             (Harness::Codex, include_str!("../../../fixtures/codex/0.160/linux/seed-resume/input/session.jsonl")),
             (Harness::Cursor, include_str!("../../../fixtures/cursor/unknown/any/seed-session/input/session.jsonl")),
             (Harness::Pi, include_str!("../../../fixtures/pi/1.4/linux/branched/input/session.jsonl")),
+            (
+                Harness::Copilot,
+                include_str!("../../../fixtures/copilot/1.0.103/linux/subagent-helper/input/session.jsonl"),
+            ),
         ];
         let path = Path::new("/h/.cursor/projects/Users-dev-Work-demo-app/agent-transcripts/a1/a1.jsonl");
         let now = Timestamp::from_secs_f64(1_792_756_800.0);
