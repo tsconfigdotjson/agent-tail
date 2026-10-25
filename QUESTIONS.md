@@ -15,20 +15,22 @@ repeated here when they're still open.
 
 ## From Phase 1a (the extraction)
 
-4. **`StatusClass` in the library.** Resolved (issue #67): keep `Activity::class()` in the
-   library. It is an enum with no wording; StatusWall keeps its labels. See DECISIONS.md,
-   "Phase G".
+4. **`StatusClass` in the library.** Resolved (issues #67, #72): keep `Activity::class()` in
+   the library as an enum with no wording; StatusWall keeps its labels. The class mapping and
+   `NeedsYou < Working < Done < Idle` order are documented and pinned by tests. See
+   DECISIONS.md, "Phase G" and "Phase G follow-up: QUESTIONS #4/#6/#7".
 5. **`Idle` or `Unknown` for a session with nothing read yet?** Resolved (issue #62):
    `Unknown` with reason `no_entries`, matching PLAN.md section 4. tvdash/StatusWall can
    map `Unknown` to its display idle; the library does not present an unread session as
    idle work. StatusWall adoption (#16) is not integrated yet.
 6. **Entries with no time of their own are dated by the transcript's mtime.** Resolved
-   (issue #67): confirmed for v0.1. This only changes anything for a Claude Code or Codex
-   line missing its `timestamp`; Cursor prompts keep their own time. See DECISIONS.md,
-   "Phase G".
-7. **Time as `Timestamp(f64)` seconds.** Resolved (issue #67): keep `f64` seconds for v0.1,
-   matching tvdash and the remote frames. Revisit only if a port proves equality is a real
-   problem. See DECISIONS.md, "Phase G".
+   (issues #67, #72): confirmed for v0.1, dated by the write time never the read time. This
+   only changes anything for a Claude Code or Codex line missing its `timestamp`; Cursor
+   prompts keep their own time. See DECISIONS.md, "Phase G" and
+   "Phase G follow-up: QUESTIONS #4/#6/#7".
+7. **Time as `Timestamp(f64)` seconds.** Resolved (issues #67, #72): keep `f64` seconds for
+   v0.1, matching tvdash, the remote frames and canonical JSON. See DECISIONS.md, "Phase G"
+   and "Phase G follow-up: QUESTIONS #4/#6/#7".
 8. **Harness folders moved by env vars** — resolved in B8 and A4: `Tracker::from_env`
    reads `CLAUDE_CONFIG_DIR` and `CODEX_HOME`; both CLIs use them. Claude Code 2.1.310's
    single-absolute-path semantics are confirmed in the binary and by an offline run. Codex

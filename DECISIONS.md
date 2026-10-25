@@ -704,3 +704,37 @@ conversion pain now; revisit only if an adopting port proves equality is a real 
 sans-IO reducer cannot read the clock. `ChunkCtx::mtime_or(arrival)` now makes the remote
 convention explicit and tested, and `ChunkCtx`/`spec/status.md` document it. StatusWall's
 remote loop is still not wired to the reducer; #16 remains parked, as decided.
+
+## Phase G follow-up: QUESTIONS #4/#6/#7 (issue #72, 2026-10-25)
+
+**QUESTIONS #4: `StatusClass` and `Activity::class()` stay in the library.** The class is a
+wording-free sort key, not a display vocabulary: `AwaitingAnswer`/`AwaitingApproval` are
+`NeedsYou`, `RunningTool`/`Thinking`/`BackgroundWork` are `Working`,
+`Done`/`Interrupted`/`Errored` are `Done`, and `Idle`/`Unknown` are `Idle`. `StatusClass`
+derives `Ord` and sorts `NeedsYou < Working < Done < Idle`, so the tracker's most-urgent-first
+order is stable. Both the mapping and that order are a public promise for compatible releases;
+a new `Activity` variant must choose its bucket explicitly. `class()` matches exhaustively
+inside the crate, and `status_class_is_pinned_for_every_activity_variant` pins every current
+variant (with a companion order test) so a new variant cannot silently inherit the wrong
+class. Consumers still own all wording; the library exposes none.
+
+**QUESTIONS #6: entries without their own timestamp are dated by the transcript's mtime.**
+Claude Code and Codex lines missing `timestamp` use the mtime supplied with the chunk, never
+the time the line was read. The reducer is sans-IO and does not read the clock, so an old
+transcript first read today still shows its real age (and can be `Idle` immediately). Cursor's
+prompts keep their own `<timestamp>`, capped by the transcript mtime; only Cursor's other
+records use the fallback. `entries_without_a_timestamp_use_the_transcript_mtime_not_the_read_time`
+covers both Claude Code and Codex: the old write time becomes `last_at`, `since` and
+`last_write`, and a late read does not make the session look fresh. A remote frame with an
+unknown mtime must substitute the arrival time before `feed`; the reducer cannot invent it.
+
+**QUESTIONS #7: `Timestamp` stays `f64` seconds for v0.1.** It matches tvdash, the remote
+frames and the JSON contract: timestamps are plain JSON numbers, and millisecond precision
+survives canonical event/status output without exponent or precision drift for epoch-scale
+values. `canonical_event_and_state_timestamps_round_trip_milliseconds` checks both the event
+`at` field and the status state's `last_at`/`since`/`last_write` through the same canonical
+JSON path the conformance commands use; `timestamps_serialize_as_plain_seconds` and
+`timestamps_order_and_compare_as_seconds` pin the serialization, equality and ordering the
+reducer relies on. Integer milliseconds or nanoseconds would make equality exact but add
+conversion pain now; revisit only if an adopting port proves equality is a real problem, not
+speculatively before 0.1.
