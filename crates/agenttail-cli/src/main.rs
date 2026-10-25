@@ -340,6 +340,9 @@ fn count_files(dir: &Path) -> Result<usize, String> {
 pub(crate) fn harness_for(path: &std::path::Path) -> Option<Harness> {
     let text = path.to_string_lossy().to_ascii_lowercase().replace('\\', "/");
     let file = path.file_name()?.to_string_lossy().to_ascii_lowercase();
+    // Fixture dumps name the harness in a whole folder or file, not anywhere in a parent
+    // worktree name (a worktree called `claude-desktop-jev` is not a Claude Code transcript).
+    let segment = |name: &str| text.split('/').any(|part| part == name);
     if text.contains("/.cursor/") || text.contains("/agent-transcripts/") {
         Some(Harness::Cursor)
     } else if text.contains("/.pi/") || text.contains("/pi/agent/sessions/") {
@@ -354,11 +357,11 @@ pub(crate) fn harness_for(path: &std::path::Path) -> Option<Harness> {
         Some(Harness::Codex)
     } else if text.contains("/.claude/") {
         Some(Harness::ClaudeCode)
-    } else if file.contains("cursor") {
+    } else if file.contains("cursor") || segment("cursor") {
         Some(Harness::Cursor)
-    } else if text.contains("codex") {
+    } else if file.contains("codex") || segment("codex") {
         Some(Harness::Codex)
-    } else if text.contains("claude") {
+    } else if file.contains("claude") || segment("claude") || segment("claude-code") {
         Some(Harness::ClaudeCode)
     } else if file.starts_with("pi-") {
         Some(Harness::Pi)
@@ -484,6 +487,13 @@ mod tests {
         ] {
             assert_eq!(harness_for(Path::new(path)), Some(want), "{path}");
         }
+        assert_eq!(
+            harness_for(Path::new(
+                "/h/worktrees/issue-74-claude-desktop-jev/fixtures/copilot/1.0.103/linux/x/input/session.jsonl"
+            )),
+            None,
+            "a worktree name is not a harness path convention"
+        );
     }
 
     #[test]
