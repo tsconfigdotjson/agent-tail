@@ -564,3 +564,25 @@ not change. Consumers that render `activity` directly must map `Unknown` to thei
 if they want the old display; StatusWall's adoption (#16) is not integrated yet, so no
 consumer is broken by this change today.
 
+## Phase E: first-read budget in the local verify gate (2026-10-25)
+
+**The budget is enforced locally now; the GHA job is committed ready for next month.**
+Multibeast decided on issue #61 to wire PLAN.md section 6.2 into the box verify path rather
+than wait for harness CI. The target is a 500 MB Lean first read under 3 s with peak RSS under
+50 MB. [`harness-ci/ci/first-read-budget.sh`](harness-ci/ci/first-read-budget.sh) builds the
+bench with `cargo bench --no-run`, runs the emitted binary under GNU `/usr/bin/time -v`, and
+fails on either overrun.
+
+**The script measures the bench child, not cargo.** `/usr/bin/time -v cargo bench` reports the
+cargo process's peak RSS (38.7 MB on this box), while the bench itself peaks at 9.4-9.9 MB, so
+the cargo wrapper would make the memory gate meaningless. The bench generates its transcript
+in memory, so no large scratch file is written; the script's small logs live under
+`target/first-read-budget.*` and are removed on exit.
+
+**Measured on Multibeast's Linux box** (2 vCPU, rustc 1.88.0): Lean **0.76-1.95 s**, Full
+**1.29-3.75 s**, peak RSS **9.4-9.9 MB**. The 3 s / 50 MB budgets remain PLAN's headroom rather
+than the observed floor. The workflow's `first-read` job runs the same script on
+`ubuntu-latest`; it is Linux-only because the gate needs GNU time, and it is ready but was not
+required while this month's Actions billing was exhausted.
+
+

@@ -145,5 +145,18 @@ the language-neutral `events`/`status` contract, canonical JSON and `survey --dr
 Rust 1.88 or later (edition 2024). `cargo test --all-features`; `cargo bench -p agenttail
 --bench first_read` reads a synthetic 500 MB Claude Code transcript.
 
+The first-read performance gate builds that bench and runs it under GNU `/usr/bin/time`;
+it fails if the `Lean` read takes 3.0 s or more, or peak RSS reaches 50 MB:
+
+```sh
+PATH="$HOME/.cargo/bin:$PATH" harness-ci/ci/first-read-budget.sh
+```
+
+On Multibeast's Linux box (2 vCPU, rustc 1.88.0, 2026-10-25) it measured **0.76-1.95 s** for
+Lean, **1.29-3.75 s** for Full (reported, not budgeted), and **9.4-9.9 MB** peak RSS. The
+script runs the built bench executable directly, because `/usr/bin/time -v cargo bench`
+measures cargo's RSS rather than the bench child's. See
+[harness-ci/README.md](harness-ci/README.md#a8-first-read-performance-budget-2026-10-25).
+
 See [DECISIONS.md](DECISIONS.md) for what was decided and why, and
 [QUESTIONS.md](QUESTIONS.md) for what's open.
