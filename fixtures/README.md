@@ -48,6 +48,7 @@ The committed corpus lives in the versioned layout:
 | `copilot/1.0.103/linux/parallel-tools` | Hand-made 1.0.103 shape for two bash requests in one assistant message: the first result leaves the second call pending, both results return to thinking, and the final text ends done; per-call usage is summed |
 | `copilot/1.0.103/linux/interrupt` | Hand-made 1.0.103 abort sequence in the real order: `assistant.turn_end`, `abort` / `user_abort`, then `session.shutdown`; checks the interrupted state survives the routine shutdown and falls to idle after 15 minutes |
 | `copilot/1.0.103/linux/api-error` | Hand-made 1.0.103 model failure: `assistant.turn_end`, `session.error` with `errorType: query`, then `session.shutdown`; checks the error survives the routine shutdown |
+| `copilot/1.0.103/linux/subagent-helper` | Captured offline from 1.0.103 against the mock: a background `task` helper is written into the parent event log with a top-level `agentId`; the parent turn ends while the helper is still running a bash call, then `subagent.completed` lets the parent finish. Checkpoints assert `background_work` and the helper in `background`, then `done` |
 
 The Claude Desktop fixtures are **handmade** from the public Claude Agent SDK record shape,
 not captured from an install; the matrix therefore says `ported-unverified`.
@@ -70,13 +71,16 @@ A status checkpoint is one JSON object per line:
 `after_line` counts entries read after feeding `input/session.jsonl` from the top. `now` for
 that check is the checkpoint line's own timestamp plus `now_offset_s` (so a pending tool is
 checked 30 s after its call). Optional `permission`, `sandbox`, `title`, `error`, `cost_usd`,
-`out_tokens`, `usage` and `recent` fields are compared when present. `crates/agent-tail/tests/status_fixtures.rs`
+`out_tokens`, `usage`, `recent` and `background` fields are compared when present. `crates/agent-tail/tests/status_fixtures.rs`
 runs every scenario, and `agent-tail status <input-dir> --checkpoints <file>` runs the same
 file as the language-neutral conformance command (canonical JSON; see
 [docs/conformance.md](../docs/conformance.md)).
 
 Helpers live under `input/subagents/<agent>.jsonl` with optional
-`input/subagents/<agent>.meta.json`. A checkpoint can feed them, in order, before it checks:
+`input/subagents/<agent>.meta.json` for harnesses that write helper files. GitHub Copilot
+CLI instead interleaves helper records into the main `input/session.jsonl` with a top-level
+`agentId`; those are fed as part of that transcript, so that fixture has no `input/subagents`
+directory. A checkpoint can feed file helpers, in order, before it checks:
 
 ```json
 {"after_line": 4, "helper": "agent-a1", "helper_line": 1, "activity": "background_work"}

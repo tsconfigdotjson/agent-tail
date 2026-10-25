@@ -56,7 +56,11 @@
         },
         "sidechain": {
           "type": "boolean",
-          "description": "Present (true) only for Claude Code sidechain records."
+          "description": "Present (true) for helper records, including Claude Code sidechains and GitHub Copilot CLI records with a top-level agentId."
+        },
+        "helper_id": {
+          "type": "string",
+          "description": "Present for a helper record that shares the parent transcript; the harness's helper id (GitHub Copilot CLI's top-level agentId)."
         },
         "off_chain": {
           "type": "boolean",

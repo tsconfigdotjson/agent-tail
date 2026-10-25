@@ -283,6 +283,32 @@ impl SessionReducer {
                 last_write: helper.last_write,
             });
         }
+        // Some harnesses interleave helper records into the parent's transcript instead of
+        // writing a helper file (Copilot's top-level `agentId`). Their activity is reduced
+        // separately, then surfaced like a followed helper.
+        for (id, helper) in &self.session.embedded_helpers {
+            let launch_ended =
+                self.session.launched_helpers.values().any(|launch| launch.ended && launch.matches_helper(id));
+            if launch_ended || self.helpers_killed.contains(id) {
+                continue;
+            }
+            let helper = helper.state(now, &self.options, Diagnostics::default());
+            if matches!(
+                helper.activity,
+                Activity::Done | Activity::Interrupted | Activity::Errored | Activity::Idle | Activity::Unknown
+            ) {
+                continue;
+            }
+            followed.insert(id.clone());
+            background.push(HelperState {
+                id: id.clone(),
+                activity: helper.activity,
+                certainty: helper.certainty,
+                reason: helper.reason,
+                since: helper.since,
+                last_write: helper.last_write,
+            });
+        }
         // An async launch is known before its file is read. Once the helper's own transcript
         // is followed, that transcript (and its metadata) is the more precise state.
         for launch in self.session.launched_helpers.values().filter(|launch| !launch.ended) {
@@ -292,7 +318,14 @@ impl SessionReducer {
             let superseded = self
                 .helpers
                 .keys()
-                .any(|id| launch.matches_helper(id) && (!self.helpers_killed.contains(id) || followed.contains(id)));
+                .any(|id| launch.matches_helper(id) && (!self.helpers_killed.contains(id) || followed.contains(id)))
+                // An embedded helper that has only configuration records so far has no
+                // activity to show; keep the launch's synthetic running state until it does.
+                || self
+                    .session
+                    .embedded_helpers
+                    .keys()
+                    .any(|id| launch.matches_helper(id) && followed.contains(id));
             if superseded {
                 continue;
             }
@@ -349,6 +382,7 @@ impl SessionReducer {
     /// Mark every helper followed so far ended by an explicit parent count of zero.
     fn kill_helpers(&mut self) {
         self.helpers_killed.extend(self.helpers.keys().cloned());
+        self.helpers_killed.extend(self.session.embedded_helpers.keys().cloned());
     }
 
     /// Feed a helper's `.meta.json` (Claude Code's `agent-<id>.meta.json`), keyed by the same

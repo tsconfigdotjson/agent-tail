@@ -1,0 +1,7 @@
+harness = "copilot"
+version = "1.0.103"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-25"
+description = "Captured offline from a GitHub Copilot CLI 1.0.103 session against the local mock. A background task helper starts while the parent turn ends, runs a 15-second bash call in the interleaved agent records, then completes and lets the parent resume. Checkpoints assert background_work with the helper running at the parent turn end and at the helper's tool call, then done after subagent.completed; no separate helper transcript is written."
+redaction = "redaction.json"

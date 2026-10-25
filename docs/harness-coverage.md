@@ -11,7 +11,7 @@ Fixtures under `fixtures/` run in `status_fixtures`, whether or not a driver exi
 
 | Adapter | Now covered | Still missing / deferred | Priority |
 |---|---|---|---|
-| **GitHub Copilot CLI** | CI: plain/`done`, single tool/`running_tool`, unattended permission denial/firm `awaiting_approval`, parallel tools, terminal `session.error`/`errored`. Fixtures also cover approved/user-denied completions, `abort`/`interrupted` followed by routine shutdown, usage totals, and idle. | Live TUI approve/deny capture; `subagent.started/completed` following into background helpers; unobserved ask-user tool. Follow-up: #107. | High → covered core, helper/TUI follow-up |
+| **GitHub Copilot CLI** | CI: plain/`done`, single tool/`running_tool`, unattended permission denial/firm `awaiting_approval`, parallel tools, terminal `session.error`/`errored`. Fixtures cover approved/user-denied completions, `abort`/`interrupted` followed by routine shutdown, usage totals, idle, and an interleaved background helper that keeps the parent at `background_work` after its turn ends. | Live TUI approve/deny capture (no safe non-interactive path found; handmade approved/user-denied fixtures remain); unobserved ask-user tool. Follow-up: #107's TUI gap. | High → core and helper covered, TUI gap documented |
 | **Pi** | CI: plain/`done`, single tool/`running_tool`, parallel tools, failing tool result recovery, terminal API error/`errored`. Fixtures cover abandoned branches, parallel pending-then-thinking transitions, usage/cost totals, `aborted`/`interrupted`, and idle. | Compaction fixture, unknown-entry fixture, `deferred` stop reason. Helpers/approval are unsupported by design. Follow-up: #108. | High → covered core |
 | **Claude Code** | CI: plain, approval/pending/bypass, API errors, non-ASCII, long output. Fixtures: approval stall, background helpers, firm turn ends, late prompt, rejected tool/interrupt. Local drivers also cover ask-user, plan, interrupts, resume, accept-edits, compaction and mode/model. | Stable-CI ask-user/plan/interrupt/background drivers; cost/idle fixture checkpoints; dedicated multi-tool fixture. Follow-up: #108. | Medium |
 | **Codex** | CI: plain, token usage, on-request inferred approval, never running, ask-user, parallel tools, abort, task error, resume. Fixtures cover approval modes and resumed sessions. | Idle checkpoint and a committed unknown-record fixture. | Low |
@@ -28,6 +28,12 @@ The adapter previously treated the routine shutdown as another normal turn end, 
 status read `done` instead of `interrupted`/`errored`. The Copilot parser now marks a
 terminal record and keeps it through that shutdown; both sequences have fixtures and a unit
 test.
+
+Copilot writes helper records into the parent's `events.jsonl` with a top-level `agentId`.
+The adapter now keeps those records in a separate helper state and uses
+`subagent.started`/`subagent.completed` as the launch/end markers. Previously a helper
+prompt could become the parent's title or reset its turn flags, and the parent looked `done`
+while its helper was still running. The `subagent-helper` fixture pins both transitions.
 
 ## Adding a case
 

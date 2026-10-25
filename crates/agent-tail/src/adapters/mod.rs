@@ -24,12 +24,16 @@ pub(crate) struct EventSeed {
     /// The record is a Claude Code sidechain row (`isSidechain: true`): activity in a
     /// helper's conversation, not the session that owns this transcript.
     pub(crate) sidechain: bool,
+    /// The helper whose conversation this record belongs to, when the harness interleaves
+    /// helper records into the parent's own transcript (GitHub Copilot CLI's top-level
+    /// `agentId`). `None` means the record is the parent's.
+    pub(crate) helper_id: Option<String>,
     pub(crate) kind: EventKind,
 }
 
 impl EventSeed {
     pub(crate) fn new(kind: EventKind) -> Self {
-        EventSeed { at: None, sidechain: false, kind }
+        EventSeed { at: None, sidechain: false, helper_id: None, kind }
     }
 
     pub(crate) fn at(mut self, at: Option<f64>) -> Self {

@@ -74,6 +74,11 @@ summary = "assistant.turn_start/turn_end wrap each model call, not the whole use
 evidence = "docs/formats/copilot.md#event-catalogue; crates/agent-tail/src/adapters/copilot.rs"
 
 [[quirks]]
+id = "helper-records-share-parent-log"
+summary = "subagent.started opens a helper and subagent.completed (or a later agent_idle system.notification) ends it. Every helper record stays in the parent events.jsonl with a top-level agentId; there is no separate helper transcript. The adapter reduces agentId records as helper state so they do not move the parent, and a finished parent with a running helper is background_work."
+evidence = "docs/formats/copilot.md#event-catalogue; docs/formats/copilot.md#status-signals; fixtures/copilot/1.0.103/linux/subagent-helper/input/session.jsonl"
+
+[[quirks]]
 id = "byok-mock-provider"
 summary = "COPILOT_PROVIDER_BASE_URL with COPILOT_OFFLINE=true points the CLI at an OpenAI-compatible local provider without GitHub authentication."
 evidence = "docs/formats/copilot.md#harness-ci; copilot help environment in 1.0.103"

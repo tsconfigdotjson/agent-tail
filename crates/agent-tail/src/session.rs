@@ -168,8 +168,13 @@ pub(crate) struct Session {
     pub(crate) session_id: String,
     /// Whether this is a helper's own session: its records carry `isSidechain: true`.
     pub(crate) is_helper: bool,
+    /// Helper conversations interleaved into this transcript, keyed by the harness's helper
+    /// id (GitHub Copilot CLI writes helper records with a top-level `agentId` into the
+    /// parent's `events.jsonl`). They are reduced as their own sessions so their prompts,
+    /// tools and turn ends never move the parent's state.
+    pub(crate) embedded_helpers: HashMap<String, Session>,
     pub(crate) log: VecDeque<ActivityLine>,
-    log_lines: usize,
+    pub(crate) log_lines: usize,
     pub(crate) last: Last,
     pub(crate) last_at: f64,
     /// Ids an adapter has already counted (e.g. API messages split over several entries).
@@ -230,6 +235,7 @@ impl Session {
             launched_helpers: HashMap::new(),
             session_id: String::new(),
             is_helper: false,
+            embedded_helpers: HashMap::new(),
             log: VecDeque::with_capacity(log_lines + 1),
             log_lines,
             last: Last::Nothing,
@@ -395,7 +401,7 @@ impl Session {
             self.pending_tools.clear();
             self.pending_approvals.clear();
         }
-        if matches!(last, Last::Prompt | Last::Interrupted | Last::Errored) {
+        if matches!(last, Last::Interrupted | Last::Errored) {
             self.background_agents = 0;
             self.launched_helpers.clear();
         }
@@ -620,6 +626,10 @@ impl Session {
     /// the record order is the only clock, so a prompt's own timestamp can be older than the
     /// file mtime of the activity before it and still start the next turn.
     pub(crate) fn prompt_in_order(&mut self, text: &str, t: f64) -> Option<String> {
+        // A new user prompt starts a new interaction: helpers from the last one are gone.
+        // Model-step turn starts are not prompts and keep their background launches.
+        self.background_agents = 0;
+        self.launched_helpers.clear();
         self.set(Last::Prompt, t);
         let first = text.lines().map(str::trim).find(|l| !l.is_empty())?.to_string();
         self.push_log(ActivityLine::Prompt { text: first.clone() });

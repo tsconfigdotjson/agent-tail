@@ -17,162 +17,234 @@ pub(crate) struct Copilot;
 
 impl Adapter for Copilot {
     fn parse(&self, state: &mut crate::event::ParseState, event: &Value) -> Vec<EventSeed> {
-        let at = event["timestamp"].as_str().and_then(crate::time::parse_rfc3339);
-        let data = &event["data"];
-        let mut out = Vec::new();
-        match event["type"].as_str().unwrap_or_default() {
-            "session.start" => {
-                out.push(
-                    EventSeed::new(EventKind::SessionInfo {
-                        cwd: data["context"]["cwd"].as_str().filter(|cwd| !cwd.is_empty()).map(String::from),
-                        branch: None,
-                        session_id: data["sessionId"].as_str().filter(|id| !id.is_empty()).map(String::from),
-                        entrypoint: None,
-                        approvals_reviewer: None,
-                    })
-                    .at(at),
-                );
-                if let Some(model) = data["selectedModel"].as_str().filter(|model| !model.is_empty()) {
-                    out.push(EventSeed::new(EventKind::ModelChange { model: model.into() }).at(at));
+        let kind = event["type"].as_str().unwrap_or_default();
+        if let Some(id) = event["agentId"].as_str().filter(|id| !id.is_empty()) {
+            match kind {
+                "subagent.started" => return vec![helper_started(event)],
+                "subagent.completed" => return vec![helper_completed(event)],
+                _ => {
+                    // Copilot writes a helper's records into the parent's event log with a
+                    // top-level `agentId`. Parse them with that helper's own state and mark
+                    // them so the parent reducer keeps them out of the parent's status.
+                    let mut helper = state.copilot_helpers.remove(id).unwrap_or_default();
+                    let mut out = parse_record(&mut helper, event);
+                    state.copilot_helpers.insert(id.to_string(), helper);
+                    for seed in &mut out {
+                        seed.sidechain = true;
+                        seed.helper_id = Some(id.to_string());
+                    }
+                    return out;
                 }
             }
-            "user.message" => {
-                state.copilot_tools_pending = false;
-                state.copilot_terminal = false;
-                let text = content_text(&data["content"]);
-                if !text.trim().is_empty() {
-                    out.push(
-                        EventSeed::new(EventKind::UserPrompt {
-                            text: text.clone(),
-                            raw: text,
-                            wrappers: Vec::new(),
-                            starts_turn: true,
-                        })
-                        .at(at),
-                    );
-                }
-            }
-            "assistant.turn_start" => out.push(
-                EventSeed::new(EventKind::TurnStart { turn_id: data["turnId"].as_str().map(String::from) }).at(at),
-            ),
-            "assistant.message" => assistant_message(state, data, at, &mut out),
-            "assistant.turn_end" => {
-                // Each model call has its own turn_start/turn_end. Only a final message
-                // without tool requests ends the user's interaction.
-                if !state.copilot_tools_pending && !state.copilot_terminal {
-                    out.push(
-                        EventSeed::new(EventKind::TurnEnd {
-                            reason: TurnEndReason::EndTurn,
-                            error: None,
-                            background_agents: None,
-                        })
-                        .at(at),
-                    );
-                }
-            }
-            "tool.execution_start" => tool_start(state, data, at, &mut out),
-            "tool.execution_complete" => {
-                let call_id = data["toolCallId"].as_str().filter(|id| !id.is_empty()).map(String::from);
-                out.push(
-                    EventSeed::new(EventKind::ToolResult {
-                        call_id,
-                        is_error: data["success"].as_bool() == Some(false) || data.get("error").is_some(),
-                        size: result_size(&data["result"]),
-                    })
-                    .at(at),
-                );
-            }
-            "permission.requested" => permission_requested(data, at, &mut out),
-            "permission.completed" => {
-                let call_id = data["toolCallId"]
-                    .as_str()
-                    .or_else(|| data["permissionRequest"]["toolCallId"].as_str())
-                    .or_else(|| data["promptRequest"]["toolCallId"].as_str())
-                    .filter(|id| !id.is_empty())
-                    .map(String::from);
-                let kind = data["result"]["kind"].as_str().unwrap_or_default();
-                out.push(
-                    EventSeed::new(EventKind::ApprovalCompleted {
-                        call_id,
-                        approved: kind.starts_with("approved"),
-                        result_kind: (!kind.is_empty()).then(|| kind.into()),
-                    })
-                    .at(at),
-                );
-            }
-            "session.usage_record" => usage(data, at, &mut out),
-            "session.shutdown" => {
-                let error = data["error"]["message"].as_str().or_else(|| data["error"].as_str());
-                // 1.0.103 writes a routine shutdown after `abort` or `session.error`. That
-                // shutdown is not a second turn end: keep the interrupted/errored state
-                // rather than reporting Done.
-                if error.is_some() || !state.copilot_terminal {
-                    out.push(
-                        EventSeed::new(EventKind::TurnEnd {
-                            reason: if error.is_some() { TurnEndReason::Error } else { TurnEndReason::EndTurn },
-                            error: error.map(String::from),
-                            background_agents: None,
-                        })
-                        .at(at),
-                    );
-                }
-            }
-            "abort" => {
-                state.copilot_terminal = true;
-                out.push(
-                    EventSeed::new(EventKind::TurnEnd {
-                        reason: TurnEndReason::Interrupted,
-                        error: data["reason"].as_str().map(String::from),
-                        background_agents: None,
-                    })
-                    .at(at),
-                );
-            }
-            "session.error" => {
-                state.copilot_terminal = true;
-                let message = data["message"]
-                    .as_str()
-                    .or_else(|| data["error"]["message"].as_str())
-                    .or_else(|| data["error"].as_str())
-                    .unwrap_or("Copilot session error");
-                out.push(
-                    EventSeed::new(EventKind::TurnEnd {
-                        reason: TurnEndReason::Error,
-                        error: Some(message.into()),
-                        background_agents: None,
-                    })
-                    .at(at),
-                );
-            }
-            "session.mode_changed" => {
-                if let Some(mode) = data["mode"].as_str().or_else(|| data["permissionMode"].as_str()) {
-                    out.push(EventSeed::new(EventKind::PermissionMode { mode: PermissionMode::parse(mode) }).at(at));
-                }
-            }
-            kind if known_record(kind) => out.push(meta(event, kind).at(at)),
-            kind => out.push(
-                EventSeed::new(EventKind::Unknown {
-                    record_type: (!kind.is_empty()).then(|| kind.into()),
-                    reason: "unknown Copilot event type".into(),
-                    record: event.clone(),
-                })
-                .at(at),
-            ),
         }
-        if out.is_empty() {
-            out.push(meta(event, event["type"].as_str().unwrap_or("event")).at(at));
-        }
+        let mut copilot = std::mem::take(&mut state.copilot);
+        let out = parse_record(&mut copilot, event);
+        state.copilot = copilot;
         out
     }
 }
 
-fn assistant_message(state: &mut crate::event::ParseState, data: &Value, at: Option<f64>, out: &mut Vec<EventSeed>) {
+fn helper_started(event: &Value) -> EventSeed {
+    let at = event["timestamp"].as_str().and_then(crate::time::parse_rfc3339);
+    let data = &event["data"];
+    EventSeed::new(EventKind::HelperSpawn {
+        agent_id: event["agentId"].as_str().filter(|id| !id.is_empty()).map(String::from),
+        task_id: None,
+        output_file: None,
+        tool_use_id: data["toolCallId"].as_str().filter(|id| !id.is_empty()).map(String::from),
+    })
+    .at(at)
+}
+
+fn helper_completed(event: &Value) -> EventSeed {
+    let at = event["timestamp"].as_str().and_then(crate::time::parse_rfc3339);
+    let data = &event["data"];
+    EventSeed::new(EventKind::HelperEnd {
+        task_id: event["agentId"].as_str().filter(|id| !id.is_empty()).map(String::from),
+        tool_use_id: data["toolCallId"].as_str().filter(|id| !id.is_empty()).map(String::from),
+        output_file: None,
+        status: "completed".into(),
+    })
+    .at(at)
+}
+
+fn parse_record(state: &mut crate::event::CopilotParseState, event: &Value) -> Vec<EventSeed> {
+    let at = event["timestamp"].as_str().and_then(crate::time::parse_rfc3339);
+    let data = &event["data"];
+    let mut out = Vec::new();
+    match event["type"].as_str().unwrap_or_default() {
+        "session.start" => {
+            out.push(
+                EventSeed::new(EventKind::SessionInfo {
+                    cwd: data["context"]["cwd"].as_str().filter(|cwd| !cwd.is_empty()).map(String::from),
+                    branch: None,
+                    session_id: data["sessionId"].as_str().filter(|id| !id.is_empty()).map(String::from),
+                    entrypoint: None,
+                    approvals_reviewer: None,
+                })
+                .at(at),
+            );
+            if let Some(model) = data["selectedModel"].as_str().filter(|model| !model.is_empty()) {
+                out.push(EventSeed::new(EventKind::ModelChange { model: model.into() }).at(at));
+            }
+        }
+        "user.message" => {
+            state.tools_pending = false;
+            state.terminal = false;
+            let text = content_text(&data["content"]);
+            if !text.trim().is_empty() {
+                out.push(
+                    EventSeed::new(EventKind::UserPrompt {
+                        text: text.clone(),
+                        raw: text,
+                        wrappers: Vec::new(),
+                        starts_turn: true,
+                    })
+                    .at(at),
+                );
+            }
+        }
+        "assistant.turn_start" => {
+            out.push(EventSeed::new(EventKind::TurnStart { turn_id: data["turnId"].as_str().map(String::from) }).at(at))
+        }
+        "assistant.message" => assistant_message(state, data, at, &mut out),
+        "assistant.turn_end" => {
+            // Each model call has its own turn_start/turn_end. Only a final message
+            // without tool requests ends the user's interaction.
+            if !state.tools_pending && !state.terminal {
+                out.push(
+                    EventSeed::new(EventKind::TurnEnd {
+                        reason: TurnEndReason::EndTurn,
+                        error: None,
+                        background_agents: None,
+                    })
+                    .at(at),
+                );
+            }
+        }
+        "tool.execution_start" => tool_start(state, data, at, &mut out),
+        "tool.execution_complete" => {
+            let call_id = data["toolCallId"].as_str().filter(|id| !id.is_empty()).map(String::from);
+            out.push(
+                EventSeed::new(EventKind::ToolResult {
+                    call_id,
+                    is_error: data["success"].as_bool() == Some(false) || data.get("error").is_some(),
+                    size: result_size(&data["result"]),
+                })
+                .at(at),
+            );
+        }
+        "permission.requested" => permission_requested(data, at, &mut out),
+        "permission.completed" => {
+            let call_id = data["toolCallId"]
+                .as_str()
+                .or_else(|| data["permissionRequest"]["toolCallId"].as_str())
+                .or_else(|| data["promptRequest"]["toolCallId"].as_str())
+                .filter(|id| !id.is_empty())
+                .map(String::from);
+            let kind = data["result"]["kind"].as_str().unwrap_or_default();
+            out.push(
+                EventSeed::new(EventKind::ApprovalCompleted {
+                    call_id,
+                    approved: kind.starts_with("approved"),
+                    result_kind: (!kind.is_empty()).then(|| kind.into()),
+                })
+                .at(at),
+            );
+        }
+        "session.usage_record" => usage(data, at, &mut out),
+        "session.shutdown" => {
+            let error = data["error"]["message"].as_str().or_else(|| data["error"].as_str());
+            // 1.0.103 writes a routine shutdown after `abort` or `session.error`. That
+            // shutdown is not a second turn end: keep the interrupted/errored state
+            // rather than reporting Done.
+            if error.is_some() || !state.terminal {
+                out.push(
+                    EventSeed::new(EventKind::TurnEnd {
+                        reason: if error.is_some() { TurnEndReason::Error } else { TurnEndReason::EndTurn },
+                        error: error.map(String::from),
+                        background_agents: None,
+                    })
+                    .at(at),
+                );
+            }
+        }
+        "abort" => {
+            state.terminal = true;
+            out.push(
+                EventSeed::new(EventKind::TurnEnd {
+                    reason: TurnEndReason::Interrupted,
+                    error: data["reason"].as_str().map(String::from),
+                    background_agents: None,
+                })
+                .at(at),
+            );
+        }
+        "session.error" => {
+            state.terminal = true;
+            let message = data["message"]
+                .as_str()
+                .or_else(|| data["error"]["message"].as_str())
+                .or_else(|| data["error"].as_str())
+                .unwrap_or("Copilot session error");
+            out.push(
+                EventSeed::new(EventKind::TurnEnd {
+                    reason: TurnEndReason::Error,
+                    error: Some(message.into()),
+                    background_agents: None,
+                })
+                .at(at),
+            );
+        }
+        "session.mode_changed" => {
+            if let Some(mode) = data["mode"].as_str().or_else(|| data["permissionMode"].as_str()) {
+                out.push(EventSeed::new(EventKind::PermissionMode { mode: PermissionMode::parse(mode) }).at(at));
+            }
+        }
+        "system.notification" => {
+            let notification = &data["kind"];
+            if notification["type"].as_str() == Some("agent_idle") {
+                out.push(
+                    EventSeed::new(EventKind::HelperEnd {
+                        task_id: notification["agentId"].as_str().filter(|id| !id.is_empty()).map(String::from),
+                        tool_use_id: None,
+                        output_file: None,
+                        status: "idle".into(),
+                    })
+                    .at(at),
+                );
+            } else {
+                out.push(meta(event, "system.notification").at(at));
+            }
+        }
+        kind if known_record(kind) => out.push(meta(event, kind).at(at)),
+        kind => out.push(
+            EventSeed::new(EventKind::Unknown {
+                record_type: (!kind.is_empty()).then(|| kind.into()),
+                reason: "unknown Copilot event type".into(),
+                record: event.clone(),
+            })
+            .at(at),
+        ),
+    }
+    if out.is_empty() {
+        out.push(meta(event, event["type"].as_str().unwrap_or("event")).at(at));
+    }
+    out
+}
+
+fn assistant_message(
+    state: &mut crate::event::CopilotParseState,
+    data: &Value,
+    at: Option<f64>,
+    out: &mut Vec<EventSeed>,
+) {
     let text = content_text(&data["content"]);
     if !text.is_empty() {
         out.push(EventSeed::new(EventKind::AssistantText { text }).at(at));
     }
     let requests = data["toolRequests"].as_array().cloned().unwrap_or_default();
-    state.copilot_tools_pending = !requests.is_empty();
+    state.tools_pending = !requests.is_empty();
     for request in requests {
         let id = request["toolCallId"]
             .as_str()
@@ -180,7 +252,7 @@ fn assistant_message(state: &mut crate::event::ParseState, data: &Value, at: Opt
             .filter(|id| !id.is_empty())
             .map(String::from);
         if let Some(id) = &id {
-            state.copilot_tools.insert(id.clone());
+            state.tools.insert(id.clone());
         }
         let name = request["name"].as_str().or_else(|| request["toolName"].as_str()).unwrap_or_default();
         let input = request.get("arguments").cloned().unwrap_or(Value::Null);
@@ -198,12 +270,12 @@ fn assistant_message(state: &mut crate::event::ParseState, data: &Value, at: Opt
     }
 }
 
-fn tool_start(state: &mut crate::event::ParseState, data: &Value, at: Option<f64>, out: &mut Vec<EventSeed>) {
+fn tool_start(state: &mut crate::event::CopilotParseState, data: &Value, at: Option<f64>, out: &mut Vec<EventSeed>) {
     let Some(id) = data["toolCallId"].as_str().filter(|id| !id.is_empty()) else { return };
-    if state.copilot_tools.contains(id) {
+    if state.tools.contains(id) {
         return;
     }
-    state.copilot_tools.insert(id.into());
+    state.tools.insert(id.into());
     let name = data["toolName"].as_str().or_else(|| data["name"].as_str()).unwrap_or_default();
     let input = data.get("arguments").cloned().unwrap_or(Value::Null);
     out.push(
@@ -335,8 +407,11 @@ fn known_record(kind: &str) -> bool {
             | "session.skills_loaded"
             | "session.mcp_servers_loaded"
             | "session.tools_updated"
+            | "session.model_change"
             | "subagent.started"
+            | "subagent.configured"
             | "subagent.completed"
+            | "system.notification"
             | "abort"
     )
 }
@@ -347,8 +422,10 @@ mod tests {
     use crate::StatusClass as Status;
     use crate::harness::Harness;
     use crate::session::Session;
-    use crate::testutil::{replay, status};
+    use crate::testutil::{NOW, jsonl, replay, status};
+    use crate::{ChunkCtx, ReducerOptions, SessionReducer, Timestamp};
     use serde_json::json;
+    use std::path::Path;
 
     fn session(events: &[Value]) -> Session {
         replay(Harness::Copilot, events)
@@ -617,6 +694,69 @@ mod tests {
             (crate::Activity::Errored, crate::Certainty::Firm, crate::Reason::Errored)
         );
         assert_eq!(st.error.as_deref(), Some("model failed after retries"));
+    }
+
+    fn agent_event(kind: &str, agent: &str, data: Value) -> Value {
+        let mut event = event(kind, data);
+        event["agentId"] = json!(agent);
+        event
+    }
+
+    #[test]
+    fn a_background_helper_keeps_the_finished_parent_at_work_until_it_completes() {
+        let events = [
+            start(),
+            user("delegate helper"),
+            event(
+                "assistant.message",
+                json!({"content":"","toolRequests":[{"toolCallId":"task-1","name":"task",
+                    "arguments":{"name":"helper-one","agent_type":"general-purpose","description":"Helper one",
+                                 "prompt":"run the helper","mode":"background"}}]}),
+            ),
+            agent_event(
+                "subagent.started",
+                "agent-1",
+                json!({"toolCallId":"task-1","agentDisplayName":"helper-one","agentType":"general-purpose",
+                       "executionMode":"background"}),
+            ),
+            event(
+                "tool.execution_complete",
+                json!({"toolCallId":"task-1","success":true,"result":{"content":"started"}}),
+            ),
+            event("assistant.turn_end", json!({"turnId":"0"})),
+            event("assistant.turn_start", json!({"turnId":"1"})),
+            event("assistant.message", json!({"content":"The helper is running.","toolRequests":[]})),
+            event("assistant.turn_end", json!({"turnId":"1"})),
+            agent_event("user.message", "agent-1", json!({"content":"HELPER: run the sleep command."})),
+            agent_event("assistant.turn_start", "agent-1", json!({"turnId":"0"})),
+            agent_event(
+                "assistant.message",
+                "agent-1",
+                json!({"content":"","toolRequests":[{"toolCallId":"helper-tool","name":"bash",
+                    "arguments":{"command":"sleep 15"}}]}),
+            ),
+        ];
+        let text = jsonl(&events);
+        let path = Path::new("/h/.copilot/session-state/s1/events.jsonl");
+        let mut reducer = SessionReducer::new(Harness::Copilot, ReducerOptions::default());
+        let time = Timestamp::from_secs_f64(NOW);
+        reducer.feed(text.as_bytes(), ChunkCtx { offset: 0, mtime: time, path }).unwrap();
+        let state = reducer.state(time);
+        assert_eq!((state.activity, state.reason), (crate::Activity::BackgroundWork, crate::Reason::BackgroundHelpers));
+        assert_eq!(state.meta.title, "delegate helper", "the helper prompt did not become the parent's title");
+        assert_eq!(state.background.len(), 1);
+        assert_eq!(state.background[0].id, "agent-1");
+        assert_eq!(state.background[0].activity, crate::Activity::RunningTool);
+
+        let completed = jsonl(&[
+            agent_event("assistant.message", "agent-1", json!({"content":"Helper finished.","toolRequests":[]})),
+            agent_event("assistant.turn_end", "agent-1", json!({"turnId":"1"})),
+            agent_event("subagent.completed", "agent-1", json!({"toolCallId":"task-1"})),
+        ]);
+        reducer.feed(completed.as_bytes(), ChunkCtx { offset: text.len() as u64, mtime: time, path }).unwrap();
+        let state = reducer.state(time);
+        assert_eq!((state.activity, state.reason), (crate::Activity::Done, crate::Reason::TurnEnded));
+        assert!(state.background.is_empty(), "{:?}", state.background);
     }
 
     #[test]

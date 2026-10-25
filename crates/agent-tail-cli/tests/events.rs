@@ -92,6 +92,7 @@ fn committed_expected_events_match_their_inputs() {
         "copilot/1.0.103/linux/permission-denied",
         "copilot/1.0.103/linux/permission-approved",
         "copilot/1.0.103/linux/permission-user-denied",
+        "copilot/1.0.103/linux/subagent-helper",
     ] {
         let got = events(&format!("{input}/input/session.jsonl"));
         let expected = fixture(&format!("{input}/expected/events.jsonl"));
@@ -119,6 +120,28 @@ fn copilot_permission_fixtures_record_approval_versus_denial() {
         assert_eq!(completion["approved"], approved, "{scenario}");
         assert_eq!(completion["result_kind"], result_kind, "{scenario}");
     }
+}
+
+#[test]
+fn copilot_helper_records_name_their_helper() {
+    let events = events("copilot/1.0.103/linux/subagent-helper/input/session.jsonl");
+    let spawn = events
+        .iter()
+        .find(|event| event["type"] == "helper_spawn")
+        .unwrap_or_else(|| panic!("no helper_spawn: {events:#?}"));
+    let helper_id = spawn["agent_id"].as_str().expect("the helper's agent id");
+    assert_eq!(spawn["tool_use_id"], "call_helper_task");
+    let helper_prompt = events
+        .iter()
+        .find(|event| event["type"] == "user_prompt" && event["helper_id"] == helper_id)
+        .unwrap_or_else(|| panic!("no helper prompt: {events:#?}"));
+    assert_eq!(helper_prompt["sidechain"], true);
+    assert_eq!(helper_prompt["text"], "HELPER_ONE: run the sleep command, then report done.");
+    let end = events
+        .iter()
+        .find(|event| event["type"] == "helper_end" && event["task_id"] == helper_id)
+        .unwrap_or_else(|| panic!("no helper_end: {events:#?}"));
+    assert_eq!(end["status"], "completed");
 }
 
 #[test]

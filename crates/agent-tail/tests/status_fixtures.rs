@@ -133,6 +133,7 @@ fn every_expected_status_checkpoint_holds() {
                     "out_tokens",
                     "usage",
                     "recent",
+                    "background",
                 ] {
                     let Some(want) = checkpoint.get(key) else { continue };
                     let got = if key == "title" {

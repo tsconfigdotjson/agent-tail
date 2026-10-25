@@ -20,7 +20,9 @@ The project is `session.start.data.context.cwd`.
 
 ## Event catalogue
 
-Every line has `type`, `id`, `timestamp`, `parentId` and `data`.
+Every line has `type`, `id`, `timestamp`, `parentId` and `data`. A helper's records are
+written into the **same** `events.jsonl`, with a top-level `agentId`; there is no separate
+helper transcript directory.
 
 | event | fields that matter |
 |---|---|
@@ -36,6 +38,10 @@ Every line has `type`, `id`, `timestamp`, `parentId` and `data`.
 | `session.usage_record` | per-call `usage` (`inputTokens`, `outputTokens`, cache counts, `apiCallId`) |
 | `session.error` | `errorType`, `message`, `statusCode`; a terminal model/query failure |
 | `session.shutdown` | routine end of a prompt-mode process; may follow `abort` or `session.error` |
+| `subagent.started` | top-level `agentId`; `data.toolCallId`, `agentName`, `agentDisplayName`, `agentType`, `executionMode` |
+| `subagent.configured` / `subagent.completed` | top-level `agentId`; `completed` carries `data.toolCallId`, token and duration totals |
+| `system.notification` | an `agent_idle` notification names `data.kind.agentId` after a helper finishes |
+| helper records | any other record with a top-level `agentId` (prompt, model calls, tools, usage, turn ends) belongs to that helper |
 | `abort` | `reason` such as `user_abort` |
 
 **Firm.** A tool call is persisted in `assistant.message` before execution. In prompt mode
@@ -81,8 +87,13 @@ continues.
   instead of letting that shutdown turn it back into `Done`.
 - **Usage:** each `session.usage_record` is a per-call count keyed by `apiCallId`; the
   session total is their sum.
-- **Subagents:** `subagent.started`/`subagent.completed` are kept as metadata; helper
-  transcripts are not followed yet. The parent event log is the only state source.
+- **Subagents:** `subagent.started` creates a background helper, `subagent.completed` (or
+  the later `agent_idle` notification) ends it. Records carrying its top-level `agentId` are
+  reduced in their own helper state, so a helper prompt, tool or turn end never changes the
+  parent's status, title or usage. While the parent's turn is `Done` and any helper is still
+  running, the session is `BackgroundWork` / `background_helpers`; the helper appears in
+  `SessionState.background` with its own activity. The committed `subagent-helper` fixture
+  captures this from 1.0.103 against the offline mock.
 - **Ask-user:** no ask-user event or tool name was observed. The discovery list stays empty
   rather than guessing from a prompt fragment.
 
@@ -139,10 +150,12 @@ cargo run -p harness-driver -- --scenario driver/scenarios/copilot_api_error.jso
   not exercised; the BYOK path is. A GitHub-auth-only behaviour change would not be caught
   by this lane.
 - A real interactive approval (user approves or denies at the TUI) was still not captured.
-  The event shape for `permission.requested` is real; the prompt-mode denial is the completed
-  result that was available without a human. The user-approved (`result.kind: "approved"`)
-  and user-denied (`result.kind: "denied-interactively-by-user"`) completion shapes are
-  exercised by the hand-made `permission-approved` and `permission-user-denied` fixtures,
-  derived from 1.0.103. A live TUI capture remains optional future work.
-- `subagent.started`/`subagent.completed` are not followed into helper state.
-- `session-store.db` is not read; the event log is authoritative.
+  The prompt-mode flow has no interactive user, and no safe non-interactive way was found to
+  drive the TUI's approve/deny prompt; this PR does not add one. The event shape for
+  `permission.requested` is real; the prompt-mode denial is the completed result that was
+  available without a human. The user-approved (`result.kind: "approved"`) and user-denied
+  (`result.kind: "denied-interactively-by-user"`) completion shapes remain exercised only by
+  the hand-made `permission-approved` and `permission-user-denied` fixtures, derived from
+  1.0.103. A live TUI capture is still the remaining gap.
+- `session-store.db` is not read; the event log is authoritative for both parent and helper
+  state.
