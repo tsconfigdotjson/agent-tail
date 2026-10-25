@@ -87,18 +87,22 @@ fn events(args: &[String]) -> Result<(), String> {
 }
 
 /// Tell a harness from the path conventions each one uses. A file name or path segment
-/// with the harness's name is enough for fixture dumps; real paths match their roots.
+/// with the harness's name is enough for fixture dumps; real paths match their roots first,
+/// so a project folder named `codex` under `.claude` is still a Claude transcript.
 fn harness_for(path: &std::path::Path) -> Option<Harness> {
     let text = path.to_string_lossy().to_ascii_lowercase().replace('\\', "/");
     let file = path.file_name()?.to_string_lossy().to_ascii_lowercase();
-    if text.contains("/.cursor/") || text.contains("/agent-transcripts/") || file.contains("cursor") {
+    if text.contains("/.cursor/") || text.contains("/agent-transcripts/") {
         Some(Harness::Cursor)
-    } else if text.contains("/.codex/")
-        || text.contains("/sessions/") && file.starts_with("rollout-")
-        || text.contains("codex")
-    {
+    } else if text.contains("/.codex/") || text.contains("/sessions/") && file.starts_with("rollout-") {
         Some(Harness::Codex)
-    } else if text.contains("/.claude/") || text.contains("claude") {
+    } else if text.contains("/.claude/") {
+        Some(Harness::ClaudeCode)
+    } else if file.contains("cursor") {
+        Some(Harness::Cursor)
+    } else if text.contains("codex") {
+        Some(Harness::Codex)
+    } else if text.contains("claude") {
         Some(Harness::ClaudeCode)
     } else {
         None
@@ -111,7 +115,7 @@ fn harness_from_bytes(bytes: &[u8]) -> Option<Harness> {
     let text = String::from_utf8_lossy(&bytes[..bytes.len().min(64 << 10)]);
     if text.contains(r#""type":"session_meta""#) || text.contains(r#""type": "session_meta""#) {
         Some(Harness::Codex)
-    } else if text.contains("turn_ended") {
+    } else if text.contains(r#""type":"turn_ended""#) || text.contains(r#""type": "turn_ended""#) {
         Some(Harness::Cursor)
     } else if text.contains(r#""type":"permission-mode""#)
         || text.contains(r#""type":"assistant""#)
@@ -179,5 +183,37 @@ fn watch(tracker: &mut Tracker) -> Result<(), String> {
         }
         last = seen;
         std::thread::sleep(Duration::from_secs(1));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn real_paths_win_over_harness_names_in_project_folders() {
+        for (path, want) in [
+            ("/h/.claude/projects/-home-lee-codex/s.jsonl", Harness::ClaudeCode),
+            ("/h/.claude/projects/-home-lee-cursor/s.jsonl", Harness::ClaudeCode),
+            ("/h/.codex/sessions/2026/10/24/rollout-x.jsonl", Harness::Codex),
+            ("/h/.codex/sessions/2026/10/24/claude-copy.jsonl", Harness::Codex),
+            ("/h/.cursor/projects/w-claude/agent-transcripts/a/a.jsonl", Harness::Cursor),
+            ("fixtures/legacy/claude-code-2.1.jsonl", Harness::ClaudeCode),
+            ("fixtures/legacy/codex-0.160-exec.jsonl", Harness::Codex),
+            ("fixtures/legacy/cursor-synthetic.jsonl", Harness::Cursor),
+        ] {
+            assert_eq!(harness_for(Path::new(path)), Some(want), "{path}");
+        }
+    }
+
+    #[test]
+    fn record_shapes_do_not_mistake_text_for_a_cursor_record() {
+        let claude = br#"{"type":"user","message":{"content":"the turn_ended record is next"}}"#;
+        assert_eq!(harness_from_bytes(claude), Some(Harness::ClaudeCode));
+        let cursor = br#"{"type":"turn_ended","status":"success"}"#;
+        assert_eq!(harness_from_bytes(cursor), Some(Harness::Cursor));
+        let codex = br#"{"type":"session_meta","payload":{}}"#;
+        assert_eq!(harness_from_bytes(codex), Some(Harness::Codex));
     }
 }
