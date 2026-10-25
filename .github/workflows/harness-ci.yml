@@ -257,9 +257,51 @@ jobs:
           echo "Copilot CLI npm latest: $latest"
           python3 harness-ci/ci/matrix.py copilot --latest "$latest" --github-output >> "$GITHUB_OUTPUT"
 
+  build-driver:
+    name: Build harness-driver (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      # Keep this list in sync with matrix.py's DEFAULT_OSES. These artifacts are native
+      # executables: a macOS build cannot run on Linux, and a Linux build cannot run on
+      # macOS, so build once per OS instead of in every matrix cell.
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.88
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal
+          rustup default 1.88.0
+          rustc --version
+
+      - name: Build harness-driver release
+        working-directory: harness-ci
+        run: cargo build -p harness-driver --release --locked
+
+      - name: Package harness-driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/harness-driver"
+          cp harness-ci/target/release/harness-driver "$RUNNER_TEMP/harness-driver/"
+          # tar preserves the executable bit; upload-artifact normalizes file modes.
+          tar -czf "$RUNNER_TEMP/harness-driver.tar.gz" -C "$RUNNER_TEMP/harness-driver" harness-driver
+
+      - name: Upload harness-driver
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-driver-${{ matrix.os }}
+          path: ${{ runner.temp }}/harness-driver.tar.gz
+          if-no-files-found: error
+          # This is a short-lived build input, not failure evidence.
+          retention-days: 1
+
   harness:
     name: Claude Code ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
-    needs: [unit, prepare]
+    needs: [unit, prepare, build-driver]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -271,12 +313,6 @@ jobs:
       HARNESS_CI_REQUIRE_OFFLINE: "1"
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust 1.88
-        run: |
-          rustup toolchain install 1.88.0 --profile minimal
-          rustup default 1.88.0
-          rustc --version
 
       - uses: actions/setup-node@v4
         with:
@@ -306,9 +342,21 @@ jobs:
           echo "CLAUDE_BIN=$bin" >> "$GITHUB_ENV"
           echo "Testing Claude Code $actual"
 
-      - name: Build harness-ci explicitly
-        working-directory: harness-ci
-        run: cargo build -p harness-driver --release --locked
+      - name: Download harness-driver
+        # The driver is a native executable, so a macOS artifact cannot run on Linux (or
+        # vice versa). Each lane downloads only the artifact built on its own OS.
+        uses: actions/download-artifact@v4
+        with:
+          name: harness-driver-${{ matrix.os }}
+          path: ${{ runner.temp }}/harness-driver
+
+      - name: Extract harness-driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -xzf "$RUNNER_TEMP/harness-driver/harness-driver.tar.gz" -C "$RUNNER_TEMP/harness-driver"
+          chmod +x "$RUNNER_TEMP/harness-driver/harness-driver"
+          echo "HARNESS_DRIVER=$RUNNER_TEMP/harness-driver/harness-driver" >> "$GITHUB_ENV"
 
       - name: Run Claude Code scenarios offline
         shell: bash
@@ -322,7 +370,7 @@ jobs:
             [[ -z "$scenario" || "$scenario" == \#* ]] && continue
             echo "::group::$scenario ($CLAUDE_VERSION on ${{ runner.os }})"
             if ! harness-ci/ci/offline-run.sh \
-              "$PWD/harness-ci/target/release/harness-driver" \
+              "$HARNESS_DRIVER" \
               --scenario "$PWD/harness-ci/driver/scenarios/$scenario.json" \
               --out "$runs/$scenario"; then
               failed=1
@@ -373,7 +421,7 @@ jobs:
 
   pi:
     name: Pi ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
-    needs: [unit, prepare-pi]
+    needs: [unit, prepare-pi, build-driver]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -385,12 +433,6 @@ jobs:
       HARNESS_CI_REQUIRE_OFFLINE: "1"
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust 1.88
-        run: |
-          rustup toolchain install 1.88.0 --profile minimal
-          rustup default 1.88.0
-          rustc --version
 
       - uses: actions/setup-node@v4
         with:
@@ -420,9 +462,21 @@ jobs:
           echo "PI_BIN=$bin" >> "$GITHUB_ENV"
           echo "Testing Pi $actual"
 
-      - name: Build harness-ci explicitly
-        working-directory: harness-ci
-        run: cargo build -p harness-driver --release --locked
+      - name: Download harness-driver
+        # The driver is a native executable, so a macOS artifact cannot run on Linux (or
+        # vice versa). Each lane downloads only the artifact built on its own OS.
+        uses: actions/download-artifact@v4
+        with:
+          name: harness-driver-${{ matrix.os }}
+          path: ${{ runner.temp }}/harness-driver
+
+      - name: Extract harness-driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -xzf "$RUNNER_TEMP/harness-driver/harness-driver.tar.gz" -C "$RUNNER_TEMP/harness-driver"
+          chmod +x "$RUNNER_TEMP/harness-driver/harness-driver"
+          echo "HARNESS_DRIVER=$RUNNER_TEMP/harness-driver/harness-driver" >> "$GITHUB_ENV"
 
       - name: Run Pi scenarios offline
         shell: bash
@@ -436,7 +490,7 @@ jobs:
             [[ -z "$scenario" || "$scenario" == \#* ]] && continue
             echo "::group::$scenario ($PI_VERSION on ${{ runner.os }})"
             if ! harness-ci/ci/offline-run.sh \
-              "$PWD/harness-ci/target/release/harness-driver" \
+              "$HARNESS_DRIVER" \
               --scenario "$PWD/harness-ci/driver/scenarios/$scenario.json" \
               --out "$runs/$scenario"; then
               failed=1
@@ -456,7 +510,7 @@ jobs:
 
   codex:
     name: Codex ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
-    needs: [unit, prepare-codex]
+    needs: [unit, prepare-codex, build-driver]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -469,12 +523,6 @@ jobs:
       HARNESS_CI_REQUIRE_OFFLINE: "1"
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust 1.88
-        run: |
-          rustup toolchain install 1.88.0 --profile minimal
-          rustup default 1.88.0
-          rustc --version
 
       - uses: actions/setup-node@v4
         with:
@@ -504,9 +552,21 @@ jobs:
           echo "CODEX_BIN=$bin" >> "$GITHUB_ENV"
           echo "Testing Codex $actual"
 
-      - name: Build harness-ci explicitly
-        working-directory: harness-ci
-        run: cargo build -p harness-driver --release --locked
+      - name: Download harness-driver
+        # The driver is a native executable, so a macOS artifact cannot run on Linux (or
+        # vice versa). Each lane downloads only the artifact built on its own OS.
+        uses: actions/download-artifact@v4
+        with:
+          name: harness-driver-${{ matrix.os }}
+          path: ${{ runner.temp }}/harness-driver
+
+      - name: Extract harness-driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -xzf "$RUNNER_TEMP/harness-driver/harness-driver.tar.gz" -C "$RUNNER_TEMP/harness-driver"
+          chmod +x "$RUNNER_TEMP/harness-driver/harness-driver"
+          echo "HARNESS_DRIVER=$RUNNER_TEMP/harness-driver/harness-driver" >> "$GITHUB_ENV"
 
       - name: Run Codex scenarios offline
         shell: bash
@@ -520,7 +580,7 @@ jobs:
             [[ -z "$scenario" || "$scenario" == \#* ]] && continue
             echo "::group::$scenario ($CODEX_VERSION on ${{ runner.os }})"
             if ! harness-ci/ci/offline-run.sh \
-              "$PWD/harness-ci/target/release/harness-driver" \
+              "$HARNESS_DRIVER" \
               --scenario "$PWD/harness-ci/driver/scenarios/$scenario.json" \
               --out "$runs/$scenario"; then
               failed=1
@@ -550,7 +610,7 @@ jobs:
 
   opencode:
     name: OpenCode ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
-    needs: [unit, prepare]
+    needs: [unit, prepare, build-driver]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -560,12 +620,6 @@ jobs:
       HARNESS_CI_REQUIRE_OFFLINE: "1"
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust 1.88
-        run: |
-          rustup toolchain install 1.88.0 --profile minimal
-          rustup default 1.88.0
-          rustc --version
 
       - uses: actions/setup-node@v4
         with:
@@ -595,9 +649,21 @@ jobs:
           echo "OPENCODE_BIN=$bin" >> "$GITHUB_ENV"
           echo "Testing OpenCode $actual"
 
-      - name: Build harness-ci explicitly
-        working-directory: harness-ci
-        run: cargo build -p harness-driver --release --locked
+      - name: Download harness-driver
+        # The driver is a native executable, so a macOS artifact cannot run on Linux (or
+        # vice versa). Each lane downloads only the artifact built on its own OS.
+        uses: actions/download-artifact@v4
+        with:
+          name: harness-driver-${{ matrix.os }}
+          path: ${{ runner.temp }}/harness-driver
+
+      - name: Extract harness-driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -xzf "$RUNNER_TEMP/harness-driver/harness-driver.tar.gz" -C "$RUNNER_TEMP/harness-driver"
+          chmod +x "$RUNNER_TEMP/harness-driver/harness-driver"
+          echo "HARNESS_DRIVER=$RUNNER_TEMP/harness-driver/harness-driver" >> "$GITHUB_ENV"
 
       - name: Run OpenCode scenarios offline
         shell: bash
@@ -611,7 +677,7 @@ jobs:
             [[ -z "$scenario" || "$scenario" == \#* ]] && continue
             echo "::group::$scenario ($OPENCODE_VERSION on ${{ runner.os }})"
             if ! harness-ci/ci/offline-run.sh \
-              "$PWD/harness-ci/target/release/harness-driver" \
+              "$HARNESS_DRIVER" \
               --scenario "$PWD/harness-ci/driver/scenarios/$scenario.json" \
               --out "$runs/$scenario"; then
               failed=1
@@ -715,7 +781,7 @@ jobs:
 
   gemini:
     name: Gemini CLI ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
-    needs: [unit, prepare-gemini]
+    needs: [unit, prepare-gemini, build-driver]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -725,12 +791,6 @@ jobs:
       HARNESS_CI_REQUIRE_OFFLINE: "1"
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust 1.88
-        run: |
-          rustup toolchain install 1.88.0 --profile minimal
-          rustup default 1.88.0
-          rustc --version
 
       - uses: actions/setup-node@v4
         with:
@@ -760,9 +820,21 @@ jobs:
           echo "GEMINI_BIN=$bin" >> "$GITHUB_ENV"
           echo "Testing Gemini CLI $actual"
 
-      - name: Build harness-ci explicitly
-        working-directory: harness-ci
-        run: cargo build -p harness-driver --release --locked
+      - name: Download harness-driver
+        # The driver is a native executable, so a macOS artifact cannot run on Linux (or
+        # vice versa). Each lane downloads only the artifact built on its own OS.
+        uses: actions/download-artifact@v4
+        with:
+          name: harness-driver-${{ matrix.os }}
+          path: ${{ runner.temp }}/harness-driver
+
+      - name: Extract harness-driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -xzf "$RUNNER_TEMP/harness-driver/harness-driver.tar.gz" -C "$RUNNER_TEMP/harness-driver"
+          chmod +x "$RUNNER_TEMP/harness-driver/harness-driver"
+          echo "HARNESS_DRIVER=$RUNNER_TEMP/harness-driver/harness-driver" >> "$GITHUB_ENV"
 
       - name: Run Gemini CLI scenarios offline
         shell: bash
@@ -776,7 +848,7 @@ jobs:
             [[ -z "$scenario" || "$scenario" == \#* ]] && continue
             echo "::group::$scenario ($GEMINI_VERSION on ${{ runner.os }})"
             if ! harness-ci/ci/offline-run.sh \
-              "$PWD/harness-ci/target/release/harness-driver" \
+              "$HARNESS_DRIVER" \
               --scenario "$PWD/harness-ci/driver/scenarios/$scenario.json" \
               --out "$runs/$scenario"; then
               failed=1
@@ -796,7 +868,7 @@ jobs:
 
   copilot:
     name: Copilot CLI ${{ matrix.label }} (${{ matrix.version }}) on ${{ matrix.os }}
-    needs: [unit, prepare-copilot]
+    needs: [unit, prepare-copilot, build-driver]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -806,12 +878,6 @@ jobs:
       HARNESS_CI_REQUIRE_OFFLINE: "1"
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust 1.88
-        run: |
-          rustup toolchain install 1.88.0 --profile minimal
-          rustup default 1.88.0
-          rustc --version
 
       - uses: actions/setup-node@v4
         with:
@@ -841,9 +907,21 @@ jobs:
           echo "COPILOT_BIN=$bin" >> "$GITHUB_ENV"
           echo "Testing Copilot CLI $actual"
 
-      - name: Build harness-ci explicitly
-        working-directory: harness-ci
-        run: cargo build -p harness-driver --release --locked
+      - name: Download harness-driver
+        # The driver is a native executable, so a macOS artifact cannot run on Linux (or
+        # vice versa). Each lane downloads only the artifact built on its own OS.
+        uses: actions/download-artifact@v4
+        with:
+          name: harness-driver-${{ matrix.os }}
+          path: ${{ runner.temp }}/harness-driver
+
+      - name: Extract harness-driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -xzf "$RUNNER_TEMP/harness-driver/harness-driver.tar.gz" -C "$RUNNER_TEMP/harness-driver"
+          chmod +x "$RUNNER_TEMP/harness-driver/harness-driver"
+          echo "HARNESS_DRIVER=$RUNNER_TEMP/harness-driver/harness-driver" >> "$GITHUB_ENV"
 
       - name: Run Copilot CLI scenarios offline
         shell: bash
@@ -857,7 +935,7 @@ jobs:
             [[ -z "$scenario" || "$scenario" == \#* ]] && continue
             echo "::group::$scenario ($COPILOT_VERSION on ${{ runner.os }})"
             if ! harness-ci/ci/offline-run.sh \
-              "$PWD/harness-ci/target/release/harness-driver" \
+              "$HARNESS_DRIVER" \
               --scenario "$PWD/harness-ci/driver/scenarios/$scenario.json" \
               --out "$runs/$scenario"; then
               failed=1
