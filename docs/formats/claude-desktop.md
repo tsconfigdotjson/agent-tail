@@ -6,7 +6,8 @@ plus a sidecar. `agent-tail` reads the latter through the `claude_desktop` adapt
 Code-tab transcripts to the [Claude Code adapter](claude-code.md).
 
 Support status is **ported-unverified**: the adapter, discovery spec, and handmade fixtures
-exist, but there is no captured Desktop artifact or scored Desktop turn in the repository yet.
+exist, and the scheduled Xvfb lane can score an ephemeral live Desktop turn when
+`OPENROUTER_API_KEY` is configured, but no redacted Desktop capture is committed yet.
 
 ## Two surfaces, two readers
 
@@ -131,5 +132,6 @@ They are **handmade**, synthesized from the public Claude Agent SDK record shape
 from a real Desktop install. The adapter also has unit tests for the sidecar, error/abort
 results, no-prompt modes, and the shared record parser.
 
-What is still missing: a real redacted artifact, a scored Desktop turn, a CI lane, and
-verification of the consumer/3P roots on macOS, Linux, and Windows.
+What is still missing: a committed redacted artifact from the scheduled live lane, a
+reproducible scored Desktop turn from that artifact, and verification of the consumer/3P
+roots on macOS, Linux, and Windows.

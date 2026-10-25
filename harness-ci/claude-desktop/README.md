@@ -1,6 +1,6 @@
 # Claude Desktop scenario status
 
-This directory is a placeholder for a future Claude Desktop scenario. There is no scored
+This directory is a placeholder for a future Claude Desktop PR scenario. There is no scored
 Desktop lane in the normal PR matrix.
 
 The current coverage is:
@@ -8,13 +8,16 @@ The current coverage is:
 - the `claude_desktop` discovery spec and adapter, with handmade fixtures under
   `fixtures/claude-desktop/`;
 - an offline Xvfb stand-in that tests the observe/act/score plumbing without Desktop;
+- a live Jev Desktop lane that runs on the nightly schedule when the repository
+  `OPENROUTER_API_KEY` Actions secret is present, and on manual dispatch opt-in;
 - a manual launch probe that installs the Linux beta Desktop package and renders its sign-in
   and 3P gateway welcome screens without an account.
 
-The adapter is **ported-unverified**: no real Desktop artifact or scored Desktop turn exists
-yet. See [`docs/formats/claude-desktop.md`](../../docs/formats/claude-desktop.md) for the
+The adapter is **ported-unverified**: the scheduled live lane can score a real Desktop turn,
+but its evidence is an ephemeral Actions artifact and no redacted capture is committed yet.
+See [`docs/formats/claude-desktop.md`](../../docs/formats/claude-desktop.md) for the
 record shape and fixture details, and
-[`../desktop-xvfb/`](../desktop-xvfb/README.md) for the headless harness.
+[`../desktop-xvfb/`](../desktop-xvfb/README.md) for the headless harness and secret setup.
 
 ## Why this is not in the PTY matrix
 
@@ -40,6 +43,6 @@ Linux `~/.config`, Windows `%LOCALAPPDATA%`). Consumer builds commonly use `Clau
 
 ## Before adding a job
 
-Add a Desktop scenario to the normal matrix only after a live run produces a redacted artifact
-and a readable status checkpoint. Until then the support matrix says **ported-unverified**,
-not CI-verified.
+Add a Desktop scenario to the hot PR matrix only after a live run produces a committed,
+redacted artifact and a readable status checkpoint. Until then the nightly live lane stays
+schedule/manual-only and the support matrix says **ported-unverified**, not CI-verified.

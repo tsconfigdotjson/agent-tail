@@ -1,11 +1,12 @@
 # Desktop Xvfb nightly and manual lanes.
 #
-# The nightly schedule runs only the offline stand-in observe/act/score job.
-# It installs no Claude Desktop package and reads no repository secret. The
-# Desktop launch probe and the live Jev lane stay workflow_dispatch-only; the
-# live lane requires OPENROUTER_API_KEY and is never part of the nightly or the
-# PR matrix. The stand-in is an offline plumbing test, not a claim that Claude
-# Desktop is CI-verified.
+# The nightly schedule always runs the offline stand-in observe/act/score job.
+# When the OPENROUTER_API_KEY Actions secret is present, the same schedule also
+# runs the live Jev Desktop lane; without the secret that lane is skipped cleanly
+# and the stand-in is unaffected. The live lane can also be run manually with
+# workflow_dispatch. It is never part of the push/PR matrix, so pull requests do
+# not spend OpenRouter credits. The stand-in is an offline plumbing test, not a
+# claim that Claude Desktop is CI-verified.
 name: Desktop Xvfb (nightly)
 
 on:
@@ -94,7 +95,12 @@ jobs:
 
   live-key:
     name: Check live-lane credentials
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_live_jev }}
+    # Nightly runs opt in by default when the secret exists. Manual dispatches
+    # still need run_live_jev=true. The check job skips the live lane cleanly
+    # when the secret is absent without failing the stand-in.
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.run_live_jev)
     runs-on: ubuntu-latest
     outputs:
       enabled: ${{ steps.check.outputs.enabled }}
@@ -106,14 +112,14 @@ jobs:
         run: |
           if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
-            echo "OPENROUTER_API_KEY is set; the live Jev lane will run." >> "$GITHUB_STEP_SUMMARY"
+            echo "OPENROUTER_API_KEY is set; the live Jev lane will run and spend credits." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "OPENROUTER_API_KEY is not set; skipping the live Jev lane." >> "$GITHUB_STEP_SUMMARY"
+            echo "OPENROUTER_API_KEY is not set; skipping the live Jev lane. Add the Actions secret to enable it on the next nightly." >> "$GITHUB_STEP_SUMMARY"
           fi
 
   desktop-live:
-    name: Live Jev Desktop (opt-in)
+    name: Live Jev Desktop
     needs: live-key
     if: ${{ needs.live-key.outputs.enabled == 'true' }}
     runs-on: ubuntu-latest
@@ -130,6 +136,8 @@ jobs:
       - name: Build agent-tail
         run: cargo build --release --locked -p agent-tail-cli
 
+      # Jev only chooses UI actions. The driver scrubs writer credentials, and
+      # agent-tail scores the Desktop audit log written on disk.
       - name: Run live Jev Desktop scenario
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
