@@ -1,0 +1,7 @@
+harness = "gemini"
+version = "0.65.0"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-25"
+description = "Captured offline from a Gemini CLI 0.65.0 session against the harness mock, then redacted by `agent-tail fixture capture`. One completed gemini record carries two run_shell_command calls in its toolCalls array and the following user record carries both functionResponse parts; the final text ends the turn done."
+redaction = "redaction.json"

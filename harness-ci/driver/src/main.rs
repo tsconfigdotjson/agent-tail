@@ -1684,7 +1684,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("parse {}: {e}", mock_path.display()));
             if name == "claude_background_agent.json" {
                 assert_eq!(mock.dispatch, mock_server::scenario::Dispatch::FirstMatch);
-                assert!(mock.steps.len() >= 5, "{}", mock.steps.len());
+                assert_eq!(mock.steps.len(), 4);
             }
             if name == "claude_api_error_529.json" {
                 assert_eq!(mock.steps.len(), 8);

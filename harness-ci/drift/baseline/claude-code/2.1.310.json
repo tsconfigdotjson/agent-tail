@@ -33,6 +33,7 @@
       "total_tokens_reminder"
     ],
     "tool_result.content": [
+      "text",
       "tool_reference"
     ],
     "user.content": [
@@ -57,7 +58,8 @@
     ],
     "origin.kind": [
       "human",
-      "null"
+      "null",
+      "task-notification"
     ],
     "permissionDecision.decision": [
       "accept",
@@ -81,9 +83,12 @@
     ],
     "promptSource": [
       "null",
+      "system",
       "typed"
     ],
     "queue-operation.operation": [
+      "dequeue",
+      "enqueue",
       "null"
     ],
     "sessionKind": [
@@ -111,6 +116,7 @@
       "type"
     ],
     "api-request": [
+      "agentId",
       "base",
       "cacheControl",
       "cacheControl[]",
@@ -142,6 +148,7 @@
       "version"
     ],
     "api-request-blob": [
+      "agentId",
       "hash",
       "message",
       "message.content",
@@ -150,6 +157,7 @@
       "type"
     ],
     "api-request-shape": [
+      "agentId",
       "sessionId",
       "shape",
       "shapeHash",
@@ -158,8 +166,10 @@
       "version"
     ],
     "assistant": [
+      "agentId",
       "apiBlockIndex",
       "apiErrorStatus",
+      "attributionAgent",
       "cwd",
       "entrypoint",
       "error",
@@ -216,6 +226,7 @@
       "type"
     ],
     "attachment": [
+      "agentId",
       "attachment",
       "attachment.addedLines",
       "attachment.addedLines[]",
@@ -330,6 +341,13 @@
       "sessionId",
       "type"
     ],
+    "queue-operation": [
+      "content",
+      "operation",
+      "sessionId",
+      "timestamp",
+      "type"
+    ],
     "system": [
       "cwd",
       "durationMs",
@@ -339,6 +357,7 @@
       "isSidechain",
       "messageCount",
       "parentUuid",
+      "pendingBackgroundAgentCount",
       "sessionId",
       "subtype",
       "timestamp",
@@ -348,6 +367,7 @@
       "version"
     ],
     "user": [
+      "agentId",
       "cwd",
       "entrypoint",
       "gitBranch",
@@ -358,6 +378,8 @@
       "message.role",
       "origin",
       "origin.kind",
+      "origin.producer",
+      "origin.runId",
       "parentUuid",
       "permissionDecision",
       "permissionDecision.decision",
@@ -368,6 +390,7 @@
       "permissionMode",
       "promptId",
       "promptSource",
+      "queueSkipAttachments",
       "sandboxed",
       "sessionId",
       "session_id",
@@ -402,6 +425,7 @@
     "last-prompt",
     "mode",
     "permission-mode",
+    "queue-operation",
     "system",
     "user"
   ],
@@ -409,6 +433,7 @@
     "turn_duration"
   ],
   "tool_names_seen": [
+    "Agent",
     "AskUserQuestion",
     "Bash",
     "ExitPlanMode",

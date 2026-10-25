@@ -1,6 +1,6 @@
 {
   "name": "background_agent",
-  "description": "Parent launches OUTER_AGENT in the background. That agent launches NESTED_AGENT. first_match answers whichever of those requests arrives next. The nested reply is slow so the parent turn can end while it is still running.",
+  "description": "Parent launches OUTER_AGENT in the background. first_match answers the parent's launch turn, the helper's own request, and the parent's task-notification turn. The helper reply is slow so the parent turn can end while it is still running. A single direct helper keeps pendingBackgroundAgentCount consistent on 2.1.281 and 2.1.310; the nested-background variant is not stable because 2.1.281 counts nested helpers in the parent's pending count.",
   "dispatch": "first_match",
   "steps": [
     {
@@ -12,28 +12,6 @@
         "content": [{ "type": "text", "text": "The background agent finished." }],
         "usage": { "input_tokens": 40, "output_tokens": 12 },
         "fault": { "type": "slow_first_token", "delay_ms": 400 }
-      }
-    },
-    {
-      "expect": {
-        "contains": "OUTER_AGENT",
-        "user_also_contains": "<task-notification>"
-      },
-      "reply": {
-        "content": [{ "type": "text", "text": "Outer agent finished after the nested one." }],
-        "usage": { "input_tokens": 40, "output_tokens": 12 },
-        "fault": { "type": "slow_first_token", "delay_ms": 400 }
-      }
-    },
-    {
-      "expect": {
-        "contains": "NESTED_AGENT",
-        "has_tool_result": false
-      },
-      "reply": {
-        "content": [{ "type": "text", "text": "nested-done" }],
-        "usage": { "input_tokens": 20, "output_tokens": 8 },
-        "fault": { "type": "slow_first_token", "delay_ms": 8000 }
       }
     },
     {
@@ -50,40 +28,6 @@
     },
     {
       "expect": {
-        "contains": "OUTER_AGENT",
-        "has_tool_result": true,
-        "not_user_contains": "<task-notification>"
-      },
-      "reply": {
-        "content": [{ "type": "text", "text": "Nested agent is running in the background." }],
-        "usage": { "input_tokens": 30, "output_tokens": 12 },
-        "fault": { "type": "slow_first_token", "delay_ms": 400 }
-      }
-    },
-    {
-      "expect": {
-        "contains": "OUTER_AGENT",
-        "has_tool_result": false
-      },
-      "reply": {
-        "content": [
-          {
-            "type": "tool_use",
-            "name": "Agent",
-            "input": {
-              "description": "Nested lookup",
-              "prompt": "NESTED_AGENT: reply with the single word nested-done.",
-              "subagent_type": "general-purpose",
-              "run_in_background": "true"
-            }
-          }
-        ],
-        "usage": { "input_tokens": 20, "output_tokens": 30 },
-        "fault": { "type": "slow_first_token", "delay_ms": 500 }
-      }
-    },
-    {
-      "expect": {
         "user_contains": "delegate the summary",
         "has_tool_result": false
       },
@@ -94,7 +38,7 @@
             "name": "Agent",
             "input": {
               "description": "Summarize in the background",
-              "prompt": "OUTER_AGENT: launch one nested agent and then stop. Do not use any other tool.",
+              "prompt": "OUTER_AGENT: reply with the single word outer-done.",
               "subagent_type": "general-purpose",
               "run_in_background": "true"
             }
@@ -102,6 +46,17 @@
         ],
         "usage": { "input_tokens": 10, "output_tokens": 40 },
         "fault": { "type": "slow_first_token", "delay_ms": 1000 }
+      }
+    },
+    {
+      "expect": {
+        "contains": "OUTER_AGENT",
+        "has_tool_result": false
+      },
+      "reply": {
+        "content": [{ "type": "text", "text": "outer-done" }],
+        "usage": { "input_tokens": 20, "output_tokens": 8 },
+        "fault": { "type": "slow_first_token", "delay_ms": 8000 }
       }
     }
   ]

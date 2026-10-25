@@ -28,6 +28,9 @@
       "skill_listing",
       "total_tokens_reminder"
     ],
+    "tool_result.content": [
+      "text"
+    ],
     "user.content": [
       "text",
       "tool_result"
@@ -50,7 +53,8 @@
     ],
     "origin.kind": [
       "human",
-      "null"
+      "null",
+      "task-notification"
     ],
     "permissionDecision.decision": [
       "null"
@@ -70,9 +74,12 @@
     ],
     "promptSource": [
       "null",
+      "system",
       "typed"
     ],
     "queue-operation.operation": [
+      "dequeue",
+      "enqueue",
       "null"
     ],
     "sessionKind": [
@@ -100,8 +107,10 @@
       "type"
     ],
     "assistant": [
+      "agentId",
       "apiBlockIndex",
       "apiErrorStatus",
+      "attributionAgent",
       "cwd",
       "entrypoint",
       "error",
@@ -155,6 +164,7 @@
       "type"
     ],
     "attachment": [
+      "agentId",
       "attachment",
       "attachment.addedLines",
       "attachment.addedLines[]",
@@ -241,6 +251,13 @@
       "sessionId",
       "type"
     ],
+    "queue-operation": [
+      "content",
+      "operation",
+      "sessionId",
+      "timestamp",
+      "type"
+    ],
     "system": [
       "cwd",
       "durationMs",
@@ -250,6 +267,7 @@
       "isSidechain",
       "messageCount",
       "parentUuid",
+      "pendingBackgroundAgentCount",
       "sessionId",
       "subtype",
       "timestamp",
@@ -259,6 +277,7 @@
       "version"
     ],
     "user": [
+      "agentId",
       "cwd",
       "entrypoint",
       "gitBranch",
@@ -273,6 +292,7 @@
       "permissionMode",
       "promptId",
       "promptSource",
+      "queueSkipAttachments",
       "sessionId",
       "session_id",
       "slug",
@@ -300,6 +320,7 @@
     "last-prompt",
     "mode",
     "permission-mode",
+    "queue-operation",
     "system",
     "user"
   ],
@@ -307,6 +328,7 @@
     "turn_duration"
   ],
   "tool_names_seen": [
+    "Agent",
     "AskUserQuestion",
     "Bash",
     "ExitPlanMode",

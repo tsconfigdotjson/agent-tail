@@ -1,0 +1,34 @@
+{
+  "name": "gemini_multi_tool",
+  "description": "Gemini CLI issues two shell calls in one model turn, receives both results, then answers. Explicit call ids keep the two function calls distinct.",
+  "title": "Run two short tools",
+  "steps": [
+    {
+      "expect": { "user_contains": "use the tool" },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "call_a",
+            "name": "run_shell_command",
+            "input": { "command": "sleep 1; printf gemini-tool-a" }
+          },
+          {
+            "type": "tool_use",
+            "id": "call_b",
+            "name": "run_shell_command",
+            "input": { "command": "sleep 1; printf gemini-tool-b" }
+          }
+        ],
+        "usage": { "input_tokens": 11, "output_tokens": 6 }
+      }
+    },
+    {
+      "expect": { "tool_result_contains": "gemini-tool-a" },
+      "reply": {
+        "content": [{ "type": "text", "text": "Both tools ran." }],
+        "usage": { "input_tokens": 12, "output_tokens": 7 }
+      }
+    }
+  ]
+}

@@ -57,7 +57,9 @@ A tool call record carries the completed call:
 **Firm.** 0.65.0 appends the same message id twice: first without `toolCalls`, then with
 the completed tool call. It then appends a synthetic `user` record containing the
 `functionResponse`, and finally the next model message. The adapter emits the call once and
-dedupes the two result records by call id.
+dedupes the two result records by call id. A real multi-tool run writes both completed calls
+in one record's `toolCalls` array and both `functionResponse` parts in the following `user`
+record; the `multi-tool` fixture pins that shape.
 
 **Firm.** A `$set` record is written after every message and contains only
 `lastUpdated`; those records do not move status. A `$rewindTo` record appears when the CLI
@@ -115,9 +117,9 @@ gemini -p 'say hello' --output-format json --approval-mode yolo --skip-trust
 
 0.65.0 sends a **routing-classifier** request first, with a `complexity_score` JSON schema.
 The mock answers it without consuming a scenario step. The main stream is translated from
-the same scenario blocks used by the other APIs. Scenarios: `gemini_plain_qa` and
-`gemini_tool`. The CI matrix installs pinned **0.65.0** and npm **latest** on Linux and
-macOS; a latest failure is a failing job, not a skipped one.
+the same scenario blocks used by the other APIs. Scenarios: `gemini_plain_qa`,
+`gemini_tool` and `gemini_multi_tool`. The CI matrix installs pinned **0.65.0** and npm
+**latest** on Linux and macOS; a latest failure is a failing job, not a skipped one.
 
 Local green run (0.65.0, Linux):
 
@@ -128,11 +130,11 @@ cargo run -p harness-driver -- --scenario driver/scenarios/gemini_plain_qa.json
 cargo run -p harness-driver -- --scenario driver/scenarios/gemini_tool.json
 ```
 
-Committed fixtures are under `fixtures/gemini/0.65.0/linux/`: `plain-qa` and `tool`, captured
-from the real CLI through the mock and redacted by `agent-tail fixture capture`; `error` is
-hand-made because a real model/API failure is not persisted as a `type:error` row (0.65.0
-rewinds the just-sent prompt instead), so the adapter's error mapping is exercised by the
-synthetic journal shape only.
+Committed fixtures are under `fixtures/gemini/0.65.0/linux/`: `plain-qa`, `tool` and
+`multi-tool`, captured from the real CLI through the mock and redacted by
+`agent-tail fixture capture`; `error` is hand-made because a real model/API failure is not
+persisted as a `type:error` row (0.65.0 rewinds the just-sent prompt instead), so the
+adapter's error mapping is exercised by the synthetic journal shape only.
 
 ## Open questions and limits
 
@@ -143,6 +145,7 @@ synthetic journal shape only.
   reducer cannot undo earlier activity after a rewind.
 - A real interactive approval prompt was not captured because the journal does not record
   one; the synthetic `awaiting_approval` status is supported but unobserved.
-- Interrupted and multi-tool turns remain **deferred**: no real 0.65.0 journal shape exists
-  for them here (an API failure rewinds the prompt and only completed tool calls are written),
-  so there is no driver or fixture that claims those states.
+- Interrupted turns remain **deferred**: no real 0.65.0 journal shape exists for them here
+  (an API failure rewinds the prompt and only completed tool calls are written), so there is
+  no driver or fixture that claims that state. Multi-tool turns have a real captured shape
+  and run in the matrix.

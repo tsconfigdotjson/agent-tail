@@ -106,7 +106,11 @@ written mid-turn constantly.
 Interrupted turns get **no** `turn_duration` (1 exception). The interrupt user record ends them.
 
 **Background helpers at turn end:** `turn_duration.pendingBackgroundAgentCount` (1 to 6, on 73
-records; absent when 0) is a **firm** "turn ended, N agents still running".
+records; absent when 0) is a **firm** "turn ended, N agents still running". Offline runs on the
+pinned matrix show a version difference for nesting: 2.1.281 counted a nested background helper
+in the parent's count (2), while 2.1.310 counted only the directly launched helper (1). A
+direct helper therefore gives the same `pendingBackgroundAgentCount` and task notification on
+both versions, which is the stable harness-CI shape.
 
 **Interruption:** a user record with text block `[Request interrupted by user]` (50) or
 `[Request interrupted by user for tool use]` (26), always as **blocks** in 2.1.28x+, with
@@ -187,8 +191,9 @@ local-only, and liveness has to be checked by pid (*inference from source; one l
 - Does a `permission_prompt` in default mode change `sessions/<pid>.json`? Does anything get
   written while it is up? The local `claude_sessions_registry` driver covers busy/idle/waiting;
   it is not in the stable matrix yet.
-- Plan mode and `ExitPlanMode` are covered by `claude_plan_exit`, and ask-user by
-  `claude_ask_user`; both are now in the stable CI list. The background-agent driver stays
-  local because the pinned 2.1.281 and 2.1.310 disagree on the parent's pending count.
+- Plan mode and `ExitPlanMode` are covered by `claude_plan_exit`, ask-user by
+  `claude_ask_user`, and a direct background helper by `claude_background_agent`; all are in
+  the stable CI list. The nested-background variant is not in the driver because pinned
+  2.1.281 and 2.1.310 disagree on whether a nested helper is in the parent's pending count.
 - Manual `/compact` (`trigger: manual`) has a local driver (`claude_compact_manual`) but no
   committed fixture yet.

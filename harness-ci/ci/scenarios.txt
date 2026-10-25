@@ -7,10 +7,12 @@ claude_bash_bypass
 claude_non_ascii
 claude_long_output
 claude_api_error_529
-# Ask-user, plan exit, mid-tool interrupt and accept-edits are flake-free on both pinned
-# versions. claude_background_agent stays local: 2.1.281 keeps pendingBackgroundAgentCount=2
-# after the outer task notification, while 2.1.310 reaches done.
+# Ask-user, plan exit, mid-tool interrupt, accept-edits and the direct background-agent turn
+# are flake-free on both pinned versions. The background driver uses one direct helper:
+# 2.1.281 also counted a nested background helper in the parent's pending count, so the
+# outer notification alone could not clear it.
 claude_ask_user
 claude_plan_exit
 claude_interrupt_tool
 claude_accept_edits
+claude_background_agent
