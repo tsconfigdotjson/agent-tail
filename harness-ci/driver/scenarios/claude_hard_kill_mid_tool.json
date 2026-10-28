@@ -1,0 +1,13 @@
+{
+  "name": "claude_hard_kill_mid_tool",
+  "description": "Hard-kill Claude Code (SIGKILL to the PTY process group) while a bypass-mode Bash sleep is running. The transcript must freeze at running_tool: no tool result and no interrupt row are written.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/hard_kill_mid_tool.json",
+  "command": ["claude", "--bare", "--model", "claude-sonnet-4-5", "--dangerously-skip-permissions"],
+  "prompt": "sleep",
+  "run_for_ms": 8000,
+  "no_approval": true,
+  "expected_activity": [
+    { "activity": "running_tool", "certainty": "firm", "when": "end", "screen": "working" }
+  ]
+}

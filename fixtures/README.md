@@ -16,6 +16,7 @@ The committed corpus lives in the versioned layout:
 | fixture | what it is |
 |---|---|
 | `claude-code/2.1/linux/seed-session` | a real Claude Code 2.1 session: a prompt, Bash / Read / Write calls, a generated title, a cost entry |
+| `claude-code/2.1.312/linux/ci-claude_hard_kill_mid_tool` | A harness-driver SIGKILL during a bypass-mode Bash sleep: the transcript ends on the pending `tool_use` with no tool result and no interrupt row, so it is firm `running_tool` immediately after death and firm `idle` / `no_writes_for` after 15 minutes; see the scenario `NOTES.md` |
 | `claude-desktop/handmade/any/plain-qa` | Hand-made Claude Desktop local-agent-mode audit: `system/init`, a prompt, an assistant `end_turn`, then the SDK `result` frame; checks working → done → idle |
 | `claude-desktop/handmade/any/tool-turn` | Hand-made Desktop audit: a pending `Bash` tool call, its `tool_result`, the answer, then the result frame |
 | `claude-desktop/handmade/any/tool-stall` | Hand-made Desktop audit: a default-mode pending tool is firm `running_tool` at 0 s and inferred `awaiting_approval` at 25 s, because the audit stream has no permission request record |

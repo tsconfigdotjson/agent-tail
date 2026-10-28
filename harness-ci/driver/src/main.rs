@@ -1644,6 +1644,17 @@ mod tests {
         assert_eq!(tool.keys[0].occurrence, 0);
         assert_eq!(tool.expected_activity[0].expectation().activity, "interrupted");
 
+        let hard = scenario("claude_hard_kill_mid_tool.json");
+        assert!(hard.no_approval);
+        assert!(hard.command.iter().any(|arg| arg == "--dangerously-skip-permissions"));
+        assert!(hard.keys.is_empty(), "the kill is the driver's normal end-of-phase SIGKILL");
+        assert_eq!(hard.run_for_ms, 8_000);
+        let hard_end = hard.expected_activity[0].expectation();
+        assert_eq!(hard_end.activity, "running_tool");
+        assert_eq!(hard_end.certainty.as_deref(), Some("firm"));
+        assert_eq!(hard_end.when, score::ExpectWhen::End);
+        assert_eq!(hard_end.screen.as_deref(), Some("working"));
+
         let background = scenario("claude_background_agent.json");
         assert!(background.command.iter().all(|arg| arg != "--bare"));
         assert!(background.no_approval);
@@ -1670,6 +1681,7 @@ mod tests {
         for name in [
             "claude_interrupt_thinking.json",
             "claude_interrupt_tool.json",
+            "claude_hard_kill_mid_tool.json",
             "claude_background_agent.json",
             "claude_api_error_529.json",
             "claude_api_error_stream.json",

@@ -1,0 +1,32 @@
+{
+  "name": "hard_kill_mid_tool",
+  "description": "A bypass-mode Bash sleep with no reply after it, so the client can be hard-killed before a tool result or interrupt row exists.",
+  "steps": [
+    {
+      "expect": {
+        "user_contains": "sleep"
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "sleep 60",
+              "description": "Wait before finishing",
+              "timeout": 120000
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 20
+        },
+        "fault": {
+          "type": "slow_first_token",
+          "delay_ms": 1000
+        }
+      }
+    }
+  ]
+}

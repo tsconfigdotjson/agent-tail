@@ -10,7 +10,7 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 
 | Harness | Status | CI scenarios | Fixtures | Versions | Evidence |
 |---|---|---:|---:|---|---|
-| Claude Code | **CI-verified** | 12 | 5 | `2.1.292`, `2.1.310` | 12 CI scenario(s); 0 ci-scripted, 1 donated, 4 hand-made fixture(s) |
+| Claude Code | **CI-verified** | 13 | 18 | `2.1.292`, `2.1.310`, `2.1.311`, `2.1.312` | 13 CI scenario(s); 13 ci-scripted, 1 donated, 4 hand-made fixture(s) |
 | Claude Desktop | **ported-unverified** | 0 | 5 | unknown | 5 hand-made/synthetic fixture(s); no real capture |
 | Codex | **CI-verified** | 9 | 5 | `0.160.1` | 9 CI scenario(s); 0 ci-scripted, 2 donated, 3 hand-made fixture(s) |
 | Cursor | **donated-verified** | 0 | 7 | `3.27.12` | 3 donated fixture(s); no CI scenario |
@@ -41,6 +41,19 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | claude_code | `2.1.310` | `linux` | `handmade` | `claude-code/2.1/linux/firm-turn-ends` |
 | claude_code | `2.1.310` | `linux` | `handmade` | `claude-code/2.1/linux/late-prompt` |
 | claude_code | `2.1.310` | `linux` | `handmade` | `claude-code/2.1/linux/tool-rejected` |
+| claude_code | `2.1.311` | `linux` | `ci-scripted` | `claude-code/2.1.311/linux/ci-claude_accept_edits` |
+| claude_code | `2.1.311` | `linux` | `ci-scripted` | `claude-code/2.1.311/linux/ci-claude_api_error_529` |
+| claude_code | `2.1.311` | `linux` | `ci-scripted` | `claude-code/2.1.311/linux/ci-claude_ask_user` |
+| claude_code | `2.1.311` | `linux` | `ci-scripted` | `claude-code/2.1.311/linux/ci-claude_background_agent` |
+| claude_code | `2.1.311` | `linux` | `ci-scripted` | `claude-code/2.1.311/linux/ci-claude_bash_approval` |
+| claude_code | `2.1.311` | `linux` | `ci-scripted` | `claude-code/2.1.311/linux/ci-claude_bash_approval_pending` |
+| claude_code | `2.1.311` | `linux` | `ci-scripted` | `claude-code/2.1.311/linux/ci-claude_bash_bypass` |
+| claude_code | `2.1.311` | `linux` | `ci-scripted` | `claude-code/2.1.311/linux/ci-claude_interrupt_tool` |
+| claude_code | `2.1.311` | `linux` | `ci-scripted` | `claude-code/2.1.311/linux/ci-claude_long_output` |
+| claude_code | `2.1.311` | `linux` | `ci-scripted` | `claude-code/2.1.311/linux/ci-claude_non_ascii` |
+| claude_code | `2.1.311` | `linux` | `ci-scripted` | `claude-code/2.1.311/linux/ci-claude_plain_qa` |
+| claude_code | `2.1.311` | `linux` | `ci-scripted` | `claude-code/2.1.311/linux/ci-claude_plan_exit` |
+| claude_code | `2.1.312` | `linux` | `ci-scripted` | `claude-code/2.1.312/linux/ci-claude_hard_kill_mid_tool` |
 | claude_desktop | `unknown` | `any` | `handmade` | `claude-desktop/handmade/any/error` |
 | claude_desktop | `unknown` | `any` | `handmade` | `claude-desktop/handmade/any/interrupted` |
 | claude_desktop | `unknown` | `any` | `handmade` | `claude-desktop/handmade/any/plain-qa` |
