@@ -85,12 +85,16 @@ The pinned versions are the ones the committed fixtures were captured against. T
 matrix also resolves and runs npm `latest` for each harness, so a release that changes the
 transcript shape fails loudly.
 
-Recent coverage additions include Copilot parallel tool calls and a terminal `session.error`,
-Pi parallel tool calls plus failing-tool recovery, Pi compaction/unknown-entry fixtures,
-OpenCode error-step-finish, parallel-part and child-session fixtures, and a Gemini multi-tool
-turn captured from a real 0.65.0 journal. The Claude Code stable
-list now includes ask-user, plan exit, mid-tool interrupt, accept-edits and a direct
-background-agent turn. The background driver uses one direct helper because pinned 2.1.281
+Recent coverage additions include a hard-kill mid-tool scenario for every CLI in the matrix
+(Claude Code, Codex, Copilot CLI, Pi, OpenCode and Gemini CLI), Copilot parallel tool calls and
+a terminal `session.error`, Pi parallel tool calls plus failing-tool recovery, Pi
+compaction/unknown-entry fixtures, OpenCode error-step-finish, parallel-part and child-session
+fixtures, and a Gemini multi-tool turn captured from a real 0.65.0 journal. The hard-kill
+scenario kills the process group without Esc/Ctrl-C/exit and pins the rows the harness
+actually flushed: `running_tool` for five harnesses, and the pre-tool
+`thinking`/`prompt_sent` journal for Gemini 0.65.0, which writes tool calls only after
+completion. The Claude Code stable list now includes ask-user, plan exit, mid-tool interrupt,
+hard-kill mid-tool, accept-edits and a direct background-agent turn. The background driver uses one direct helper because pinned 2.1.281
 also counted a nested background helper in the parent's pending count, while 2.1.310 counted
 only the launched helper; the single-helper turn is stable on both. The fixtures also pin
 Copilot `abort`/`session.error` followed by a routine `session.shutdown` (which must not turn

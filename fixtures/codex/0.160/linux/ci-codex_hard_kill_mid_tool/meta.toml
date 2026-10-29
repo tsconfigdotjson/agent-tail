@@ -1,0 +1,7 @@
+harness = "codex"
+version = "0.160.1"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-29"
+description = "Hard-kill (SIGKILL) while a danger-full-access exec_command sleep is running: the rollout freezes on the pending function_call with no output, turn_aborted, or turn_complete row; see NOTES.md."
+notes = "NOTES.md"

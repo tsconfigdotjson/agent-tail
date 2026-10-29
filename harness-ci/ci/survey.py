@@ -392,7 +392,7 @@ def _redact(value: Any, key: str | None, path_map: dict[str, str], id_map: dict[
     if isinstance(value, str):
         if key in SECRET_KEYS:
             return "<redacted>"
-        if key in PATH_KEYS:
+        if key in PATH_KEYS and value.startswith(("/", "~")):
             if value not in path_map:
                 path_map[value] = f"<path-{len(path_map) + 1:04d}>"
             return path_map[value]

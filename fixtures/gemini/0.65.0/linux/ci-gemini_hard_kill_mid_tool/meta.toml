@@ -1,0 +1,7 @@
+harness = "gemini"
+version = "0.65.0"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-29"
+description = "Hard-kill (SIGKILL) while run_shell_command sleeps: Gemini 0.65.0 had flushed only the pre-tool journal rows, so the honest state is thinking/prompt_sent, not running_tool; see NOTES.md."
+notes = "NOTES.md"

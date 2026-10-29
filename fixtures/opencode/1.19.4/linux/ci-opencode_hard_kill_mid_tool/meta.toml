@@ -1,0 +1,7 @@
+harness = "opencode"
+version = "1.19.4"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-29"
+description = "Hard-kill (SIGKILL) while a bash tool part is running: the SQLite snapshot freezes on running_tool with no completed, aborted, or error step-finish row; see NOTES.md."
+notes = "NOTES.md"

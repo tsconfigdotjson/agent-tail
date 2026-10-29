@@ -2,3 +2,6 @@
 # committed row fixtures; a latest failure is upstream drift, not a silent skip.
 opencode_plain_qa
 opencode_tool
+
+# SIGKILL while a tool part is running; no step-finish row.
+opencode_hard_kill_mid_tool

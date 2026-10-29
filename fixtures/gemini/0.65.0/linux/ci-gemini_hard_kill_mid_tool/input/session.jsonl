@@ -1,0 +1,7 @@
+{"kind":"main","lastUpdated":"2026-10-29T12:36:05.695Z","projectHash":"<id-0002>","sessionId":"<id-0001>","startTime":"2026-10-29T12:36:05.695Z"}
+{"content":[{"text":"<session_context>\nThis is the Gemini CLI. We are setting up the context for our chat.\nToday's date is Thursday, October 29, 2026 (formatted according to the user's locale).\nMy operating system is: linux\nThe project's temporary directory is: /home/<user><secret-0001><user>/tmp/work\n- **Workspace Directories:**\n  - /home/<user><secret-0002>\n- **Directory Structure:**\n\nShowing up to 200 items (files + folders).\n\n/home/<user><secret-0003>\n\n\n\n</session_context>"}],"id":"<id-0003>","timestamp":"2026-10-29T12:36:05.697Z","type":"user"}
+{"$set":{"lastUpdated":"2026-10-29T12:36:05.699Z"}}
+{"content":[{"text":"sleep"}],"id":"<id-0004>","timestamp":"2026-10-29T12:36:05.795Z","type":"user"}
+{"$set":{"lastUpdated":"2026-10-29T12:36:05.795Z"}}
+{"content":"","id":"<id-0005>","model":"gemini-3.8-flash","thoughts":[],"timestamp":"2026-10-29T12:36:06.477Z","tokens":{"cached":0,"input":10,"output":20,"thoughts":0,"tool":0,"total":30},"type":"gemini"}
+{"$set":{"lastUpdated":"2026-10-29T12:36:06.477Z"}}

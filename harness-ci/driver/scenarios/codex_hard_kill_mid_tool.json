@@ -1,0 +1,31 @@
+{
+  "name": "codex_hard_kill_mid_tool",
+  "description": "Hard-kill Codex (SIGKILL to the PTY process group) while a danger-full-access exec_command sleep is running. The rollout must freeze at running_tool with no function output and no turn_aborted row.",
+  "harness": "codex",
+  "mock": "../../mock-server/scenarios/codex_hard_kill_mid_tool.json",
+  "command": [
+    "codex",
+    "--no-daemon",
+    "-a",
+    "never",
+    "-s",
+    "danger-full-access"
+  ],
+  "prompt": "sleep",
+  "no_approval": true,
+  "run_for_ms": 16000,
+  "expected_activity": [
+    {
+      "activity": "running_tool",
+      "when": "end",
+      "screen": "working",
+      "certainty": "firm"
+    }
+  ],
+  "expect_observations": {
+    "codex_approval_policies": [
+      "never"
+    ],
+    "codex_no_approval_events": true
+  }
+}

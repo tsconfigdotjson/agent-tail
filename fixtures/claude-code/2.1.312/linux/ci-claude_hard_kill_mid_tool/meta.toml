@@ -1,0 +1,7 @@
+harness = "claude_code"
+version = "2.1.312"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-28"
+description = "Hard-kill (SIGKILL) while a bypass-mode Bash sleep is running: the transcript freezes on the pending tool_use with no tool result and no interrupt row; see NOTES.md."
+notes = "NOTES.md"

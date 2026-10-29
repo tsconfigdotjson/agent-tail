@@ -8,3 +8,6 @@ codex_parallel_tool_calls
 codex_turn_aborted
 codex_task_error
 codex_resume
+
+# SIGKILL while a long exec_command is pending; the rollout must stay running_tool.
+codex_hard_kill_mid_tool

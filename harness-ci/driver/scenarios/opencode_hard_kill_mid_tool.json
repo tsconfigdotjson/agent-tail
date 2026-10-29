@@ -1,0 +1,25 @@
+{
+  "name": "opencode_hard_kill_mid_tool",
+  "description": "Hard-kill OpenCode (SIGKILL to the PTY process group) while its bash tool part is still running. The SQLite snapshot must freeze at running_tool with no completed, aborted or error step-finish row.",
+  "harness": "opencode",
+  "mock": "../../mock-server/scenarios/opencode_hard_kill_mid_tool.json",
+  "command": [
+    "opencode",
+    "run",
+    "--format",
+    "json",
+    "--auto",
+    "-m",
+    "test/test-model",
+    "sleep"
+  ],
+  "no_approval": true,
+  "run_for_ms": 20000,
+  "expected_activity": [
+    {
+      "activity": "running_tool",
+      "when": "end",
+      "certainty": "firm"
+    }
+  ]
+}

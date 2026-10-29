@@ -3,3 +3,6 @@
 gemini_plain_qa
 gemini_tool
 gemini_multi_tool
+
+# SIGKILL before Gemini writes the completed-only toolCalls row; pins the pre-tool journal.
+gemini_hard_kill_mid_tool

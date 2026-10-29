@@ -1,0 +1,30 @@
+{
+  "name": "gemini_hard_kill_mid_tool",
+  "description": "A long run_shell_command with no reply after it, so Gemini CLI can be hard-killed while the shell command is still running.",
+  "steps": [
+    {
+      "expect": {
+        "user_contains": "sleep"
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "run_shell_command",
+            "input": {
+              "command": "sleep 60"
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 20
+        },
+        "fault": {
+          "type": "slow_first_token",
+          "delay_ms": 500
+        }
+      }
+    }
+  ]
+}

@@ -132,9 +132,10 @@ just the version (`1.4.0`).
 `--mode json`, tails the session file with `agent-tail`, and fails on a wrong firm status or an
 unexpected event shape. It runs for pinned 1.4.0 and npm latest, on Linux and macOS, so a
 new release fails loudly instead of being skipped. Scenarios cover plain text, one tool,
-parallel tool calls, a failing tool result, and a terminal API error. The fixtures also pin
-the aborted stop reason, a compaction on the active branch, and an unknown entry type that
-still lets the turn end. The Pi path is transcript/status based, not PTY-screen scored;
+hard-kill mid-tool, parallel tool calls, a failing tool result, and a terminal API error. The
+fixtures also pin the aborted stop reason, the SIGKILL silent-death shape (a pending
+`toolCall` with no `toolResult` or `aborted` row), a compaction on the active branch, and an
+unknown entry type that still lets the turn end. The Pi path is transcript/status based, not PTY-screen scored;
 Pi's TUI screen reader is not part of this path. See `harness-ci/README.md`.
 
 ## Branches

@@ -115,6 +115,29 @@ class ShapeSurveyTests(unittest.TestCase):
             self.assertEqual((target / "input" / "session.jsonl").read_text(encoding="utf-8"), '{"redacted":true}\n')
             self.assertTrue((target / "redaction.json").is_file())
 
+    def test_capture_does_not_treat_cache_control_path_arrays_as_file_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            records = base_records()
+            records.append(
+                {
+                    "type": "api-request",
+                    "cacheControl": [
+                        {"path": ["system", 0], "value": {"type": "ephemeral"}},
+                        {"path": ["messages", 0, "content", 0], "value": {"type": "ephemeral"}},
+                    ],
+                }
+            )
+            run = write_transcript(root, records)
+            target = survey.capture_fixture(run, root / "fixtures", "claude_code", "1.0.0", "linux")
+            self.assertIsNotNone(target)
+            text = (target / "input" / "session.jsonl").read_text(encoding="utf-8")
+            captured = json.loads(text.splitlines()[-1])
+            self.assertEqual(captured["cacheControl"][0]["path"], ["system", 0])
+            self.assertEqual(captured["cacheControl"][1]["path"], ["messages", 0, "content", 0])
+            assistant = json.loads(text.splitlines()[1])
+            self.assertIn("content", assistant["message"], "the assistant message keeps its content key")
+
     def test_capture_redacts_ids_and_temp_paths(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
