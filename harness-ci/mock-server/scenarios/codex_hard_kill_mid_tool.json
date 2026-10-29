@@ -1,0 +1,31 @@
+{
+  "name": "codex_hard_kill_mid_tool",
+  "description": "A long exec_command with no reply after it, so Codex can be hard-killed while the function call is still pending.",
+  "steps": [
+    {
+      "expect": {
+        "user_contains": "sleep"
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "exec_command",
+            "input": {
+              "cmd": "sleep 60",
+              "yield_time_ms": 30000
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 20
+        },
+        "fault": {
+          "type": "slow_first_token",
+          "delay_ms": 800
+        }
+      }
+    }
+  ]
+}

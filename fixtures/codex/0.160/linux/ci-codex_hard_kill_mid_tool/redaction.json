@@ -1,0 +1,158 @@
+{
+  "format": 1,
+  "file": "session.jsonl",
+  "lorem": false,
+  "lines": 10,
+  "bytes_before": 34169,
+  "bytes_after": 33677,
+  "replacements": {
+    "home_path": 4,
+    "host": 1,
+    "secret_entropy": 7
+  },
+  "offsets": [
+    {
+      "line": 1,
+      "before_start": 0,
+      "before_end": 21737,
+      "after_start": 0,
+      "after_end": 21703,
+      "delta": -34
+    },
+    {
+      "line": 2,
+      "before_start": 21737,
+      "before_end": 22000,
+      "after_start": 21703,
+      "after_end": 21948,
+      "delta": -52
+    },
+    {
+      "line": 3,
+      "before_start": 22000,
+      "before_end": 26289,
+      "after_start": 21948,
+      "after_end": 26134,
+      "delta": -155
+    },
+    {
+      "line": 4,
+      "before_start": 26289,
+      "before_end": 27006,
+      "after_start": 26134,
+      "after_end": 26827,
+      "delta": -179
+    },
+    {
+      "line": 5,
+      "before_start": 27006,
+      "before_end": 30079,
+      "after_start": 26827,
+      "after_end": 29788,
+      "delta": -291
+    },
+    {
+      "line": 6,
+      "before_start": 30079,
+      "before_end": 32049,
+      "after_start": 29788,
+      "after_end": 31710,
+      "delta": -339
+    },
+    {
+      "line": 7,
+      "before_start": 32049,
+      "before_end": 32672,
+      "after_start": 31710,
+      "after_end": 32289,
+      "delta": -383
+    },
+    {
+      "line": 8,
+      "before_start": 32672,
+      "before_end": 33051,
+      "after_start": 32289,
+      "after_end": 32638,
+      "delta": -413
+    },
+    {
+      "line": 9,
+      "before_start": 33051,
+      "before_end": 33435,
+      "after_start": 32638,
+      "after_end": 32998,
+      "delta": -437
+    },
+    {
+      "line": 10,
+      "before_start": 33435,
+      "before_end": 34169,
+      "after_start": 32998,
+      "after_end": 33677,
+      "delta": -492
+    }
+  ],
+  "findings": [
+    {
+      "line": 1,
+      "kind": "host",
+      "placeholder": "<host>"
+    },
+    {
+      "line": 3,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 3,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 3,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0001>"
+    },
+    {
+      "line": 3,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0002>"
+    },
+    {
+      "line": 3,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0003>"
+    },
+    {
+      "line": 3,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0004>"
+    },
+    {
+      "line": 5,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 5,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 5,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0001>"
+    },
+    {
+      "line": 5,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0002>"
+    },
+    {
+      "line": 5,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0003>"
+    }
+  ],
+  "malformed_lines": []
+}

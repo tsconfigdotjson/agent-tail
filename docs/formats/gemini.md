@@ -118,8 +118,11 @@ gemini -p 'say hello' --output-format json --approval-mode yolo --skip-trust
 0.65.0 sends a **routing-classifier** request first, with a `complexity_score` JSON schema.
 The mock answers it without consuming a scenario step. The main stream is translated from
 the same scenario blocks used by the other APIs. Scenarios: `gemini_plain_qa`,
-`gemini_tool` and `gemini_multi_tool`. The CI matrix installs pinned **0.65.0** and npm
-**latest** on Linux and macOS; a latest failure is a failing job, not a skipped one.
+`gemini_tool`, `gemini_multi_tool` and `gemini_hard_kill_mid_tool`. The hard-kill case kills
+the process while the shell command runs, before the completed-only `toolCalls` row exists,
+so it pins firm `thinking` / `prompt_sent` rather than a fabricated interrupt. The CI matrix
+installs pinned **0.65.0** and npm **latest** on Linux and macOS; a latest failure is a
+failing job, not a skipped one.
 
 Local green run (0.65.0, Linux):
 
@@ -130,10 +133,11 @@ cargo run -p harness-driver -- --scenario driver/scenarios/gemini_plain_qa.json
 cargo run -p harness-driver -- --scenario driver/scenarios/gemini_tool.json
 ```
 
-Committed fixtures are under `fixtures/gemini/0.65.0/linux/`: `plain-qa`, `tool` and
-`multi-tool`, captured from the real CLI through the mock and redacted by
-`agent-tail fixture capture`; `error` is hand-made because a real model/API failure is not
-persisted as a `type:error` row (0.65.0 rewinds the just-sent prompt instead), so the
+Committed fixtures are under `fixtures/gemini/0.65.0/linux/`: `plain-qa`, `tool`,
+`multi-tool` and `ci-gemini_hard_kill_mid_tool`, captured from the real CLI through the mock
+and redacted by `agent-tail fixture capture`; the hard-kill fixture records only the
+pre-tool journal that reached disk. `error` is hand-made because a real model/API failure is
+not persisted as a `type:error` row (0.65.0 rewinds the just-sent prompt instead), so the
 adapter's error mapping is exercised by the synthetic journal shape only.
 
 ## Open questions and limits
@@ -147,5 +151,6 @@ adapter's error mapping is exercised by the synthetic journal shape only.
   one; the synthetic `awaiting_approval` status is supported but unobserved.
 - Interrupted turns remain **deferred**: no real 0.65.0 journal shape exists for them here
   (an API failure rewinds the prompt and only completed tool calls are written), so there is
-  no driver or fixture that claims that state. Multi-tool turns have a real captured shape
-  and run in the matrix.
+  no driver or fixture that claims that state. The hard-kill scenario is not an interrupt:
+  it pins the pre-tool `thinking` / `prompt_sent` journal that a SIGKILL actually leaves.
+  Multi-tool turns have a real captured shape and run in the matrix.

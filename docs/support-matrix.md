@@ -12,12 +12,12 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 |---|---|---:|---:|---|---|
 | Claude Code | **CI-verified** | 13 | 18 | `2.1.292`, `2.1.310`, `2.1.311`, `2.1.312` | 13 CI scenario(s); 13 ci-scripted, 1 donated, 4 hand-made fixture(s) |
 | Claude Desktop | **ported-unverified** | 0 | 5 | unknown | 5 hand-made/synthetic fixture(s); no real capture |
-| Codex | **CI-verified** | 9 | 5 | `0.160.1` | 9 CI scenario(s); 0 ci-scripted, 2 donated, 3 hand-made fixture(s) |
+| Codex | **CI-verified** | 10 | 6 | `0.160.1` | 10 CI scenario(s); 1 ci-scripted, 2 donated, 3 hand-made fixture(s) |
 | Cursor | **donated-verified** | 0 | 7 | `3.27.12` | 3 donated fixture(s); no CI scenario |
-| Pi | **CI-verified** | 5 | 8 | `1.4.0` | 5 CI scenario(s); 3 ci-scripted, 0 donated, 5 hand-made fixture(s) |
-| OpenCode | **CI-verified** | 2 | 8 | `1.19.4` | 2 CI scenario(s); 3 ci-scripted, 0 donated, 5 hand-made fixture(s) |
-| Gemini CLI | **CI-verified** | 3 | 4 | `0.65.0` | 3 CI scenario(s); 3 ci-scripted, 0 donated, 1 hand-made fixture(s) |
-| GitHub Copilot CLI | **CI-verified** | 5 | 9 | `1.0.103` | 5 CI scenario(s); 4 ci-scripted, 0 donated, 5 hand-made fixture(s) |
+| Pi | **CI-verified** | 6 | 9 | `1.4.0` | 6 CI scenario(s); 4 ci-scripted, 0 donated, 5 hand-made fixture(s) |
+| OpenCode | **CI-verified** | 3 | 9 | `1.19.4` | 3 CI scenario(s); 4 ci-scripted, 0 donated, 5 hand-made fixture(s) |
+| Gemini CLI | **CI-verified** | 4 | 5 | `0.65.0` | 4 CI scenario(s); 4 ci-scripted, 0 donated, 1 hand-made fixture(s) |
+| GitHub Copilot CLI | **CI-verified** | 6 | 10 | `1.0.103` | 6 CI scenario(s); 5 ci-scripted, 0 donated, 5 hand-made fixture(s) |
 
 ## What each harness can read
 
@@ -62,9 +62,11 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | codex | `0.160.1` | `linux` | `handmade` | `codex/0.160/linux/approval-auto-review` |
 | codex | `0.160.1` | `linux` | `handmade` | `codex/0.160/linux/approval-never` |
 | codex | `0.160.1` | `linux` | `handmade` | `codex/0.160/linux/approval-on-request` |
+| codex | `0.160.1` | `linux` | `ci-scripted` | `codex/0.160/linux/ci-codex_hard_kill_mid_tool` |
 | codex | `0.160.1` | `linux` | `donated` | `codex/0.160/linux/seed-exec` |
 | codex | `0.160.1` | `linux` | `donated` | `codex/0.160/linux/seed-resume` |
 | copilot | `1.0.103` | `linux` | `handmade` | `copilot/1.0.103/linux/api-error` |
+| copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/ci-copilot_hard_kill_mid_tool` |
 | copilot | `1.0.103` | `linux` | `handmade` | `copilot/1.0.103/linux/interrupt` |
 | copilot | `1.0.103` | `linux` | `handmade` | `copilot/1.0.103/linux/parallel-tools` |
 | copilot | `1.0.103` | `linux` | `handmade` | `copilot/1.0.103/linux/permission-approved` |
@@ -80,11 +82,13 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | cursor | `unknown` | `any` | `handmade` | `cursor/unknown/any/awaiting-answer` |
 | cursor | `unknown` | `any` | `handmade` | `cursor/unknown/any/interrupted` |
 | cursor | `unknown` | `any` | `handmade` | `cursor/unknown/any/seed-session` |
+| gemini | `0.65.0` | `linux` | `ci-scripted` | `gemini/0.65.0/linux/ci-gemini_hard_kill_mid_tool` |
 | gemini | `0.65.0` | `linux` | `handmade` | `gemini/0.65.0/linux/error` |
 | gemini | `0.65.0` | `linux` | `ci-scripted` | `gemini/0.65.0/linux/multi-tool` |
 | gemini | `0.65.0` | `linux` | `ci-scripted` | `gemini/0.65.0/linux/plain-qa` |
 | gemini | `0.65.0` | `linux` | `ci-scripted` | `gemini/0.65.0/linux/tool` |
 | opencode | `1.19.4` | `linux` | `handmade` | `opencode/1.19.4/linux/child-session` |
+| opencode | `1.19.4` | `linux` | `ci-scripted` | `opencode/1.19.4/linux/ci-opencode_hard_kill_mid_tool` |
 | opencode | `1.19.4` | `linux` | `handmade` | `opencode/1.19.4/linux/error-step-finish` |
 | opencode | `1.19.4` | `linux` | `handmade` | `opencode/1.19.4/linux/interrupted` |
 | opencode | `1.19.4` | `linux` | `handmade` | `opencode/1.19.4/linux/parallel-parts` |
@@ -94,6 +98,7 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | opencode | `1.19.4` | `linux` | `ci-scripted` | `opencode/1.19.4/linux/tool-running` |
 | pi | `1.4.0` | `linux` | `ci-scripted` | `pi/1.4/linux/api-error` |
 | pi | `1.4.0` | `linux` | `handmade` | `pi/1.4/linux/branched` |
+| pi | `1.4.0` | `linux` | `ci-scripted` | `pi/1.4/linux/ci-pi_hard_kill_mid_tool` |
 | pi | `1.4.0` | `linux` | `handmade` | `pi/1.4/linux/compaction-active` |
 | pi | `1.4.0` | `linux` | `handmade` | `pi/1.4/linux/interrupted` |
 | pi | `1.4.0` | `linux` | `handmade` | `pi/1.4/linux/parallel-tools` |

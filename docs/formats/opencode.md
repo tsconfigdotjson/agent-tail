@@ -90,9 +90,10 @@ The harness driver installs the real npm CLI, starts it under a PTY with a tempo
 points its `test/test-model` provider at the in-process mock's OpenAI **Chat Completions**
 endpoint (`/v1/chat/completions`). The driver waits for the database to update, samples the
 library state every 100 ms, and exports the database rows to `transcripts/<session-id>.jsonl`
-for scoring and survey. Scenarios: `opencode_plain_qa` (text turn, firm done) and
-`opencode_tool` (a two-second bash call sampled as `RunningTool`, then firm done). The CI
-matrix runs a pinned **1.19.4** and npm **latest**; a latest failure is a failing job, not a
+for scoring and survey. Scenarios: `opencode_plain_qa` (text turn, firm done),
+`opencode_tool` (a two-second bash call sampled as `RunningTool`, then firm done), and
+`opencode_hard_kill_mid_tool` (SIGKILL while a tool part is running, with no `step-finish`).
+The CI matrix runs a pinned **1.19.4** and npm **latest**; a latest failure is a failing job, not a
 silent skip, and the pinned job tells a regression from an upstream change.
 
 ```sh
@@ -110,7 +111,8 @@ The offline fixtures under `fixtures/opencode/1.19.4/linux/` are exported, redac
 `error-step-finish` (a `step-finish` reason `error` is firm `Errored` with its message),
 `parallel-parts` (one completed and one running tool part in the same assistant message; the
 completed result leaves the other call pending, which stalls to inferred approval at 20 s),
-and `child-session` (a parent ends `Done` while a child session with `parent_id` set still runs
+`ci-opencode_hard_kill_mid_tool` (a real SIGKILL snapshot that ends on a running tool part
+with no `step-finish`), and `child-session` (a parent ends `Done` while a child session with `parent_id` set still runs
 a tool; feeding the child as a helper makes the parent `BackgroundWork`). The fixture row
 stream is the same `{"table": ..., "row": ...}` shape the reader emits.
 

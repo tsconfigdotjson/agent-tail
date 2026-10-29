@@ -1,0 +1,108 @@
+{
+  "format": 1,
+  "file": "session.jsonl",
+  "lorem": false,
+  "lines": 7,
+  "bytes_before": 1292,
+  "bytes_after": 1180,
+  "replacements": {
+    "home_path": 4,
+    "secret_entropy": 3
+  },
+  "offsets": [
+    {
+      "line": 1,
+      "before_start": 0,
+      "before_end": 155,
+      "after_start": 0,
+      "after_end": 146,
+      "delta": -9
+    },
+    {
+      "line": 2,
+      "before_start": 155,
+      "before_end": 791,
+      "after_start": 146,
+      "after_end": 717,
+      "delta": -74
+    },
+    {
+      "line": 3,
+      "before_start": 791,
+      "before_end": 845,
+      "after_start": 717,
+      "after_end": 769,
+      "delta": -76
+    },
+    {
+      "line": 4,
+      "before_start": 845,
+      "before_end": 954,
+      "after_start": 769,
+      "after_end": 870,
+      "delta": -84
+    },
+    {
+      "line": 5,
+      "before_start": 954,
+      "before_end": 1008,
+      "after_start": 870,
+      "after_end": 922,
+      "delta": -86
+    },
+    {
+      "line": 6,
+      "before_start": 1008,
+      "before_end": 1238,
+      "after_start": 922,
+      "after_end": 1128,
+      "delta": -110
+    },
+    {
+      "line": 7,
+      "before_start": 1238,
+      "before_end": 1292,
+      "after_start": 1128,
+      "after_end": 1180,
+      "delta": -112
+    }
+  ],
+  "findings": [
+    {
+      "line": 2,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 2,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 2,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 2,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 2,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0001>"
+    },
+    {
+      "line": 2,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0002>"
+    },
+    {
+      "line": 2,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0003>"
+    }
+  ],
+  "malformed_lines": []
+}

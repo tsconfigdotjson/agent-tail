@@ -307,6 +307,13 @@ fn run_headless_json(
             builder.env(key, value);
         }
         builder.stdout(events).stderr(stderr);
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            // Keep the CLI and every tool it spawns in their own group so the phase-end
+            // SIGKILL is a real process-group kill, not just the top-level process.
+            builder.process_group(0);
+        }
         let mut child = builder.spawn().map_err(|e| format!("spawn {}: {e}", command[0]))?;
         let start = Instant::now();
         let run_for = Duration::from_millis(phase.run_for_ms);
@@ -329,7 +336,9 @@ fn run_headless_json(
             std::thread::sleep(Duration::from_millis(20));
         }
         if child.try_wait().map_err(|e| e.to_string())?.is_none() {
+            let pid = Some(child.id());
             let _ = child.kill();
+            stop_pid(pid);
             let _ = child.wait();
         }
         std::thread::sleep(Duration::from_millis(250));
@@ -832,9 +841,21 @@ fn stop_pid(pid: Option<u32>) {
 }
 
 fn process_group(pid: u32) -> Option<u32> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    let rest = stat.split_once(')')?.1;
-    rest.split_whitespace().nth(2)?.parse().ok()
+    if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat"))
+        && let Some(rest) = stat.split_once(')').map(|(_, rest)| rest)
+        && let Some(group) = rest.split_whitespace().nth(2).and_then(|value| value.parse().ok())
+    {
+        return Some(group);
+    }
+    let output = std::process::Command::new("ps")
+        .args(["-o", "pgid=", "-p", &pid.to_string()])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout).trim().parse().ok()
 }
 
 struct SampleSink<'a> {
@@ -1446,11 +1467,13 @@ mod tests {
         for (name, harness) in [
             ("gemini_plain_qa.json", "gemini"),
             ("gemini_tool.json", "gemini"),
+            ("gemini_hard_kill_mid_tool.json", "gemini"),
             ("copilot_plain_qa.json", "copilot"),
             ("copilot_tool.json", "copilot"),
             ("copilot_permission_denied.json", "copilot"),
             ("copilot_parallel_tools.json", "copilot"),
             ("copilot_api_error.json", "copilot"),
+            ("copilot_hard_kill_mid_tool.json", "copilot"),
         ] {
             let scenario = scenario(name);
             assert_eq!(scenario.harness, harness, "{name}");
@@ -1467,6 +1490,16 @@ mod tests {
         let error = scenario("copilot_api_error.json");
         assert_eq!(error.expected_activity[0].expectation().activity, "errored");
         assert_eq!(error.expected_activity[0].expectation().certainty.as_deref(), Some("firm"));
+        let copilot_hard = scenario("copilot_hard_kill_mid_tool.json");
+        let copilot_end = copilot_hard.expected_activity[0].expectation();
+        assert_eq!(copilot_end.activity, "running_tool");
+        assert_eq!(copilot_end.certainty.as_deref(), Some("firm"));
+        assert_eq!(copilot_end.when, score::ExpectWhen::End);
+        let gemini_hard = scenario("gemini_hard_kill_mid_tool.json");
+        let gemini_end = gemini_hard.expected_activity[0].expectation();
+        assert_eq!(gemini_end.activity, "thinking");
+        assert_eq!(gemini_end.certainty.as_deref(), Some("firm"));
+        assert_eq!(gemini_end.when, score::ExpectWhen::End);
     }
 
     #[test]
@@ -1950,6 +1983,7 @@ mod tests {
             "codex_turn_aborted.json",
             "codex_task_error.json",
             "codex_resume.json",
+            "codex_hard_kill_mid_tool.json",
         ] {
             let driver = scenario(name);
             assert_eq!(driver.harness, "codex", "{name}");
@@ -1970,6 +2004,15 @@ mod tests {
         assert!(never.command.iter().any(|arg| arg == "--no-daemon"));
         assert!(never.command.iter().any(|arg| arg == "never"));
         assert!(never.command.windows(2).any(|args| args == ["-s", "danger-full-access"]));
+        let hard = scenario("codex_hard_kill_mid_tool.json");
+        assert!(hard.no_approval);
+        assert!(hard.keys.is_empty(), "the kill is the driver's normal end-of-phase SIGKILL");
+        assert!(hard.command.windows(2).any(|args| args == ["-a", "never"]));
+        assert!(hard.command.windows(2).any(|args| args == ["-s", "danger-full-access"]));
+        let hard_end = hard.expected_activity[0].expectation();
+        assert_eq!(hard_end.activity, "running_tool");
+        assert_eq!(hard_end.certainty.as_deref(), Some("firm"));
+        assert_eq!(hard_end.when, score::ExpectWhen::End);
         let tokens = scenario("codex_token_count.json");
         assert_eq!(tokens.keys[0].on, ScreenState::Idle);
         assert_eq!(tokens.keys[0].occurrence, 0, "fast turns may not leave idle long enough for occurrence 1");
@@ -1990,6 +2033,7 @@ mod tests {
             "pi_api_error.json",
             "pi_parallel_tools.json",
             "pi_tool_error.json",
+            "pi_hard_kill_mid_tool.json",
         ] {
             let driver = scenario(name);
             assert_eq!(driver.harness, "pi", "{name}");
@@ -2014,6 +2058,11 @@ mod tests {
         assert!(parallel.expected_activity.iter().any(|expect| expect.expectation().activity == "running_tool"));
         let tool_error = scenario("pi_tool_error.json");
         assert!(tool_error.expected_activity.iter().any(|expect| expect.expectation().activity == "done"));
+        let hard = scenario("pi_hard_kill_mid_tool.json");
+        let hard_end = hard.expected_activity[0].expectation();
+        assert_eq!(hard_end.activity, "running_tool");
+        assert_eq!(hard_end.certainty.as_deref(), Some("firm"));
+        assert_eq!(hard_end.when, score::ExpectWhen::End);
     }
 
     #[test]
@@ -2049,7 +2098,7 @@ mod tests {
 
     #[test]
     fn opencode_scenarios_parse_and_use_the_chat_mock() {
-        for name in ["opencode_plain_qa.json", "opencode_tool.json"] {
+        for name in ["opencode_plain_qa.json", "opencode_tool.json", "opencode_hard_kill_mid_tool.json"] {
             let driver = scenario(name);
             assert_eq!(driver.harness, "opencode", "{name}");
             assert!(driver.prompt.is_none(), "the prompt is in argv for non-interactive run");
@@ -2065,6 +2114,12 @@ mod tests {
         let tool = scenario("opencode_tool.json");
         assert!(tool.expected_activity.iter().any(|expect| expect.expectation().activity == "running_tool"));
         assert!(tool.expected_activity.iter().any(|expect| expect.expectation().activity == "done"));
+        let hard = scenario("opencode_hard_kill_mid_tool.json");
+        assert!(hard.command.iter().any(|arg| arg == "sleep"));
+        let hard_end = hard.expected_activity[0].expectation();
+        assert_eq!(hard_end.activity, "running_tool");
+        assert_eq!(hard_end.certainty.as_deref(), Some("firm"));
+        assert_eq!(hard_end.when, score::ExpectWhen::End);
     }
 
     #[test]

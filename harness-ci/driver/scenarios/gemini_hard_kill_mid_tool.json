@@ -1,0 +1,16 @@
+{
+  "name": "gemini_hard_kill_mid_tool",
+  "description": "Hard-kill Gemini CLI (SIGKILL to the process group) while a run_shell_command sleep is running. Pin whatever the journal actually flushed; Gemini 0.65.0 writes the tool call only after completion, so this is not assumed to be running_tool.",
+  "harness": "gemini",
+  "mock": "../../mock-server/scenarios/gemini_hard_kill_mid_tool.json",
+  "prompt": "sleep",
+  "no_approval": true,
+  "run_for_ms": 30000,
+  "expected_activity": [
+    {
+      "activity": "thinking",
+      "when": "end",
+      "certainty": "firm"
+    }
+  ]
+}

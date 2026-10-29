@@ -1,0 +1,31 @@
+{
+  "name": "pi_hard_kill_mid_tool",
+  "description": "A long bash tool with no reply after it, so Pi can be hard-killed after its toolCall row but before its toolResult row.",
+  "steps": [
+    {
+      "expect": {
+        "user_contains": "sleep"
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "bash",
+            "input": {
+              "command": "sleep 60",
+              "description": "Wait before finishing"
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 20
+        },
+        "fault": {
+          "type": "slow_first_token",
+          "delay_ms": 500
+        }
+      }
+    }
+  ]
+}

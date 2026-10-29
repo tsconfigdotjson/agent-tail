@@ -1,0 +1,7 @@
+harness = "pi"
+version = "1.4.0"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-29"
+description = "Hard-kill (SIGKILL) after an assistant bash toolCall but before its toolResult: the session freezes on the pending call with no aborted stop reason; see NOTES.md."
+notes = "NOTES.md"

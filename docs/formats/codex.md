@@ -88,7 +88,10 @@ Enums seen: `approval_policy: on-request`; `sandbox_policy.type: workspace-write
   `apply_patch_approval_request` record appears. A pending ask-user tool is the same shape,
   identified by the `request_user_input` function name.
 - **Tool pending:** a `function_call`/`custom_tool_call` with no matching `call_id` output.
-  `write_stdin` polls a running exec session (`session_id`): it is not a new action.
+  `write_stdin` polls a running exec session (`session_id`): it is not a new action. A
+  SIGKILL after the call but before its output leaves only that pending row; no
+  `turn_aborted` is written, so the honest state is `running_tool`, not `interrupted`.
+  `ci-codex_hard_kill_mid_tool` pins this silent-death shape.
 - **Ask-user tool:** `request_user_input` (first observed in 0.160). It was seen live in Plan mode;
   it also has no approval/request event, just the `function_call` until its output arrives.
 - **Subagents:** none seen.

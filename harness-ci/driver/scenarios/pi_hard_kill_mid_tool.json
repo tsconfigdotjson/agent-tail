@@ -1,0 +1,16 @@
+{
+  "name": "pi_hard_kill_mid_tool",
+  "description": "Hard-kill Pi (SIGKILL to the process group) after its assistant toolCall row for a bash sleep, before its toolResult row. The session must freeze at running_tool with no aborted stop reason.",
+  "harness": "pi",
+  "mock": "../../mock-server/scenarios/pi_hard_kill_mid_tool.json",
+  "prompt": "sleep",
+  "no_approval": true,
+  "run_for_ms": 15000,
+  "expected_activity": [
+    {
+      "activity": "running_tool",
+      "when": "end",
+      "certainty": "firm"
+    }
+  ]
+}

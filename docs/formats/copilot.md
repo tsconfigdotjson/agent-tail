@@ -114,6 +114,9 @@ The mock's OpenAI **Chat Completions** route is enough. Scenarios:
 
 - `copilot_plain_qa`: one text answer, firm `Done`.
 - `copilot_tool`: a two-second `bash` call sampled as firm `RunningTool`, then `Done`.
+- `copilot_hard_kill_mid_tool`: SIGKILL after `tool.execution_start` for a long `bash` call;
+  the event log freezes at firm `RunningTool` with no `tool.execution_complete`, `abort` or
+  `session.shutdown`, then falls to `idle` after 15 minutes.
 - `copilot_parallel_tools`: two `bash` requests in one assistant message; the session stays
   `RunningTool` until both results arrive, then ends `Done`.
 - `copilot_permission_denied`: no `--allow-all-tools`; prompt mode records
@@ -130,7 +133,8 @@ the real CLI through the mock and redacted by `agent-tail fixture capture`. The
 1.0.103 event/result shapes, not captured from a TUI; they are not additional CI
 scenarios. `parallel-tools`, `interrupt` and `api-error` are hand-made coverage for
 multi-call, abort and `session.error` sequences whose event order was observed in real
-1.0.103 logs against the mock.
+1.0.103 logs against the mock. `fixtures/copilot/1.0.103/linux/ci-copilot_hard_kill_mid_tool/`
+is a real kernel SIGKILL capture; its `NOTES.md` lists the flushed and missing rows.
 
 Local green runs (1.0.103, Linux):
 

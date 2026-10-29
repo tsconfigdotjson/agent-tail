@@ -1,0 +1,7 @@
+harness = "copilot"
+version = "1.0.103"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-29"
+description = "Hard-kill (SIGKILL) after tool.execution_start for a bash sleep: the event log freezes on the running tool with no execution_complete, abort, or session.shutdown row; see NOTES.md."
+notes = "NOTES.md"
