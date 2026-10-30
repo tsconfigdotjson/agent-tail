@@ -1,0 +1,31 @@
+{
+  "name": "codex_approval_wake",
+  "description": "An exec_command asks for escalation under on-request, then the model answers after approval and execution.",
+  "steps": [
+    {
+      "expect": { "user_contains": "run the command" },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "exec_command",
+            "input": {
+              "cmd": "touch permission-marker.txt",
+              "sandbox_permissions": "require_escalated",
+              "justification": "Create a marker file"
+            }
+          }
+        ],
+        "usage": { "input_tokens": 10, "output_tokens": 20 },
+        "fault": { "type": "slow_first_token", "delay_ms": 800 }
+      }
+    },
+    {
+      "expect": { "has_tool_result": true },
+      "reply": {
+        "content": [{ "type": "text", "text": "The marker file was created." }],
+        "usage": { "input_tokens": 30, "output_tokens": 8 }
+      }
+    }
+  ]
+}

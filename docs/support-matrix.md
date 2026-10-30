@@ -10,14 +10,14 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 
 | Harness | Status | CI scenarios | Fixtures | Versions | Evidence |
 |---|---|---:|---:|---|---|
-| Claude Code | **CI-verified** | 14 | 21 | `2.1.292`, `2.1.310`, `2.1.311`, `2.1.312`, `2.1.314` | 14 CI scenario(s); 15 ci-scripted, 2 donated, 4 hand-made fixture(s) |
+| Claude Code | **CI-verified** | 18 | 21 | `2.1.292`, `2.1.310`, `2.1.311`, `2.1.312`, `2.1.314` | 18 CI scenario(s); 15 ci-scripted, 2 donated, 4 hand-made fixture(s) |
 | Claude Desktop | **ported-unverified** | 0 | 5 | unknown | 5 hand-made/synthetic fixture(s); no real capture |
-| Codex | **CI-verified** | 11 | 7 | `0.160.1` | 11 CI scenario(s); 2 ci-scripted, 2 donated, 3 hand-made fixture(s) |
+| Codex | **CI-verified** | 15 | 11 | `0.160.1` | 15 CI scenario(s); 6 ci-scripted, 2 donated, 3 hand-made fixture(s) |
 | Cursor | **donated-verified** | 0 | 7 | `3.27.12` | 3 donated fixture(s); no CI scenario |
-| Pi | **CI-verified** | 7 | 10 | `1.4.0` | 7 CI scenario(s); 5 ci-scripted, 0 donated, 5 hand-made fixture(s) |
-| OpenCode | **CI-verified** | 4 | 10 | `1.19.4` | 4 CI scenario(s); 5 ci-scripted, 0 donated, 5 hand-made fixture(s) |
-| Gemini CLI | **CI-verified** | 5 | 6 | `0.65.0` | 5 CI scenario(s); 5 ci-scripted, 0 donated, 1 hand-made fixture(s) |
-| GitHub Copilot CLI | **CI-verified** | 7 | 11 | `1.0.103` | 7 CI scenario(s); 6 ci-scripted, 0 donated, 5 hand-made fixture(s) |
+| Pi | **CI-verified** | 9 | 12 | `1.4.0` | 9 CI scenario(s); 7 ci-scripted, 0 donated, 5 hand-made fixture(s) |
+| OpenCode | **CI-verified** | 7 | 14 | `1.19.4` | 7 CI scenario(s); 9 ci-scripted, 0 donated, 5 hand-made fixture(s) |
+| Gemini CLI | **CI-verified** | 7 | 8 | `0.65.0` | 7 CI scenario(s); 7 ci-scripted, 0 donated, 1 hand-made fixture(s) |
+| GitHub Copilot CLI | **CI-verified** | 10 | 14 | `1.0.103` | 10 CI scenario(s); 9 ci-scripted, 0 donated, 5 hand-made fixture(s) |
 
 ## What each harness can read
 
@@ -36,6 +36,10 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 
 | Harness | Version | OS | Capture | Scenario |
 |---|---|---|---|---|
+| claude-code | `2.1.311` | `linux` | `ci-scripted` | `claude-code/2.1.311/linux/ci-claude_sigstop_wake_answer` |
+| claude-code | `2.1.311` | `linux` | `ci-scripted` | `claude-code/2.1.311/linux/ci-claude_sigstop_wake_answer_long_gap` |
+| claude-code | `2.1.311` | `linux` | `ci-scripted` | `claude-code/2.1.311/linux/ci-claude_sigstop_wake_approval` |
+| claude-code | `2.1.311` | `linux` | `ci-scripted` | `claude-code/2.1.311/linux/ci-claude_sigstop_wake_done` |
 | claude_code | `2.1.292` | `linux` | `donated` | `claude-code/2.1/linux/seed-session` |
 | claude_code | `2.1.310` | `linux` | `handmade` | `claude-code/2.1/linux/background-link` |
 | claude_code | `2.1.310` | `linux` | `handmade` | `claude-code/2.1/linux/firm-turn-ends` |
@@ -66,11 +70,18 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | codex | `0.160.1` | `linux` | `handmade` | `codex/0.160/linux/approval-never` |
 | codex | `0.160.1` | `linux` | `handmade` | `codex/0.160/linux/approval-on-request` |
 | codex | `0.160.1` | `linux` | `ci-scripted` | `codex/0.160/linux/ci-codex_hard_kill_mid_tool` |
+| codex | `0.160.1` | `linux` | `ci-scripted` | `codex/0.160/linux/ci-codex_sigstop_wake_answer` |
+| codex | `0.160.1` | `linux` | `ci-scripted` | `codex/0.160/linux/ci-codex_sigstop_wake_answer_long_gap` |
+| codex | `0.160.1` | `linux` | `ci-scripted` | `codex/0.160/linux/ci-codex_sigstop_wake_approval` |
+| codex | `0.160.1` | `linux` | `ci-scripted` | `codex/0.160/linux/ci-codex_sigstop_wake_done` |
 | codex | `0.160.1` | `linux` | `ci-scripted` | `codex/0.160/linux/ci-codex_usage_limit` |
 | codex | `0.160.1` | `linux` | `donated` | `codex/0.160/linux/seed-exec` |
 | codex | `0.160.1` | `linux` | `donated` | `codex/0.160/linux/seed-resume` |
 | copilot | `1.0.103` | `linux` | `handmade` | `copilot/1.0.103/linux/api-error` |
 | copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/ci-copilot_hard_kill_mid_tool` |
+| copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/ci-copilot_sigstop_wake_approval` |
+| copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/ci-copilot_sigstop_wake_done` |
+| copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/ci-copilot_sigstop_wake_done_long_gap` |
 | copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/ci-copilot_usage_limit` |
 | copilot | `1.0.103` | `linux` | `handmade` | `copilot/1.0.103/linux/interrupt` |
 | copilot | `1.0.103` | `linux` | `handmade` | `copilot/1.0.103/linux/parallel-tools` |
@@ -88,6 +99,8 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | cursor | `unknown` | `any` | `handmade` | `cursor/unknown/any/interrupted` |
 | cursor | `unknown` | `any` | `handmade` | `cursor/unknown/any/seed-session` |
 | gemini | `0.65.0` | `linux` | `ci-scripted` | `gemini/0.65.0/linux/ci-gemini_hard_kill_mid_tool` |
+| gemini | `0.65.0` | `linux` | `ci-scripted` | `gemini/0.65.0/linux/ci-gemini_sigstop_wake_done` |
+| gemini | `0.65.0` | `linux` | `ci-scripted` | `gemini/0.65.0/linux/ci-gemini_sigstop_wake_done_long_gap` |
 | gemini | `0.65.0` | `linux` | `ci-scripted` | `gemini/0.65.0/linux/ci-gemini_usage_limit` |
 | gemini | `0.65.0` | `linux` | `handmade` | `gemini/0.65.0/linux/error` |
 | gemini | `0.65.0` | `linux` | `ci-scripted` | `gemini/0.65.0/linux/multi-tool` |
@@ -95,6 +108,10 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | gemini | `0.65.0` | `linux` | `ci-scripted` | `gemini/0.65.0/linux/tool` |
 | opencode | `1.19.4` | `linux` | `handmade` | `opencode/1.19.4/linux/child-session` |
 | opencode | `1.19.4` | `linux` | `ci-scripted` | `opencode/1.19.4/linux/ci-opencode_hard_kill_mid_tool` |
+| opencode | `1.19.4` | `linux` | `ci-scripted` | `opencode/1.19.4/linux/ci-opencode_sigstop_wake_answer` |
+| opencode | `1.19.4` | `linux` | `ci-scripted` | `opencode/1.19.4/linux/ci-opencode_sigstop_wake_answer_frozen` |
+| opencode | `1.19.4` | `linux` | `ci-scripted` | `opencode/1.19.4/linux/ci-opencode_sigstop_wake_done` |
+| opencode | `1.19.4` | `linux` | `ci-scripted` | `opencode/1.19.4/linux/ci-opencode_sigstop_wake_done_long_gap` |
 | opencode | `1.19.4` | `linux` | `ci-scripted` | `opencode/1.19.4/linux/ci-opencode_usage_limit` |
 | opencode | `1.19.4` | `linux` | `handmade` | `opencode/1.19.4/linux/error-step-finish` |
 | opencode | `1.19.4` | `linux` | `handmade` | `opencode/1.19.4/linux/interrupted` |
@@ -106,6 +123,8 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | pi | `1.4.0` | `linux` | `ci-scripted` | `pi/1.4/linux/api-error` |
 | pi | `1.4.0` | `linux` | `handmade` | `pi/1.4/linux/branched` |
 | pi | `1.4.0` | `linux` | `ci-scripted` | `pi/1.4/linux/ci-pi_hard_kill_mid_tool` |
+| pi | `1.4.0` | `linux` | `ci-scripted` | `pi/1.4/linux/ci-pi_sigstop_wake_done` |
+| pi | `1.4.0` | `linux` | `ci-scripted` | `pi/1.4/linux/ci-pi_sigstop_wake_done_long_gap` |
 | pi | `1.4.0` | `linux` | `ci-scripted` | `pi/1.4/linux/ci-pi_usage_limit` |
 | pi | `1.4.0` | `linux` | `handmade` | `pi/1.4/linux/compaction-active` |
 | pi | `1.4.0` | `linux` | `handmade` | `pi/1.4/linux/interrupted` |

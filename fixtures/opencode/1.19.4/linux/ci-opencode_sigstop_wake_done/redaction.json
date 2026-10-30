@@ -1,0 +1,161 @@
+{
+  "format": 1,
+  "file": "session.jsonl",
+  "lorem": false,
+  "lines": 13,
+  "bytes_before": 4941,
+  "bytes_after": 4661,
+  "replacements": {
+    "home_path": 3,
+    "secret_entropy": 5
+  },
+  "offsets": [
+    {
+      "line": 1,
+      "before_start": 0,
+      "before_end": 368,
+      "after_start": 0,
+      "after_end": 322,
+      "delta": -46
+    },
+    {
+      "line": 2,
+      "before_start": 368,
+      "before_end": 726,
+      "after_start": 322,
+      "after_end": 668,
+      "delta": -58
+    },
+    {
+      "line": 3,
+      "before_start": 726,
+      "before_end": 1005,
+      "after_start": 668,
+      "after_end": 933,
+      "delta": -72
+    },
+    {
+      "line": 4,
+      "before_start": 1005,
+      "before_end": 1642,
+      "after_start": 933,
+      "after_end": 1521,
+      "delta": -121
+    },
+    {
+      "line": 5,
+      "before_start": 1642,
+      "before_end": 1904,
+      "after_start": 1521,
+      "after_end": 1769,
+      "delta": -135
+    },
+    {
+      "line": 6,
+      "before_start": 1904,
+      "before_end": 2255,
+      "after_start": 1769,
+      "after_end": 2106,
+      "delta": -149
+    },
+    {
+      "line": 7,
+      "before_start": 2255,
+      "before_end": 2652,
+      "after_start": 2106,
+      "after_end": 2489,
+      "delta": -163
+    },
+    {
+      "line": 8,
+      "before_start": 2652,
+      "before_end": 3010,
+      "after_start": 2489,
+      "after_end": 2835,
+      "delta": -175
+    },
+    {
+      "line": 9,
+      "before_start": 3010,
+      "before_end": 3295,
+      "after_start": 2835,
+      "after_end": 3106,
+      "delta": -189
+    },
+    {
+      "line": 10,
+      "before_start": 3295,
+      "before_end": 3932,
+      "after_start": 3106,
+      "after_end": 3694,
+      "delta": -238
+    },
+    {
+      "line": 11,
+      "before_start": 3932,
+      "before_end": 4194,
+      "after_start": 3694,
+      "after_end": 3942,
+      "delta": -252
+    },
+    {
+      "line": 12,
+      "before_start": 4194,
+      "before_end": 4544,
+      "after_start": 3942,
+      "after_end": 4278,
+      "delta": -266
+    },
+    {
+      "line": 13,
+      "before_start": 4544,
+      "before_end": 4941,
+      "after_start": 4278,
+      "after_end": 4661,
+      "delta": -280
+    }
+  ],
+  "findings": [
+    {
+      "line": 1,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 1,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0001>"
+    },
+    {
+      "line": 4,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 4,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0002>"
+    },
+    {
+      "line": 4,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0001>"
+    },
+    {
+      "line": 10,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 10,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0003>"
+    },
+    {
+      "line": 10,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0001>"
+    }
+  ],
+  "malformed_lines": []
+}

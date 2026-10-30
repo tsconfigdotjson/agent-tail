@@ -1,0 +1,263 @@
+{
+  "format": 1,
+  "file": "session.jsonl",
+  "lorem": false,
+  "lines": 18,
+  "bytes_before": 14429,
+  "bytes_after": 13458,
+  "replacements": {
+    "email": 2,
+    "home_path": 9,
+    "host": 5,
+    "secret_entropy": 4
+  },
+  "offsets": [
+    {
+      "line": 1,
+      "before_start": 0,
+      "before_end": 107,
+      "after_start": 0,
+      "after_end": 102,
+      "delta": -5
+    },
+    {
+      "line": 2,
+      "before_start": 107,
+      "before_end": 195,
+      "after_start": 102,
+      "after_end": 185,
+      "delta": -10
+    },
+    {
+      "line": 3,
+      "before_start": 195,
+      "before_end": 305,
+      "after_start": 185,
+      "after_end": 290,
+      "delta": -15
+    },
+    {
+      "line": 4,
+      "before_start": 305,
+      "before_end": 393,
+      "after_start": 290,
+      "after_end": 373,
+      "delta": -20
+    },
+    {
+      "line": 5,
+      "before_start": 393,
+      "before_end": 641,
+      "after_start": 373,
+      "after_end": 609,
+      "delta": -32
+    },
+    {
+      "line": 6,
+      "before_start": 641,
+      "before_end": 1255,
+      "after_start": 609,
+      "after_end": 1181,
+      "delta": -74
+    },
+    {
+      "line": 7,
+      "before_start": 1255,
+      "before_end": 1752,
+      "after_start": 1181,
+      "after_end": 1650,
+      "delta": -102
+    },
+    {
+      "line": 8,
+      "before_start": 1752,
+      "before_end": 2368,
+      "after_start": 1650,
+      "after_end": 2233,
+      "delta": -135
+    },
+    {
+      "line": 9,
+      "before_start": 2368,
+      "before_end": 3765,
+      "after_start": 2233,
+      "after_end": 3549,
+      "delta": -216
+    },
+    {
+      "line": 10,
+      "before_start": 3765,
+      "before_end": 7681,
+      "after_start": 3549,
+      "after_end": 7279,
+      "delta": -402
+    },
+    {
+      "line": 11,
+      "before_start": 7681,
+      "before_end": 8768,
+      "after_start": 7279,
+      "after_end": 8251,
+      "delta": -517
+    },
+    {
+      "line": 12,
+      "before_start": 8768,
+      "before_end": 8863,
+      "after_start": 8251,
+      "after_end": 8341,
+      "delta": -522
+    },
+    {
+      "line": 13,
+      "before_start": 8863,
+      "before_end": 10213,
+      "after_start": 8341,
+      "after_end": 9601,
+      "delta": -612
+    },
+    {
+      "line": 14,
+      "before_start": 10213,
+      "before_end": 10536,
+      "after_start": 9601,
+      "after_end": 9907,
+      "delta": -629
+    },
+    {
+      "line": 15,
+      "before_start": 10536,
+      "before_end": 11739,
+      "after_start": 9907,
+      "after_end": 10941,
+      "delta": -798
+    },
+    {
+      "line": 16,
+      "before_start": 11739,
+      "before_end": 12710,
+      "after_start": 10941,
+      "after_end": 11851,
+      "delta": -859
+    },
+    {
+      "line": 17,
+      "before_start": 12710,
+      "before_end": 13964,
+      "after_start": 11851,
+      "after_end": 13022,
+      "delta": -942
+    },
+    {
+      "line": 18,
+      "before_start": 13964,
+      "before_end": 14429,
+      "after_start": 13022,
+      "after_end": 13458,
+      "delta": -971
+    }
+  ],
+  "findings": [
+    {
+      "line": 6,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 7,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 8,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 9,
+      "kind": "email",
+      "placeholder": "<email>"
+    },
+    {
+      "line": 9,
+      "kind": "host",
+      "placeholder": "<host>"
+    },
+    {
+      "line": 9,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 9,
+      "kind": "host",
+      "placeholder": "<host>"
+    },
+    {
+      "line": 9,
+      "kind": "email",
+      "placeholder": "<email>"
+    },
+    {
+      "line": 10,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 10,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0001>"
+    },
+    {
+      "line": 10,
+      "kind": "host",
+      "placeholder": "<host>"
+    },
+    {
+      "line": 10,
+      "kind": "host",
+      "placeholder": "<host>"
+    },
+    {
+      "line": 10,
+      "kind": "host",
+      "placeholder": "<host>"
+    },
+    {
+      "line": 11,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0002>"
+    },
+    {
+      "line": 13,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 15,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0003>"
+    },
+    {
+      "line": 15,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0004>"
+    },
+    {
+      "line": 16,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 17,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 18,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    }
+  ],
+  "malformed_lines": []
+}

@@ -18,3 +18,11 @@ claude_hard_kill_mid_tool
 claude_accept_edits
 claude_background_agent
 claude_usage_limit
+
+
+# SIGSTOP/SIGCONT wake from done, ask-user and/or approval wait; the _long_gap variants
+# drop open mock connections and advance the reducer clock by an hour.
+claude_sigstop_wake_done
+claude_sigstop_wake_answer
+claude_sigstop_wake_answer_long_gap
+claude_sigstop_wake_approval

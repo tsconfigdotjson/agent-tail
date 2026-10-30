@@ -1,0 +1,111 @@
+{
+  "format": 1,
+  "file": "session.jsonl",
+  "lorem": false,
+  "lines": 8,
+  "bytes_before": 8296,
+  "bytes_after": 7942,
+  "replacements": {
+    "home_path": 5,
+    "secret_entropy": 1
+  },
+  "offsets": [
+    {
+      "line": 1,
+      "before_start": 0,
+      "before_end": 177,
+      "after_start": 0,
+      "after_end": 168,
+      "delta": -9
+    },
+    {
+      "line": 2,
+      "before_start": 177,
+      "before_end": 324,
+      "after_start": 168,
+      "after_end": 304,
+      "delta": -20
+    },
+    {
+      "line": 3,
+      "before_start": 324,
+      "before_end": 465,
+      "after_start": 304,
+      "after_end": 436,
+      "delta": -29
+    },
+    {
+      "line": 4,
+      "before_start": 465,
+      "before_end": 6639,
+      "after_start": 436,
+      "after_end": 6433,
+      "delta": -206
+    },
+    {
+      "line": 5,
+      "before_start": 6639,
+      "before_end": 6851,
+      "after_start": 6433,
+      "after_end": 6628,
+      "delta": -223
+    },
+    {
+      "line": 6,
+      "before_start": 6851,
+      "before_end": 7465,
+      "after_start": 6628,
+      "after_end": 7185,
+      "delta": -280
+    },
+    {
+      "line": 7,
+      "before_start": 7465,
+      "before_end": 7683,
+      "after_start": 7185,
+      "after_end": 7386,
+      "delta": -297
+    },
+    {
+      "line": 8,
+      "before_start": 7683,
+      "before_end": 8296,
+      "after_start": 7386,
+      "after_end": 7942,
+      "delta": -354
+    }
+  ],
+  "findings": [
+    {
+      "line": 1,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 4,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 4,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 4,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 4,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 4,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0001>"
+    }
+  ],
+  "malformed_lines": []
+}

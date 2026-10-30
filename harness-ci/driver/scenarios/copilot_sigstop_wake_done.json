@@ -1,0 +1,22 @@
+{
+  "name": "copilot_sigstop_wake_done",
+  "description": "Copilot CLI interacts in its TUI: after the first done turn the live process is frozen, then a resumed prompt records the next turn without a restart.",
+  "harness": "copilot",
+  "pty": true,
+  "mock": "../../mock-server/scenarios/wake_plain_qa.json",
+  "command": [
+    "copilot", "--allow-all-tools",
+    "-i", "say hello"
+  ],
+  "freeze": {
+    "on_activity": "done",
+    "after_ms": 500,
+    "for_ms": 3000,
+    "resume_send": "say hello again\r"
+  },
+  "run_for_ms": 45000,
+  "expected_activity": [
+    { "activity": "done", "when": "ever", "certainty": "firm" },
+    { "activity": "done", "when": "end", "certainty": "firm" }
+  ]
+}

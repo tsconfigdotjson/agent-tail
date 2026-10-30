@@ -1,0 +1,7 @@
+harness = "pi"
+version = "1.4.0"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-30"
+description = "A completed turn is frozen, woken, and the same live session records the next turn."
+notes = "NOTES.md"

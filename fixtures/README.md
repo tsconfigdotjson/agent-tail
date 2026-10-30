@@ -73,6 +73,13 @@ The committed corpus lives in the versioned layout:
 | `copilot/1.0.103/linux/ci-copilot_hard_kill_mid_tool` | Real SIGKILL after `tool.execution_start` for a long bash call: no `tool.execution_complete`, `abort` or `session.shutdown`; firm `running_tool` then `idle` |
 | `copilot/1.0.103/linux/ci-copilot_usage_limit` | Copilot CLI 1.0.103 with the mock returning HTTP 429: `session.error` has `errorType: rate_limit` and `statusCode: 429`, then the routine shutdown; firm `errored` with `stop_reason: "usage_limit"` |
 
+The `ci-*_sigstop_wake_*` fixtures under each CLI harness were captured by freezing the CLI's
+process group at done, an ask-user question or an approval wait, then waking it and recording
+the next turn. Each scenario has before/frozen/after status checkpoints; the `_long_gap`
+variants also drop open mock connections and shift the post-wake clock by one hour. Their
+`NOTES.md` lists the states that harness can actually reach. OpenCode rewrites database rows in
+place, so its answer wait also has a `_frozen` snapshot from the stop time.
+
 The Claude Desktop fixtures are **handmade** from the public Claude Agent SDK record shape,
 not captured from an install; the matrix therefore says `ported-unverified`.
 Desktop's `local_<id>.json` sidecar is read by the tracker, but fixture status checkpoints

@@ -1,0 +1,7 @@
+harness = "codex"
+version = "0.160.1"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-30"
+description = "An ask-user question is frozen while on screen, then the answer records the next turn."
+notes = "NOTES.md"

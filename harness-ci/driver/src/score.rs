@@ -101,6 +101,26 @@ pub struct Sample {
     pub screen: &'static str,
     pub background_agents: bool,
     pub library: Option<LibraryPoint>,
+    #[serde(default)]
+    pub frozen: bool,
+    #[serde(default)]
+    pub now_offset_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event: Option<String>,
+}
+
+impl Default for Sample {
+    fn default() -> Self {
+        Sample {
+            elapsed_ms: 0,
+            screen: "unknown",
+            background_agents: false,
+            library: None,
+            frozen: false,
+            now_offset_ms: 0,
+            event: None,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -215,7 +235,9 @@ fn hard_failures(request: &ScoreRequest<'_>, stall_ms: u64, write_ms: u64, failu
         if library.activity == Activity::AwaitingApproval {
             if approval_impossible(request.no_approval, library.permission) {
                 failures.insert("AwaitingApproval in a mode where no approval is possible".into());
-            } else if !near_screen(request.samples, sample.elapsed_ms, PERMISSION, write_ms) {
+            } else if screen_tracks_approval(request.harness)
+                && !near_screen(request.samples, sample.elapsed_ms, PERMISSION, write_ms)
+            {
                 failures.insert(format!("AwaitingApproval while the screen is {}", sample.screen));
             }
         }
@@ -238,6 +260,10 @@ fn hard_failures(request: &ScoreRequest<'_>, stall_ms: u64, write_ms: u64, failu
     for message in unmet_observations(request) {
         failures.insert(message);
     }
+}
+
+fn screen_tracks_approval(harness: &str) -> bool {
+    matches!(harness, "claude_code" | "codex")
 }
 
 fn approval_impossible(no_approval: bool, permission: Option<PermissionMode>) -> bool {
@@ -1851,7 +1877,13 @@ mod tests {
     }
 
     fn at(elapsed_ms: u64, screen: ScreenState, activity: Option<Activity>) -> Sample {
-        Sample { elapsed_ms, screen: screen.id(), background_agents: false, library: activity.map(point) }
+        Sample {
+            elapsed_ms,
+            screen: screen.id(),
+            background_agents: false,
+            library: activity.map(point),
+            ..Sample::default()
+        }
     }
 
     fn score_of(samples: &[Sample], no_approval: bool, expected: &[Expectation]) -> Score {
@@ -2002,6 +2034,7 @@ mod tests {
             screen: ScreenState::PermissionPrompt.id(),
             background_agents: false,
             library: Some(bypass),
+            ..Sample::default()
         }];
         assert!(score_of(&samples, false, &[]).failures.iter().any(|f| f.contains("no approval is possible")));
         let mut never = point(Activity::AwaitingApproval);
@@ -2011,6 +2044,7 @@ mod tests {
             screen: ScreenState::Working.id(),
             background_agents: false,
             library: Some(never),
+            ..Sample::default()
         }];
         assert!(score_of(&samples, false, &[]).failures.iter().any(|f| f.contains("no approval is possible")));
     }
@@ -2024,6 +2058,7 @@ mod tests {
             screen: ScreenState::AskUserQuestion.id(),
             background_agents: false,
             library: Some(library),
+            ..Sample::default()
         }];
         assert!(score_of(&samples, true, &[]).failures.is_empty());
     }
@@ -2037,6 +2072,7 @@ mod tests {
             screen: ScreenState::Idle.id(),
             background_agents: false,
             library: Some(library),
+            ..Sample::default()
         }];
         let scored = score_of(&samples, false, &[]);
         assert_eq!(scored.failures, vec!["Done while background agents are running".to_string()]);
@@ -2051,6 +2087,7 @@ mod tests {
             screen: ScreenState::Working.id(),
             background_agents: true,
             library: Some(library),
+            ..Sample::default()
         }];
         assert!(score_of(&samples, false, &[]).failures.is_empty());
     }
@@ -2062,6 +2099,7 @@ mod tests {
             screen: ScreenState::Working.id(),
             background_agents: true,
             library: Some(point(Activity::Done)),
+            ..Sample::default()
         });
         assert!(score_of(&brief, false, &[]).failures.is_empty(), "a sub-second overlap is write lag");
         let held = [0u64, 2_000].map(|elapsed| Sample {
@@ -2069,6 +2107,7 @@ mod tests {
             screen: ScreenState::Working.id(),
             background_agents: true,
             library: Some(point(Activity::Done)),
+            ..Sample::default()
         });
         assert!(score_of(&held, false, &[]).failures.iter().any(|f| f.contains("background agents")));
     }
@@ -2080,6 +2119,7 @@ mod tests {
             screen: ScreenState::Idle.id(),
             background_agents: false,
             library: Some(point(Activity::Done)),
+            ..Sample::default()
         }];
         assert!(score_of(&samples, false, &[]).failures.is_empty());
     }
@@ -2179,6 +2219,7 @@ mod tests {
             screen: ScreenState::PermissionPrompt.id(),
             background_agents: false,
             library: Some(library),
+            ..Sample::default()
         }];
         assert!(score_of(&samples, false, &[]).failures.iter().any(|f| f.contains("no approval is possible")));
     }
@@ -2190,6 +2231,7 @@ mod tests {
             screen: ScreenState::Working.id(),
             background_agents: true,
             library: Some(point(Activity::Done)),
+            ..Sample::default()
         };
         assert!(score_of(&[at_ms(0), at_ms(1_000)], false, &[]).failures.is_empty());
         assert!(score_of(&[at_ms(0), at_ms(1_001)], false, &[]).failures.iter().any(|f| f.contains("background")));
@@ -2287,6 +2329,7 @@ mod tests {
             screen: ScreenState::AskUserQuestion.id(),
             background_agents: false,
             library: Some(inferred),
+            ..Sample::default()
         }];
         let only_firm = Expectation {
             activity: "awaiting_answer".into(),

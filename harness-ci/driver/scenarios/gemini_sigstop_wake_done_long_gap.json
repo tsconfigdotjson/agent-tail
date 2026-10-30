@@ -1,0 +1,26 @@
+{
+  "name": "gemini_sigstop_wake_done_long_gap",
+  "description": "Gemini CLI interacts in its TUI: after the first done turn the live process is frozen, the mock drops open connections and the wake clock jumps an hour, then a resumed prompt records the next turn.",
+  "harness": "gemini",
+  "pty": true,
+  "mock": "../../mock-server/scenarios/wake_plain_qa.json",
+  "command": [
+    "gemini", "--approval-mode", "yolo", "--skip-trust",
+    "-i", "say hello"
+  ],
+  "freeze": {
+    "on_activity": "done",
+    "after_ms": 500,
+    "for_ms": 4000,
+    "drop_connections": true,
+    "advance_now_ms": 3600000,
+    "resume_send": "say hello again\r",
+    "resume_delay_ms": 2000,
+    "resume_enter_delay_ms": 500
+  },
+  "run_for_ms": 45000,
+  "expected_activity": [
+    { "activity": "done", "when": "ever", "certainty": "firm" },
+    { "activity": "done", "when": "end", "certainty": "firm" }
+  ]
+}

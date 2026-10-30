@@ -7,3 +7,9 @@ opencode_usage_limit
 
 # SIGKILL while a tool part is running; no step-finish row.
 opencode_hard_kill_mid_tool
+
+# SIGSTOP/SIGCONT wake from done, ask-user and/or approval wait; the _long_gap variants
+# drop open mock connections and advance the reducer clock by an hour.
+opencode_sigstop_wake_done
+opencode_sigstop_wake_done_long_gap
+opencode_sigstop_wake_answer

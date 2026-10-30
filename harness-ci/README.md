@@ -105,6 +105,18 @@ from the expanded stable list, so the new scenarios are approved shape rather th
 drift. The adapter-by-adapter table, including deferred cases, is
 [`docs/harness-coverage.md`](../docs/harness-coverage.md).
 
+The SIGSTOP/SIGCONT wake scenarios stop the CLI's whole process group at the requested state,
+keep sampling while it is stopped, then continue it and record the next turn. `freeze` in a
+driver scenario names the screen/activity to wait for, the stopped duration, optional
+`drop_connections` and `advance_now_ms` for a VM-restore stand-in, and optional
+`resume_send`/`resume_delay_ms` bytes for the live composer. The long-gap variants drop the
+mock's open streams and move the reducer's clock (and writes after the wake) forward an hour;
+the fixtures shift post-wake record times by the same hour so the disk capture models the
+clock jump without waiting. Claude Code and Codex cover done, awaiting answer and awaiting
+approval; Copilot covers done and a real TUI approval; OpenCode covers done and the question
+tool; Pi and Gemini cover done. Unreachable states are recorded in each fixture's `NOTES.md`
+rather than invented. See `fixtures/*/*/linux/ci-*_sigstop_wake_*/NOTES.md`.
+
 Two Codex scenarios avoid host-dependent false failures. `codex_token_count` sends its second
 prompt on the first idle after a delay because a fast turn can finish without leaving the TUI
 idle screen long enough to count a second idle occurrence. `codex_approval_never` runs with

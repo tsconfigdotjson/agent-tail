@@ -10,3 +10,9 @@ copilot_usage_limit
 
 # SIGKILL after tool.execution_start, before execution_complete; no abort row.
 copilot_hard_kill_mid_tool
+
+# SIGSTOP/SIGCONT wake from done, ask-user and/or approval wait; the _long_gap variants
+# drop open mock connections and advance the reducer clock by an hour.
+copilot_sigstop_wake_done
+copilot_sigstop_wake_done_long_gap
+copilot_sigstop_wake_approval

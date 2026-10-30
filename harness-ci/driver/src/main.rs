@@ -16,6 +16,7 @@ use screen::ScreenState;
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime};
@@ -67,6 +68,13 @@ struct DriverScenario {
     expect_registry: Option<score::RegistryExpect>,
     #[serde(default)]
     expect_observations: Option<score::ObserveExpect>,
+    #[serde(default)]
+    freeze: Option<Freeze>,
+    /// Force a PTY run for a harness that normally uses its one-shot JSON mode. The
+    /// interactive command keeps the process alive after a turn, so a done-state freeze is
+    /// not racing process exit.
+    #[serde(default)]
+    pty: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -83,6 +91,42 @@ struct Phase {
     exit: Option<ExitMode>,
     #[serde(default)]
     env: BTreeMap<String, String>,
+    #[serde(default)]
+    freeze: Option<Freeze>,
+}
+
+/// Stop the CLI's process group, optionally drop the mock's open connections, then continue
+/// it. `advance_now_ms` models a VM restore: the reducer's clock (and the mtime of writes
+/// made after the wake) jumps forward, while the transcript already on disk keeps its own
+/// older record times.
+#[derive(Debug, Clone, Deserialize)]
+struct Freeze {
+    #[serde(default)]
+    on_screen: Option<ScreenState>,
+    #[serde(default)]
+    on_activity: Option<String>,
+    #[serde(default)]
+    after_ms: u64,
+    for_ms: u64,
+    #[serde(default)]
+    drop_connections: bool,
+    #[serde(default)]
+    advance_now_ms: u64,
+    /// Bytes sent to the PTY right after SIGCONT, before the next observation sample.
+    #[serde(default)]
+    resume_send: Option<String>,
+    /// Wait this long after SIGCONT before writing `resume_send`. TUI harnesses need a
+    /// moment to repaint and re-enable their composer.
+    #[serde(default)]
+    resume_delay_ms: u64,
+    /// Wait between typing a resume prompt and its trailing Enter. Some TUI composers
+    /// need a repaint before they accept the submit key.
+    #[serde(default = "default_resume_enter_delay_ms")]
+    resume_enter_delay_ms: u64,
+}
+
+fn default_resume_enter_delay_ms() -> u64 {
+    250
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -100,6 +144,7 @@ struct PhaseSpec {
     run_for_ms: u64,
     exit: ExitMode,
     env: BTreeMap<String, String>,
+    freeze: Option<Freeze>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -127,6 +172,9 @@ struct Tail {
     path: PathBuf,
     reducer: SessionReducer,
     offset: u64,
+    /// The transcript has been read, so its stat mtime is interpreted in the active
+    /// (possibly post-restore) clock after a wake.
+    touched_after_wake: bool,
 }
 
 struct Args {
@@ -217,10 +265,11 @@ async fn run(args: Args) -> Result<(), String> {
     let scenario_name = scenario.name.clone();
     let run_out = out.clone();
     let outcome = tokio::task::spawn_blocking(move || {
-        if matches!(harness, Harness::Pi | Harness::Gemini | Harness::Copilot) {
-            run_headless_json(scenario, harness, addr.to_string(), run_state, run_out, &home, &work)
-        } else {
+        let use_pty = scenario.pty.unwrap_or(!matches!(harness, Harness::Pi | Harness::Gemini | Harness::Copilot));
+        if use_pty {
             run_pty(scenario, harness, addr.to_string(), run_state, run_out, &home, &work)
+        } else {
+            run_headless_json(scenario, harness, addr.to_string(), run_state, run_out, &home, &work)
         }
     })
     .await
@@ -257,8 +306,12 @@ fn run_headless_json(
     let phases = materialize_phases(&scenario);
     let origin = Instant::now();
     let mut tail: Option<Tail> = None;
-    let mut samples = Vec::new();
+    let mut samples: Vec<Sample> = Vec::new();
     let mut session_id = None;
+    let out_ref = out.as_path();
+    // A long-gap wake advances this clock for every later phase too, so a resumed
+    // session's next writes carry the post-restore time.
+    let mut wake_offset = Duration::ZERO;
     for (index, phase) in phases.iter().enumerate() {
         let mut command = resolve_command(&phase.command, harness, session_id.as_deref())?;
         if let Some(prompt) = &phase.prompt {
@@ -292,6 +345,7 @@ fn run_headless_json(
             Harness::Copilot => {
                 builder.env("COPILOT_HOME", home.join(".copilot"));
                 builder.env("COPILOT_OFFLINE", "true");
+                builder.env("COPILOT_ALLOW_ALL", "true");
                 builder.env("COPILOT_PROVIDER_BASE_URL", format!("http://{addr}/v1"));
                 builder.env("COPILOT_PROVIDER_TYPE", "openai");
                 builder.env("COPILOT_PROVIDER_API_KEY", DUMMY_KEY);
@@ -315,40 +369,130 @@ fn run_headless_json(
             builder.process_group(0);
         }
         let mut child = builder.spawn().map_err(|e| format!("spawn {}: {e}", command[0]))?;
+        let child_pid = Some(child.id());
         let start = Instant::now();
         let run_for = Duration::from_millis(phase.run_for_ms);
+        let mut deadline = start + run_for;
         let mut last_sample = Instant::now() - SAMPLE_EVERY;
+        let mut freeze_seen: Option<Instant> = None;
+        let mut freeze_started = false;
+        let mut frozen_until: Option<Instant> = None;
         loop {
             let exited = child.try_wait().map_err(|e| format!("wait {}: {e}", command[0]))?.is_some();
+            let now_ms = origin.elapsed().as_millis() as u64;
+
+            if let Some(freeze) = &phase.freeze
+                && !freeze_started
+            {
+                let activity_match = freeze.on_activity.as_ref().is_none_or(|wanted| {
+                    samples
+                        .last()
+                        .and_then(|sample| sample.library.as_ref())
+                        .is_some_and(|library| score::activity_id(library.activity) == wanted)
+                });
+                if activity_match {
+                    let seen = *freeze_seen.get_or_insert_with(Instant::now);
+                    if seen.elapsed() >= Duration::from_millis(freeze.after_ms) {
+                        freeze_started = true;
+                        let line = transcript_line_count(home, harness);
+                        if freeze.drop_connections {
+                            drop_mock_connections(&addr)
+                                .map_err(|error| format!("drop mock connections at freeze: {error}"))?;
+                        }
+                        if signal_pid(child_pid, "STOP") {
+                            record_freeze(out_ref, &format!("phase-{index}"), "freeze", line, now_ms, freeze)?;
+                            snapshot_transcripts(out_ref, home, harness, "freeze")?;
+                            eprintln!("driver: froze process group for {} ms", freeze.for_ms);
+                            deadline += Duration::from_millis(freeze.for_ms);
+                            frozen_until = Some(Instant::now() + Duration::from_millis(freeze.for_ms));
+                            last_sample = Instant::now();
+                        } else {
+                            record_freeze(out_ref, &format!("phase-{index}"), "freeze_missed", line, now_ms, freeze)?;
+                            eprintln!("driver: process exited before the freeze could be applied");
+                        }
+                    }
+                } else {
+                    freeze_seen = None;
+                }
+            }
+
+            if let Some(until) = frozen_until {
+                if Instant::now() < until {
+                    if last_sample.elapsed() >= SAMPLE_EVERY {
+                        let library =
+                            library_state(&mut tail, harness, home, Timestamp::from(SystemTime::now()), Duration::ZERO);
+                        samples.push(Sample {
+                            elapsed_ms: now_ms,
+                            screen: ScreenState::Unknown.id(),
+                            background_agents: false,
+                            library: library.as_ref().map(score::library_point),
+                            frozen: true,
+                            now_offset_ms: 0,
+                            event: None,
+                        });
+                        last_sample = Instant::now();
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                    continue;
+                }
+                if !signal_pid(child_pid, "CONT") {
+                    return Err("wake: could not SIGCONT the CLI process group".into());
+                }
+                wake_offset += Duration::from_millis(phase.freeze.as_ref().map_or(0, |freeze| freeze.advance_now_ms));
+                record_freeze(
+                    out_ref,
+                    &format!("phase-{index}"),
+                    "wake",
+                    transcript_line_count(home, harness),
+                    now_ms,
+                    phase.freeze.as_ref().expect("freeze exists"),
+                )?;
+                snapshot_transcripts(out_ref, home, harness, "wake")?;
+                frozen_until = None;
+                last_sample = Instant::now();
+                continue;
+            }
+
             if last_sample.elapsed() >= SAMPLE_EVERY {
-                let library = library_state(&mut tail, harness, home, Timestamp::from(SystemTime::now()));
+                let library = library_state(
+                    &mut tail,
+                    harness,
+                    home,
+                    Timestamp::from(SystemTime::now() + wake_offset),
+                    wake_offset,
+                );
                 samples.push(Sample {
-                    elapsed_ms: origin.elapsed().as_millis() as u64,
+                    elapsed_ms: now_ms,
                     screen: ScreenState::Unknown.id(),
                     background_agents: false,
                     library: library.as_ref().map(score::library_point),
+                    frozen: false,
+                    now_offset_ms: wake_offset.as_millis() as u64,
+                    event: None,
                 });
                 last_sample = Instant::now();
             }
-            if exited || start.elapsed() >= run_for {
+            if exited || Instant::now() >= deadline {
                 break;
             }
             std::thread::sleep(Duration::from_millis(20));
         }
         if child.try_wait().map_err(|e| e.to_string())?.is_none() {
-            let pid = Some(child.id());
             let _ = child.kill();
-            stop_pid(pid);
+            stop_pid(child_pid);
             let _ = child.wait();
         }
         std::thread::sleep(Duration::from_millis(250));
-        let now = Timestamp::from(SystemTime::now());
-        let library = library_state(&mut tail, harness, home, now);
+        let now = Timestamp::from(SystemTime::now() + wake_offset);
+        let library = library_state(&mut tail, harness, home, now, wake_offset);
         samples.push(Sample {
             elapsed_ms: origin.elapsed().as_millis() as u64,
             screen: ScreenState::Unknown.id(),
             background_agents: false,
             library: library.as_ref().map(score::library_point),
+            frozen: false,
+            now_offset_ms: wake_offset.as_millis() as u64,
+            event: None,
         });
         if let Some(id) = read_session_id(home, harness) {
             session_id = Some(id);
@@ -415,7 +559,7 @@ fn run_pty(
     let mut registry_fields = BTreeSet::new();
     let mut final_screen = String::new();
     let mut session_id = None;
-    for phase in &phases {
+    for (phase_no, phase) in phases.iter().enumerate() {
         let command = resolve_command(&phase.command, harness, session_id.as_deref())?;
         drive_phase(DrivePhase {
             phase,
@@ -424,6 +568,8 @@ fn run_pty(
             addr: &addr,
             home,
             work,
+            out: &out,
+            phase_no,
             origin,
             tail: &mut tail,
             samples: &mut samples,
@@ -580,6 +726,7 @@ fn materialize_phases(scenario: &DriverScenario) -> Vec<PhaseSpec> {
             run_for_ms: scenario.run_for_ms,
             exit: scenario.exit,
             env: scenario.env.clone(),
+            freeze: scenario.freeze.clone(),
         }];
     }
     scenario
@@ -595,6 +742,7 @@ fn materialize_phases(scenario: &DriverScenario) -> Vec<PhaseSpec> {
                 run_for_ms: phase.run_for_ms.unwrap_or(scenario.run_for_ms),
                 exit: phase.exit.unwrap_or(scenario.exit),
                 env,
+                freeze: phase.freeze.clone().or_else(|| scenario.freeze.clone()),
             }
         })
         .collect()
@@ -624,6 +772,8 @@ struct DrivePhase<'a> {
     addr: &'a str,
     home: &'a Path,
     work: &'a Path,
+    out: &'a Path,
+    phase_no: usize,
     origin: Instant,
     tail: &'a mut Option<Tail>,
     samples: &'a mut Vec<Sample>,
@@ -640,6 +790,8 @@ fn drive_phase(drive: DrivePhase<'_>) -> Result<(), String> {
         addr,
         home,
         work,
+        out,
+        phase_no,
         origin,
         tail,
         samples,
@@ -689,6 +841,27 @@ fn drive_phase(drive: DrivePhase<'_>) -> Result<(), String> {
             builder.env("OPENCODE_DISABLE_MODELS_FETCH", "1");
             builder.env("OPENCODE_AUTH_CONTENT", "{}");
         }
+        Harness::Gemini => {
+            builder.env("GEMINI_CLI_HOME", home);
+            builder.env("GEMINI_API_KEY", DUMMY_KEY);
+            builder.env("GOOGLE_GEMINI_BASE_URL", format!("http://{addr}"));
+            builder.env("CI", "true");
+            builder.env("GEMINI_CLI_TRUST_WORKSPACE", "true");
+            builder.env("GEMINI_CLI_NO_RELAUNCH", "true");
+            builder.env("GEMINI_TELEMETRY_ENABLED", "false");
+        }
+        Harness::Copilot => {
+            builder.env("COPILOT_HOME", home.join(".copilot"));
+            builder.env("COPILOT_OFFLINE", "true");
+            builder.env("COPILOT_ALLOW_ALL", "true");
+            builder.env("COPILOT_PROVIDER_BASE_URL", format!("http://{addr}/v1"));
+            builder.env("COPILOT_PROVIDER_TYPE", "openai");
+            builder.env("COPILOT_PROVIDER_API_KEY", DUMMY_KEY);
+            builder.env("COPILOT_PROVIDER_MODEL_ID", "test-model");
+            builder.env("COPILOT_MODEL", "test-model");
+            builder.env("CI", "true");
+            builder.env("NO_COLOR", "1");
+        }
         _ => {}
     }
     builder.env("TERM", "xterm-256color");
@@ -728,6 +901,11 @@ fn drive_phase(drive: DrivePhase<'_>) -> Result<(), String> {
     let mut screen_state = ScreenState::Starting;
     let mut last_sample = Instant::now() - SAMPLE_EVERY;
     let phase_start = Instant::now();
+    let child_pid = child.process_id();
+    let mut freeze_seen: Option<Instant> = None;
+    let mut freeze_started = false;
+    let mut frozen_until: Option<Instant> = None;
+    let mut wake_offset = Duration::ZERO;
     keys_clock.reset(ScreenState::Starting, origin.elapsed().as_millis() as u64);
     let run_for = Duration::from_millis(phase.run_for_ms);
     // A newer CLI can spend longer on startup than an old one did. Keep that out of the
@@ -745,6 +923,121 @@ fn drive_phase(drive: DrivePhase<'_>) -> Result<(), String> {
         }
         *final_screen = screen;
         let now_ms = origin.elapsed().as_millis() as u64;
+
+        if let Some(freeze) = &phase.freeze
+            && !freeze_started
+        {
+            let screen_match = freeze.on_screen.is_none_or(|state| state == screen_state);
+            let activity_match = freeze.on_activity.as_ref().is_none_or(|wanted| {
+                samples
+                    .last()
+                    .and_then(|sample| sample.library.as_ref())
+                    .is_some_and(|library| score::activity_id(library.activity) == wanted)
+            });
+            if screen_match && activity_match {
+                let seen = *freeze_seen.get_or_insert_with(Instant::now);
+                if seen.elapsed() >= Duration::from_millis(freeze.after_ms) {
+                    freeze_started = true;
+                    let line = transcript_line_count(home, harness);
+                    if freeze.drop_connections {
+                        drop_mock_connections(addr)
+                            .map_err(|error| format!("drop mock connections at freeze: {error}"))?;
+                    }
+                    if !signal_pid(child_pid, "STOP") {
+                        return Err("freeze: could not SIGSTOP the CLI process group".into());
+                    }
+                    record_freeze(out, &format!("phase-{phase_no}"), "freeze", line, now_ms, freeze)?;
+                    snapshot_transcripts(out, home, harness, "freeze")?;
+                    eprintln!("driver: froze process group for {} ms", freeze.for_ms);
+                    deadline += Duration::from_millis(freeze.for_ms);
+                    frozen_until = Some(Instant::now() + Duration::from_millis(freeze.for_ms));
+                    sample_once(
+                        harness,
+                        home,
+                        &mut SampleSink { tail, samples, registry, registry_fields },
+                        screen_state,
+                        reading.background_agents,
+                        now_ms,
+                        Timestamp::from(SystemTime::now()),
+                        Duration::ZERO,
+                        true,
+                        Some("freeze"),
+                    );
+                    last_sample = Instant::now();
+                }
+            } else {
+                freeze_seen = None;
+            }
+        }
+
+        if let Some(until) = frozen_until {
+            if Instant::now() < until {
+                if last_sample.elapsed() >= SAMPLE_EVERY {
+                    sample_once(
+                        harness,
+                        home,
+                        &mut SampleSink { tail, samples, registry, registry_fields },
+                        screen_state,
+                        reading.background_agents,
+                        now_ms,
+                        Timestamp::from(SystemTime::now()),
+                        Duration::ZERO,
+                        true,
+                        None,
+                    );
+                    last_sample = Instant::now();
+                }
+                std::thread::sleep(Duration::from_millis(10));
+                continue;
+            }
+            if !signal_pid(child_pid, "CONT") {
+                return Err("wake: could not SIGCONT the CLI process group".into());
+            }
+            wake_offset += Duration::from_millis(phase.freeze.as_ref().map_or(0, |freeze| freeze.advance_now_ms));
+            if let Some(freeze) = phase.freeze.as_ref() {
+                if freeze.resume_delay_ms > 0 {
+                    std::thread::sleep(Duration::from_millis(freeze.resume_delay_ms));
+                }
+                if let Some(send) = freeze.resume_send.as_deref() {
+                    if let Some(prompt) = send.strip_suffix('\r') {
+                        write_keys(&mut writer, prompt.as_bytes())?;
+                        if !prompt.is_empty() && freeze.resume_enter_delay_ms > 0 {
+                            std::thread::sleep(Duration::from_millis(freeze.resume_enter_delay_ms));
+                        }
+                        write_keys(&mut writer, b"\r")?;
+                    } else {
+                        write_keys(&mut writer, send.as_bytes())?;
+                    }
+                    eprintln!("driver: sent resume bytes after SIGCONT");
+                }
+            }
+            record_freeze(
+                out,
+                &format!("phase-{phase_no}"),
+                "wake",
+                transcript_line_count(home, harness),
+                now_ms,
+                phase.freeze.as_ref().expect("freeze exists"),
+            )?;
+            snapshot_transcripts(out, home, harness, "wake")?;
+            frozen_until = None;
+            let now = Timestamp::from(SystemTime::now() + wake_offset);
+            sample_once(
+                harness,
+                home,
+                &mut SampleSink { tail, samples, registry, registry_fields },
+                screen_state,
+                reading.background_agents,
+                now_ms,
+                now,
+                wake_offset,
+                false,
+                Some("wake"),
+            );
+            last_sample = Instant::now();
+            continue;
+        }
+
         let (key_state, occurrence, key_elapsed_ms) = keys_clock.tick(reading.state, now_ms);
         let prompt_pending = phase.prompt.is_some() && !prompt_sent;
         if !prompt_pending {
@@ -778,6 +1071,10 @@ fn drive_phase(drive: DrivePhase<'_>) -> Result<(), String> {
                 screen_state,
                 reading.background_agents,
                 now_ms,
+                Timestamp::from(SystemTime::now() + wake_offset),
+                wake_offset,
+                false,
+                None,
             );
             last_sample = Instant::now();
         }
@@ -799,11 +1096,14 @@ fn drive_phase(drive: DrivePhase<'_>) -> Result<(), String> {
             reading.state,
             reading.background_agents,
             now_ms,
+            Timestamp::from(SystemTime::now() + wake_offset),
+            wake_offset,
+            false,
+            None,
         );
     }
-    let pid = child.process_id();
     let _ = child.kill();
-    stop_pid(pid);
+    stop_pid(child_pid);
     Ok(())
 }
 
@@ -824,6 +1124,96 @@ fn wait_for_child(
         std::thread::sleep(Duration::from_millis(30));
     }
     false
+}
+
+fn signal_pid(pid: Option<u32>, signal: &str) -> bool {
+    let Some(pid) = pid else { return false };
+    if pid == std::process::id() {
+        return false;
+    }
+    let mut sent = false;
+    if let Some(group) = process_group(pid)
+        && group != 0
+        && process_group(std::process::id()) != Some(group)
+    {
+        sent |= std::process::Command::new("kill")
+            .args([format!("-{signal}"), format!("-{group}")])
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+    }
+    sent |= std::process::Command::new("kill")
+        .args([format!("-{signal}"), pid.to_string()])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    sent
+}
+
+fn drop_mock_connections(addr: &str) -> std::io::Result<()> {
+    let mut stream = TcpStream::connect(addr)?;
+    stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+    write!(stream, "POST /__mock/drop HTTP/1.1\r\nHost: {addr}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")?;
+    stream.flush()?;
+    let mut response = String::new();
+    let _ = stream.read_to_string(&mut response);
+    if response.starts_with("HTTP/1.1 200") || response.starts_with("HTTP/1.0 200") {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(format!("mock drop route returned {response:?}")))
+    }
+}
+
+fn transcript_line_count(home: &Path, harness: Harness) -> Option<u64> {
+    if harness == Harness::OpenCode {
+        let state = read_opencode_state(home)?;
+        return Some(state.sessions.iter().map(|session| session.rows.len() as u64).sum());
+    }
+    let path = find_transcript(home, harness)?;
+    let bytes = std::fs::read(path).ok()?;
+    Some(bytes.iter().filter(|&&byte| byte == b'\n').count() as u64)
+}
+
+fn snapshot_transcripts(out: &Path, home: &Path, harness: Harness, label: &str) -> Result<(), String> {
+    let dumps = collect_transcript_dumps(home, harness);
+    if dumps.is_empty() {
+        return Ok(());
+    }
+    let dir = out.join(format!("snapshot-{label}"));
+    std::fs::create_dir_all(&dir).map_err(|error| format!("create {}: {error}", dir.display()))?;
+    for dump in dumps {
+        if dump.name.contains('/') || dump.name.contains('\\') || dump.name == "." || dump.name == ".." {
+            continue;
+        }
+        let path = dir.join(&dump.name);
+        std::fs::write(&path, &dump.jsonl).map_err(|error| format!("write {}: {error}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn record_freeze(
+    out: &Path,
+    phase: &str,
+    event: &str,
+    line: Option<u64>,
+    elapsed_ms: u64,
+    freeze: &Freeze,
+) -> Result<(), String> {
+    let entry = serde_json::json!({
+        "phase": phase,
+        "event": event,
+        "line": line,
+        "elapsed_ms": elapsed_ms,
+        "for_ms": freeze.for_ms,
+        "drop_connections": freeze.drop_connections,
+        "advance_now_ms": freeze.advance_now_ms,
+    });
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(out.join("freeze.jsonl"))
+        .and_then(|mut file| file.write_all(format!("{entry}\n").as_bytes()))
+        .map_err(|error| format!("write freeze evidence: {error}"))
 }
 
 fn stop_pid(pid: Option<u32>) {
@@ -872,13 +1262,20 @@ fn sample_once(
     screen: ScreenState,
     background_agents: bool,
     now_ms: u64,
+    now: Timestamp,
+    now_offset: Duration,
+    frozen: bool,
+    event: Option<&str>,
 ) {
-    let library = library_state(sink.tail, harness, home, Timestamp::from(SystemTime::now()));
+    let library = library_state(sink.tail, harness, home, now, now_offset);
     sink.samples.push(Sample {
         elapsed_ms: now_ms,
         screen: screen.id(),
         background_agents,
         library: library.as_ref().map(score::library_point),
+        frozen,
+        now_offset_ms: now_offset.as_millis() as u64,
+        event: event.map(str::to_string),
     });
     for snap in read_registry(home) {
         sink.registry_fields.extend(snap.keys.iter().cloned());
@@ -1193,7 +1590,10 @@ fn seed_pi(home: &Path, mock_addr: &str, extra: &serde_json::Map<String, serde_j
 fn seed_gemini(home: &Path, extra: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
     let config_dir = home.join(".gemini");
     std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
-    let mut settings = serde_json::json!({"security": {"auth": {"selectedType": "gemini-api-key"}}});
+    let mut settings = serde_json::json!({
+        "security": {"auth": {"selectedType": "gemini-api-key"}},
+        "general": {"enableAutoUpdate": false, "enableAutoUpdateNotification": false}
+    });
     let object = settings.as_object_mut().expect("settings object");
     for (key, value) in extra {
         object.insert(key.clone(), value.clone());
@@ -1258,9 +1658,35 @@ fn seed_claude(home: &Path, work: &Path, extra: &serde_json::Map<String, serde_j
         .map_err(|e| format!("seed settings.json: {e}"))
 }
 
-fn library_state(tail: &mut Option<Tail>, harness: Harness, home: &Path, now: Timestamp) -> Option<SessionState> {
+fn shift_opencode_clock(state: &mut agent_tail::OpenCodeState, offset: Duration) {
+    let millis = offset.as_millis() as i64;
+    for session in &mut state.sessions {
+        if let Some(at) = session.updated_at {
+            session.updated_at = Some(Timestamp::from_secs_f64(at.as_secs_f64() + offset.as_secs_f64()));
+        }
+        for record in &mut session.rows {
+            let Some(row) = record.get_mut("row").and_then(serde_json::Value::as_object_mut) else { continue };
+            for key in ["time_created", "time_updated"] {
+                let Some(value) = row.get_mut(key) else { continue };
+                let Some(old) = value.as_i64() else { continue };
+                *value = serde_json::json!(old + millis);
+            }
+        }
+    }
+}
+
+fn library_state(
+    tail: &mut Option<Tail>,
+    harness: Harness,
+    home: &Path,
+    now: Timestamp,
+    wake_offset: Duration,
+) -> Option<SessionState> {
     if harness == Harness::OpenCode {
-        let state = read_opencode_state(home)?;
+        let mut state = read_opencode_state(home)?;
+        if !wake_offset.is_zero() {
+            shift_opencode_clock(&mut state, wake_offset);
+        }
         let session = state.latest()?;
         let path = opencode_db(home).join(&session.id);
         let mut reducer = SessionReducer::new(Harness::OpenCode, ReducerOptions::default());
@@ -1274,15 +1700,17 @@ fn library_state(tail: &mut Option<Tail>, harness: Harness, home: &Path, now: Ti
     let path = find_transcript(home, harness)?;
     let metadata = std::fs::metadata(&path).ok()?;
     let len = metadata.len();
-    let mtime = metadata.modified().map(Timestamp::from).unwrap_or(now);
+    let actual_mtime = metadata.modified().map(Timestamp::from).unwrap_or(now);
     let replaced = tail.as_ref().is_some_and(|tail| tail.path != path || len < tail.offset);
     if tail.is_none() || replaced {
         let mut reducer = SessionReducer::new(harness, ReducerOptions::default());
         reducer.set_path(&path);
-        *tail = Some(Tail { path: path.clone(), reducer, offset: 0 });
+        *tail = Some(Tail { path: path.clone(), reducer, offset: 0, touched_after_wake: false });
     }
     let tail = tail.as_mut().expect("tail exists");
     if len > tail.offset {
+        tail.touched_after_wake = true;
+        let mtime = if wake_offset.is_zero() { actual_mtime } else { actual_mtime + wake_offset };
         let mut file = std::fs::File::open(&path).ok()?;
         file.seek(SeekFrom::Start(tail.offset)).ok()?;
         let mut bytes = Vec::new();
@@ -1297,9 +1725,12 @@ fn library_state(tail: &mut Option<Tail>, harness: Harness, home: &Path, now: Ti
             let ctx = ChunkCtx { offset: 0, mtime, path: &path };
             let all = std::fs::read(&path).ok()?;
             reducer.feed(&all, ctx).ok()?;
-            *tail = Tail { path: path.clone(), reducer, offset: all.len() as u64 };
+            *tail = Tail { path: path.clone(), reducer, offset: all.len() as u64, touched_after_wake: true };
         }
     } else {
+        // A file already read before the wake has its mtime observed in the post-restore
+        // clock; a file never read yet keeps the host's actual mtime.
+        let mtime = if tail.touched_after_wake { actual_mtime + wake_offset } else { actual_mtime };
         tail.reducer.transcript_written(mtime);
     }
     Some(tail.reducer.state(now))
@@ -1655,6 +2086,27 @@ mod tests {
         let (state, occurrence, elapsed) = clock.tick(ScreenState::Working, 6_400);
         assert_eq!((state, occurrence), (ScreenState::Working, 1));
         assert_eq!(elapsed, 400);
+    }
+
+    #[test]
+    fn the_sigstop_wake_scenarios_parse_and_keep_the_long_gap_clock_work() {
+        let done = scenario("claude_sigstop_wake_done.json");
+        let freeze = done.freeze.expect("done scenario freezes");
+        assert_eq!(freeze.on_activity.as_deref(), Some("done"));
+        assert_eq!(freeze.for_ms, 3000);
+        assert!(freeze.drop_connections == false);
+        assert_eq!(freeze.advance_now_ms, 0);
+        assert_eq!(freeze.resume_send.as_deref(), Some("say hello again\r"));
+
+        let long = scenario("claude_sigstop_wake_answer_long_gap.json");
+        let freeze = long.freeze.expect("long-gap scenario freezes");
+        assert_eq!(freeze.on_activity.as_deref(), Some("awaiting_answer"));
+        assert!(freeze.drop_connections);
+        assert_eq!(freeze.advance_now_ms, 3_600_000);
+
+        let pty = scenario("pi_sigstop_wake_done.json");
+        assert_eq!(pty.pty, Some(true));
+        assert_eq!(pty.freeze.expect("Pi done scenario freezes").on_activity.as_deref(), Some("done"));
     }
 
     #[test]

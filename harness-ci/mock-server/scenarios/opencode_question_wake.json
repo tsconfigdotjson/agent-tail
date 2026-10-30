@@ -1,0 +1,58 @@
+{
+  "name": "opencode_question_wake",
+  "description": "OpenCode's question tool stays pending until the user answers, then the model replies after its result.",
+  "steps": [
+    {
+      "expect": {
+        "user_contains": "ask me which color"
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "question",
+            "input": {
+              "questions": [
+                {
+                  "question": "Which color should the app use?",
+                  "header": "Color",
+                  "options": [
+                    {
+                      "label": "Blue",
+                      "description": "Use blue."
+                    },
+                    {
+                      "label": "Green",
+                      "description": "Use green."
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 10
+        }
+      }
+    },
+    {
+      "expect": {
+        "has_tool_result": true
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Thanks for choosing a color."
+          }
+        ],
+        "usage": {
+          "input_tokens": 20,
+          "output_tokens": 8
+        }
+      }
+    }
+  ]
+}

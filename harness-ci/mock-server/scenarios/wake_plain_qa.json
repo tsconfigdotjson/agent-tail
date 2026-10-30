@@ -1,0 +1,22 @@
+{
+  "name": "wake_plain_qa",
+  "description": "Two text turns: the first ends normally, the second arrives after a SIGSTOP/SIGCONT freeze.",
+  "steps": [
+    {
+      "expect": { "user_contains": "say hello" },
+      "reply": {
+        "content": [{ "type": "text", "text": "Hello before the freeze." }],
+        "usage": { "input_tokens": 10, "output_tokens": 5 },
+        "fault": { "type": "slow_first_token", "delay_ms": 500 }
+      }
+    },
+    {
+      "expect": { "user_contains": "say hello again" },
+      "reply": {
+        "content": [{ "type": "text", "text": "Hello after the freeze." }],
+        "usage": { "input_tokens": 20, "output_tokens": 6 },
+        "fault": { "type": "slow_first_token", "delay_ms": 500 }
+      }
+    }
+  ]
+}

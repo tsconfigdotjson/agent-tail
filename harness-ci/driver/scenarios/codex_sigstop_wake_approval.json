@@ -1,0 +1,22 @@
+{
+  "name": "codex_sigstop_wake_approval",
+  "description": "Codex is frozen on an escalation prompt after it stalls to inferred awaiting_approval, then wakes and completes the approved command's turn.",
+  "harness": "codex",
+  "mock": "../../mock-server/scenarios/codex_approval_wake.json",
+  "prompt": "run the command",
+  "freeze": {
+    "on_activity": "awaiting_approval",
+    "after_ms": 0,
+    "for_ms": 3000,
+    "resume_send": "\r"
+  },
+  "run_for_ms": 50000,
+  "expected_activity": [
+    { "activity": "awaiting_approval", "when": "ever", "screen": "permission_prompt", "certainty": "inferred" },
+    { "activity": "done", "when": "end", "screen": "idle", "certainty": "firm" }
+  ],
+  "expect_observations": {
+    "codex_approval_policies": ["on-request"],
+    "codex_no_approval_events": true
+  }
+}

@@ -8,3 +8,8 @@ gemini_usage_limit
 
 # SIGKILL before Gemini writes the completed-only toolCalls row; pins the pre-tool journal.
 gemini_hard_kill_mid_tool
+
+# SIGSTOP/SIGCONT wake from done, ask-user and/or approval wait; the _long_gap variants
+# drop open mock connections and advance the reducer clock by an hour.
+gemini_sigstop_wake_done
+gemini_sigstop_wake_done_long_gap

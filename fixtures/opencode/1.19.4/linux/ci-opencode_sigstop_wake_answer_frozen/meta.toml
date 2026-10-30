@@ -1,0 +1,7 @@
+harness = "opencode"
+version = "1.19.4"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-30"
+description = "Live OpenCode database snapshot taken while the question tool was pending at the freeze; see the main answer fixture for the post-wake final export."
+notes = "NOTES.md"

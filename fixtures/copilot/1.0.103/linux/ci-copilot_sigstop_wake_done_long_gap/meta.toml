@@ -1,0 +1,7 @@
+harness = "copilot"
+version = "1.0.103"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-30"
+description = "A completed turn is frozen, woken, and the same live session records the next turn. The mock drops open connections while the process is stopped and the reducer clock (and post-wake writes) advance one hour."
+notes = "NOTES.md"

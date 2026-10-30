@@ -1,0 +1,42 @@
+{
+  "name": "copilot_sigstop_wake_approval",
+  "description": "Copilot CLI is frozen on a real TUI permission request (firm awaiting_approval), then wakes and completes the approved tool's turn.",
+  "harness": "copilot",
+  "pty": true,
+  "mock": "../../mock-server/scenarios/opencode_tool.json",
+  "command": [
+    "copilot",
+    "-i",
+    "run the tool"
+  ],
+  "env": {
+    "COPILOT_ALLOW_ALL": "false"
+  },
+  "keys": [
+    {
+      "on": "unknown",
+      "send": "2\r",
+      "after_ms": 9000,
+      "occurrence": 1
+    }
+  ],
+  "freeze": {
+    "on_activity": "awaiting_approval",
+    "after_ms": 1000,
+    "for_ms": 3000,
+    "resume_send": "\r"
+  },
+  "run_for_ms": 50000,
+  "expected_activity": [
+    {
+      "activity": "awaiting_approval",
+      "when": "ever",
+      "certainty": "firm"
+    },
+    {
+      "activity": "done",
+      "when": "end",
+      "certainty": "firm"
+    }
+  ]
+}
