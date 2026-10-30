@@ -17,6 +17,8 @@ The committed corpus lives in the versioned layout:
 |---|---|
 | `claude-code/2.1/linux/seed-session` | a real Claude Code 2.1 session: a prompt, Bash / Read / Write calls, a generated title, a cost entry |
 | `claude-code/2.1.312/linux/ci-claude_hard_kill_mid_tool` | A harness-driver SIGKILL during a bypass-mode Bash sleep: the transcript ends on the pending `tool_use` with no tool result and no interrupt row, so it is firm `running_tool` immediately after death and firm `idle` / `no_writes_for` after 15 minutes; see the scenario `NOTES.md` |
+| `claude-code/2.1.314/linux/scheduled-wakeup` | A real 2.1.314 harness capture of dynamic `/loop` `ScheduleWakeup`: the result records `scheduledFor`, the turn ends `done` with the wakeup pending, then `system/scheduled_task_fire` clears it; the checkpoints assert `done` + pending, then cleared. `NOTES.md` records the tool shapes, due time, fire record and resume behaviour |
+| `claude-code/2.1.314/linux/scheduled-wakeup-cron` | A real 2.1.314 harness capture of deferred `CronCreate`: `ToolSearch` loads the schema, the result records the job `id` and `nextFireAt`, and the turn ends `done` with a pending cron; see `NOTES.md` |
 | `claude-desktop/handmade/any/plain-qa` | Hand-made Claude Desktop local-agent-mode audit: `system/init`, a prompt, an assistant `end_turn`, then the SDK `result` frame; checks working → done → idle |
 | `claude-desktop/handmade/any/tool-turn` | Hand-made Desktop audit: a pending `Bash` tool call, its `tool_result`, the answer, then the result frame |
 | `claude-desktop/handmade/any/tool-stall` | Hand-made Desktop audit: a default-mode pending tool is firm `running_tool` at 0 s and inferred `awaiting_approval` at 25 s, because the audit stream has no permission request record |
@@ -86,7 +88,7 @@ A status checkpoint is one JSON object per line:
 `after_line` counts entries read after feeding `input/session.jsonl` from the top. `now` for
 that check is the checkpoint line's own timestamp plus `now_offset_s` (so a pending tool is
 checked 30 s after its call). Optional `permission`, `sandbox`, `title`, `error`, `cost_usd`,
-`out_tokens`, `usage`, `recent` and `background` fields are compared when present. `crates/agent-tail/tests/status_fixtures.rs`
+`out_tokens`, `usage`, `recent`, `background` and `pending_wakeups` fields are compared when present. `crates/agent-tail/tests/status_fixtures.rs`
 runs every scenario, and `agent-tail status <input-dir> --checkpoints <file>` runs the same
 file as the language-neutral conformance command (canonical JSON; see
 [docs/conformance.md](../docs/conformance.md)).

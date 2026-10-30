@@ -5,8 +5,8 @@ use crate::adapters::pi::Branch;
 use crate::harness::Harness;
 use crate::reducer::ReducerOptions;
 use crate::state::{
-    Activity, ActivityLine, Certainty, Diagnostics, PermissionMode, Reason, SandboxPolicy, SessionMeta, SessionState,
-    TokenUsage,
+    Activity, ActivityLine, Certainty, Diagnostics, PendingWakeup, PermissionMode, Reason, SandboxPolicy, SessionMeta,
+    SessionState, TokenUsage, WakeupKind,
 };
 use crate::time::Timestamp;
 use serde_json::Value;
@@ -110,6 +110,20 @@ fn path_file_stem(path: &str) -> &str {
     Path::new(path).file_stem().and_then(|name| name.to_str()).unwrap_or(path)
 }
 
+/// One armed wakeup, before it is projected into the public state. `id` is the harness's
+/// job id when it records one, and `source_call_id` links the follow-up tool result to the
+/// tool call that armed it.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ArmedWakeup {
+    pub(crate) kind: WakeupKind,
+    pub(crate) due_at: Option<Timestamp>,
+    pub(crate) reason: Option<String>,
+    pub(crate) certainty: Certainty,
+    pub(crate) id: String,
+    pub(crate) source_call_id: Option<String>,
+    pub(crate) recurring: bool,
+}
+
 /// One session's state, built up entry by entry by its harness's adapter. Times are seconds
 /// since the epoch, 0 for none.
 #[derive(Clone, Debug, PartialEq)]
@@ -164,6 +178,9 @@ pub(crate) struct Session {
     pub(crate) background_killed_at: f64,
     /// Claude Code's async background launches, linked to their helper files.
     pub(crate) launched_helpers: HashMap<String, LaunchedHelper>,
+    /// Scheduled wakeups armed but not fired, deleted or cancelled, keyed by job id or the
+    /// tool call that armed them.
+    pub(crate) wakeups: HashMap<String, ArmedWakeup>,
     /// The Codex thread id (`session_meta.payload.id`), for `session_index.jsonl` titles.
     pub(crate) session_id: String,
     /// Whether this is a helper's own session: its records carry `isSidechain: true`.
@@ -233,6 +250,7 @@ impl Session {
             background_kills: 0,
             background_killed_at: 0.0,
             launched_helpers: HashMap::new(),
+            wakeups: HashMap::new(),
             session_id: String::new(),
             is_helper: false,
             embedded_helpers: HashMap::new(),
@@ -306,6 +324,62 @@ impl Session {
         self.mtime.max(self.helper_mtime)
     }
 
+    /// The public projection of armed wakeups, earliest due first.
+    pub(crate) fn pending_wakeups(&self) -> Vec<PendingWakeup> {
+        let mut wakeups: Vec<_> = self.wakeups.values().collect();
+        wakeups.sort_by(|a, b| {
+            let due = |w: &ArmedWakeup| w.due_at.map_or(f64::INFINITY, Timestamp::as_secs_f64);
+            due(a)
+                .partial_cmp(&due(b))
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.kind.as_str().cmp(b.kind.as_str()))
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        wakeups
+            .into_iter()
+            .map(|wakeup| PendingWakeup {
+                kind: wakeup.kind,
+                due_at: wakeup.due_at,
+                reason: wakeup.reason.clone(),
+                certainty: wakeup.certainty,
+            })
+            .collect()
+    }
+
+    /// Remember or replace a wakeup. A result for an inferred tool call replaces that call's
+    /// entry, and a job id replaces any earlier entry for the same id.
+    pub(crate) fn schedule_wakeup(&mut self, wakeup: ArmedWakeup) {
+        let same = |existing: &ArmedWakeup| {
+            (!wakeup.id.is_empty() && existing.id == wakeup.id)
+                || (wakeup.source_call_id.is_some() && existing.source_call_id == wakeup.source_call_id)
+        };
+        self.wakeups.retain(|_, existing| !same(existing));
+        let key = if !wakeup.id.is_empty() {
+            format!("{}:{}", wakeup.kind.as_str(), wakeup.id)
+        } else if let Some(call_id) = &wakeup.source_call_id {
+            format!("call:{call_id}")
+        } else {
+            format!("{}:{}", wakeup.kind.as_str(), self.wakeups.len())
+        };
+        self.wakeups.insert(key, wakeup);
+    }
+
+    /// Clear wakeups by harness job id, by the tool call that armed them, or by kind. With
+    /// no id and no source call id, `None` clears every armed wakeup.
+    pub(crate) fn clear_wakeups(&mut self, kind: Option<WakeupKind>, id: Option<&str>, source_call_id: Option<&str>) {
+        let by_id = id.filter(|id| !id.is_empty());
+        let by_call = source_call_id.filter(|id| !id.is_empty());
+        self.wakeups.retain(|_, wakeup| {
+            if let Some(id) = by_id {
+                return wakeup.id != id;
+            }
+            if let Some(call_id) = by_call {
+                return wakeup.source_call_id.as_deref() != Some(call_id);
+            }
+            kind.is_none_or(|kind| wakeup.kind != kind)
+        });
+    }
+
     /// The session as of `now`.
     pub(crate) fn state(&self, now: Timestamp, o: &ReducerOptions, diagnostics: Diagnostics) -> SessionState {
         let (activity, certainty, reason) = self.activity(now.as_secs_f64(), o);
@@ -323,6 +397,7 @@ impl Session {
             last_at: some(self.last_at),
             last_write: some(self.active_at()),
             background: Vec::new(),
+            pending_wakeups: self.pending_wakeups(),
             permission: self.permission,
             sandbox: self.sandbox,
             error: self.error.clone(),
@@ -404,6 +479,11 @@ impl Session {
         if matches!(last, Last::Interrupted | Last::Errored) {
             self.background_agents = 0;
             self.launched_helpers.clear();
+        }
+        // A user abort cancels the dynamic loop's pending wakeups in Claude Code. A cron
+        // job is separate and is only cleared by CronDelete, its fire record or exit.
+        if last == Last::Interrupted {
+            self.clear_wakeups(Some(WakeupKind::Loop), None, None);
         }
     }
 

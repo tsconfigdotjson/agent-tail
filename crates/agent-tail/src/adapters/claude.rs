@@ -118,7 +118,7 @@ fn known_record(kind: &str) -> bool {
     )
 }
 
-fn user(_state: &mut crate::event::ParseState, e: &Value, at: Option<f64>, out: &mut Vec<EventSeed>) {
+fn user(state: &mut crate::event::ParseState, e: &Value, at: Option<f64>, out: &mut Vec<EventSeed>) {
     use crate::event::{EventKind, TurnEndReason};
     let t = at.unwrap_or_default();
     let content = &e["message"]["content"];
@@ -204,14 +204,20 @@ fn user(_state: &mut crate::event::ParseState, e: &Value, at: Option<f64>, out: 
     let results: Vec<&Value> = items.iter().filter(|c| c["type"] == "tool_result").collect();
     if !results.is_empty() {
         for result in results {
+            let call_id = result["tool_use_id"].as_str().filter(|id| !id.is_empty());
             out.push(
                 EventSeed::new(EventKind::ToolResult {
-                    call_id: result["tool_use_id"].as_str().filter(|id| !id.is_empty()).map(String::from),
+                    call_id: call_id.map(String::from),
                     is_error: result["is_error"].as_bool() == Some(true),
                     size: result_size(&result["content"]),
                 })
                 .at(at),
             );
+            if let Some(call_id) = call_id
+                && let Some(seed) = wakeup_result(state, e, result, call_id, at)
+            {
+                out.push(seed);
+            }
         }
         return;
     }
@@ -343,10 +349,11 @@ fn assistant(
             ),
             "tool_use" => {
                 let name = c["name"].as_str().unwrap_or_default();
+                let call_id = c["id"].as_str().filter(|id| !id.is_empty());
                 out.push(
                     EventSeed::new(EventKind::ToolCall {
                         name: name.into(),
-                        call_id: c["id"].as_str().filter(|id| !id.is_empty()).map(String::from),
+                        call_id: call_id.map(String::from),
                         kind: ToolKind::of(name, &c["input"]),
                         input: c["input"].clone(),
                         asks_user: harness.discovery().asks_user(name),
@@ -354,6 +361,11 @@ fn assistant(
                     })
                     .at(at),
                 );
+                if let Some(call_id) = call_id
+                    && let Some(seed) = wakeup_call(state, name, &c["input"], call_id, at)
+                {
+                    out.push(seed);
+                }
             }
             kind if known_content(kind) => {
                 out.push(
@@ -396,14 +408,20 @@ fn system(e: &Value, at: Option<f64>, out: &mut Vec<EventSeed>) {
             .at(at),
         ),
         // A session exiting with its helpers: the turn is over, nothing is left running.
-        Some("agents_killed") => out.push(
-            EventSeed::new(EventKind::TurnEnd {
-                reason: TurnEndReason::EndTurn,
-                error: None,
-                background_agents: Some(0),
-            })
-            .at(at),
-        ),
+        // Its in-memory wakeups die with it too.
+        Some("agents_killed") => {
+            out.push(
+                EventSeed::new(EventKind::WakeupCleared { kind: None, job_id: None, source_call_id: None }).at(at),
+            );
+            out.push(
+                EventSeed::new(EventKind::TurnEnd {
+                    reason: TurnEndReason::EndTurn,
+                    error: None,
+                    background_agents: Some(0),
+                })
+                .at(at),
+            );
+        }
         Some("compact_boundary") => out.push(
             EventSeed::new(EventKind::Compaction {
                 trigger: e["compactMetadata"]["trigger"].as_str().map(String::from),
@@ -412,9 +430,21 @@ fn system(e: &Value, at: Option<f64>, out: &mut Vec<EventSeed>) {
             })
             .at(at),
         ),
-        Some("away_summary" | "bridge_status" | "informational" | "local_command" | "scheduled_task_fire") => {
-            out.push(meta(e).at(at))
+        Some("scheduled_task_fire") => {
+            let kind = match e["taskKind"].as_str().or_else(|| e["cronKind"].as_str()) {
+                Some("loop") => Some(crate::state::WakeupKind::Loop),
+                Some("cron") => Some(crate::state::WakeupKind::Cron),
+                _ => None,
+            };
+            if let Some(kind) = kind {
+                out.push(
+                    EventSeed::new(EventKind::WakeupCleared { kind: Some(kind), job_id: None, source_call_id: None })
+                        .at(at),
+                );
+            }
+            out.push(meta(e).at(at));
         }
+        Some("away_summary" | "bridge_status" | "informational" | "local_command") => out.push(meta(e).at(at)),
         Some(_) | None => out.push(meta(e).at(at)),
     }
 }
@@ -578,6 +608,202 @@ fn async_launched(e: &Value, t: f64) -> Option<LaunchedHelper> {
         || !helper.output_file.is_empty()
         || !helper.tool_use_id.is_empty())
     .then_some(helper)
+}
+
+/// A Claude scheduled-wakeup tool call: remember it for its result and emit the inferred
+/// entry immediately, so a transcript that stops before the result still says something is
+/// armed.
+fn wakeup_call(
+    state: &mut crate::event::ParseState,
+    name: &str,
+    input: &Value,
+    call_id: &str,
+    at: Option<f64>,
+) -> Option<EventSeed> {
+    use crate::event::{ClaudeWakeupAction, ClaudeWakeupCall, EventKind};
+    use crate::state::{Certainty, WakeupKind};
+    use crate::time::Timestamp;
+
+    let (kind, action) = match name {
+        "ScheduleWakeup" => (
+            WakeupKind::Loop,
+            if input["stop"] == true { ClaudeWakeupAction::Stop } else { ClaudeWakeupAction::Create },
+        ),
+        "CronCreate" => (WakeupKind::Cron, ClaudeWakeupAction::Create),
+        "CronDelete" => (WakeupKind::Cron, ClaudeWakeupAction::Delete),
+        _ => return None,
+    };
+    let reason = input["reason"]
+        .as_str()
+        .or_else(|| input["prompt"].as_str())
+        .map(crate::session::first_line)
+        .filter(|reason| !reason.is_empty())
+        .map(String::from);
+    state.claude_wakeups.insert(call_id.into(), ClaudeWakeupCall { kind, action, reason: reason.clone() });
+    match action {
+        ClaudeWakeupAction::Stop => Some(
+            EventSeed::new(EventKind::WakeupCleared { kind: Some(kind), job_id: None, source_call_id: None }).at(at),
+        ),
+        ClaudeWakeupAction::Delete => None,
+        ClaudeWakeupAction::Create => {
+            let due_at = (kind == WakeupKind::Loop)
+                .then(|| {
+                    let delay = input["delaySeconds"].as_f64()?;
+                    Some(Timestamp::from_secs_f64(at? + delay))
+                })
+                .flatten();
+            Some(
+                EventSeed::new(EventKind::WakeupScheduled {
+                    kind,
+                    due_at,
+                    reason,
+                    job_id: None,
+                    recurring: false,
+                    certainty: Certainty::Inferred,
+                    source_call_id: Some(call_id.into()),
+                })
+                .at(at),
+            )
+        }
+    }
+}
+
+/// A tool result for a scheduled-wakeup tool. The result is the firm evidence: it carries
+/// the actual due time or the harness job id, not the requested delay.
+fn wakeup_result(
+    state: &mut crate::event::ParseState,
+    e: &Value,
+    result: &Value,
+    call_id: &str,
+    at: Option<f64>,
+) -> Option<EventSeed> {
+    use crate::event::{ClaudeWakeupAction, EventKind};
+    use crate::state::{Certainty, WakeupKind};
+    use crate::time::Timestamp;
+
+    let call = state.claude_wakeups.remove(call_id);
+    let is_error = result["is_error"].as_bool() == Some(true);
+    if is_error {
+        let kind = call.as_ref().map(|call| call.kind);
+        return Some(
+            EventSeed::new(EventKind::WakeupCleared { kind, job_id: None, source_call_id: Some(call_id.into()) })
+                .at(at),
+        );
+    }
+    let data = &e["toolUseResult"];
+    let text = result_text(&result["content"]).unwrap_or_default();
+
+    if let Some(call) = &call {
+        match call.action {
+            ClaudeWakeupAction::Stop => {
+                return Some(
+                    EventSeed::new(EventKind::WakeupCleared {
+                        kind: Some(WakeupKind::Loop),
+                        job_id: None,
+                        source_call_id: None,
+                    })
+                    .at(at),
+                );
+            }
+            ClaudeWakeupAction::Delete => {
+                let id = data["id"].as_str().filter(|id| !id.is_empty());
+                return Some(
+                    EventSeed::new(EventKind::WakeupCleared {
+                        kind: Some(WakeupKind::Cron),
+                        job_id: id.map(String::from),
+                        source_call_id: Some(call_id.into()),
+                    })
+                    .at(at),
+                );
+            }
+            ClaudeWakeupAction::Create => {}
+        }
+    }
+
+    if data["stopped"].as_bool() == Some(true) {
+        return Some(
+            EventSeed::new(EventKind::WakeupCleared {
+                kind: Some(WakeupKind::Loop),
+                job_id: None,
+                source_call_id: None,
+            })
+            .at(at),
+        );
+    }
+    if let Some(millis) = data["scheduledFor"].as_f64().filter(|millis| *millis > 0.0) {
+        let reason = call.and_then(|call| call.reason);
+        return Some(
+            EventSeed::new(EventKind::WakeupScheduled {
+                kind: WakeupKind::Loop,
+                due_at: Some(Timestamp::from_secs_f64(millis / 1000.0)),
+                reason,
+                job_id: None,
+                recurring: false,
+                certainty: Certainty::Firm,
+                source_call_id: Some(call_id.into()),
+            })
+            .at(at),
+        );
+    }
+    if let Some(id) = data["id"].as_str().filter(|id| !id.is_empty()) {
+        if let Some(millis) = data["nextFireAt"].as_f64().filter(|millis| *millis > 0.0) {
+            let reason = call.and_then(|call| call.reason).or_else(|| data["humanSchedule"].as_str().map(String::from));
+            return Some(
+                EventSeed::new(EventKind::WakeupScheduled {
+                    kind: WakeupKind::Cron,
+                    due_at: Some(Timestamp::from_secs_f64(millis / 1000.0)),
+                    reason,
+                    job_id: Some(id.into()),
+                    recurring: data["recurring"].as_bool().unwrap_or(false),
+                    certainty: Certainty::Firm,
+                    source_call_id: Some(call_id.into()),
+                })
+                .at(at),
+            );
+        }
+        if let Some(call) = &call
+            && call.action == ClaudeWakeupAction::Delete
+        {
+            return Some(
+                EventSeed::new(EventKind::WakeupCleared {
+                    kind: Some(WakeupKind::Cron),
+                    job_id: Some(id.into()),
+                    source_call_id: Some(call_id.into()),
+                })
+                .at(at),
+            );
+        }
+    }
+    // A partial read may start after the tool call. The result shape still identifies a
+    // cancelled cron job; don't infer any other tool from an unlabelled result.
+    if text.starts_with("Cancelled job ")
+        && let Some(id) = data["id"].as_str().filter(|id| !id.is_empty())
+    {
+        return Some(
+            EventSeed::new(EventKind::WakeupCleared {
+                kind: Some(WakeupKind::Cron),
+                job_id: Some(id.into()),
+                source_call_id: Some(call_id.into()),
+            })
+            .at(at),
+        );
+    }
+    // A dynamic wakeup that was not scheduled (for example, the loop aged out) must not
+    // leave the inferred call-time entry behind.
+    if let Some(call) = call
+        && call.action == ClaudeWakeupAction::Create
+        && call.kind == WakeupKind::Loop
+    {
+        return Some(
+            EventSeed::new(EventKind::WakeupCleared {
+                kind: Some(WakeupKind::Loop),
+                job_id: None,
+                source_call_id: Some(call_id.into()),
+            })
+            .at(at),
+        );
+    }
+    None
 }
 
 fn describe_tool(name: &str, input: &Value) -> ActivityLine {
@@ -1042,6 +1268,72 @@ mod tests {
         ] {
             assert_eq!(encode(cwd), folder);
         }
+    }
+
+    #[test]
+    fn a_schedule_wakeup_result_stays_pending_until_it_fires() {
+        let call = json!({"type": "assistant", "timestamp": at(4.0),
+            "message": {"id": "m1", "stop_reason": "tool_use", "usage": {"output_tokens": 1},
+                "content": [{"type": "tool_use", "id": "toolu_1", "name": "ScheduleWakeup",
+                    "input": {"delaySeconds": 60, "noop": false, "prompt": "Check the deploy.",
+                              "reason": "Watching the deploy."}}]}});
+        let result = json!({"type": "user", "timestamp": at(3.9),
+            "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_1",
+                "content": "Next wakeup scheduled for 10:02:00 (in 60s)."}]},
+            "toolUseResult": {"scheduledFor": 1793324520000_u64, "clampedDelaySeconds": 60, "wasClamped": false}});
+        let mut s = session(&[prompt("watch the deploy", 5.0), call, result, end_turn(3.0, "m2")]);
+        let pending = s.pending_wakeups();
+        assert_eq!(pending.len(), 1, "{pending:#?}");
+        assert_eq!(pending[0].kind, crate::WakeupKind::Loop);
+        assert_eq!(pending[0].due_at, Some(crate::Timestamp::from_secs_f64(1793324520.0)));
+        assert_eq!(pending[0].reason.as_deref(), Some("Watching the deploy."));
+        assert_eq!(pending[0].certainty, crate::Certainty::Firm);
+
+        s.apply(&json!({"type": "system", "subtype": "scheduled_task_fire", "timestamp": at(2.0),
+            "taskId": "abc", "taskKind": "loop", "cronKind": "loop", "prompt": "Check the deploy."}));
+        assert!(s.pending_wakeups().is_empty(), "the fire record clears the loop wakeup");
+    }
+
+    #[test]
+    fn cron_create_and_delete_use_the_harness_job_id() {
+        let create = json!({"type": "assistant", "timestamp": at(4.0),
+            "message": {"id": "m1", "stop_reason": "tool_use", "content": [
+                {"type": "tool_use", "id": "toolu_c1", "name": "CronCreate",
+                 "input": {"cron": "*/5 * * * *", "prompt": "Check the deploy.", "recurring": true}}]}});
+        let created = json!({"type": "user", "timestamp": at(3.9),
+            "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_c1",
+                "content": "Scheduled recurring job 083784d8 (Every 5 minutes)."}]},
+            "toolUseResult": {"id": "083784d8", "humanSchedule": "Every 5 minutes", "recurring": true,
+                "durable": false, "nextFireAt": 1793324620207_u64}});
+        let mut s = session(&[prompt("schedule a cron", 5.0), create, created, end_turn(3.0, "m2")]);
+        let pending = s.pending_wakeups();
+        assert_eq!(pending.len(), 1, "{pending:#?}");
+        assert_eq!(pending[0].kind, crate::WakeupKind::Cron);
+        assert_eq!(pending[0].due_at, Some(crate::Timestamp::from_secs_f64(1793324620.207)));
+        assert_eq!(pending[0].certainty, crate::Certainty::Firm);
+
+        let delete = json!({"type": "assistant", "timestamp": at(1.0),
+            "message": {"id": "m3", "stop_reason": "tool_use", "content": [
+                {"type": "tool_use", "id": "toolu_c2", "name": "CronDelete", "input": {"id": "083784d8"}}]}});
+        let deleted = json!({"type": "user", "timestamp": at(0.9),
+            "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_c2", "content": "Cancelled job 083784d8."}]},
+            "toolUseResult": {"id": "083784d8"}});
+        s.apply(&delete);
+        s.apply(&deleted);
+        assert!(s.pending_wakeups().is_empty(), "CronDelete clears the matching job");
+    }
+
+    #[test]
+    fn stopping_a_dynamic_loop_clears_only_its_wakeups() {
+        let call = json!({"type": "assistant", "timestamp": at(4.0),
+            "message": {"id": "m1", "stop_reason": "tool_use", "content": [
+                {"type": "tool_use", "id": "toolu_s1", "name": "ScheduleWakeup", "input": {"stop": true}}]}});
+        let result = json!({"type": "user", "timestamp": at(3.9),
+            "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_s1", "content": "Loop stopped."}]},
+            "toolUseResult": {"scheduledFor": 0, "clampedDelaySeconds": 0, "wasClamped": false,
+                "stopped": true, "cancelledWakeups": 1}});
+        let s = session(&[call, result]);
+        assert!(s.pending_wakeups().is_empty());
     }
 
     #[test]

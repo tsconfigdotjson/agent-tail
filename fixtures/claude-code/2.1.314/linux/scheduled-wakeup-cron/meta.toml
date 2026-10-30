@@ -1,0 +1,7 @@
+harness = "claude_code"
+version = "2.1.314"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-30"
+description = "ToolSearch loads CronCreate, then CronCreate arms a recurring cron job: the result carries the job id and nextFireAt, and the turn ends done with it pending; see NOTES.md."
+notes = "NOTES.md"

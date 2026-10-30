@@ -1,6 +1,6 @@
 {
   "name": "claude_non_ascii",
-  "description": "The prompt, the Read path, and the session title each contain non-ASCII text.",
+  "description": "The prompt and Read path contain non-ASCII text. Claude Code 2.1.314 no longer issues an automatic title request in this offline harness path, so the scenario no longer asserts an ai-title observation; older versions still answer the title override if they request one.",
   "harness": "claude_code",
   "mock": "../../mock-server/scenarios/non_ascii.json",
   "prompt": "read notes/café-📝.txt and reply こんにちは 🎉",
@@ -13,7 +13,6 @@
   ],
   "expect_observations": {
     "non_ascii_prompt": true,
-    "non_ascii_title": true,
     "non_ascii_path": true
   }
 }

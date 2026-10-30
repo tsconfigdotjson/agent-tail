@@ -25,6 +25,10 @@ pub struct SessionState {
     pub last_write: Option<Timestamp>,
     /// Helpers (subagents and background tasks) still running, as their own transcripts say.
     pub background: Vec<HelperState>,
+    /// Wakeups this session has armed but not fired, deleted or cancelled. The activity can
+    /// still be `done`: a downstream host that sleeps a resting agent must also keep it
+    /// awake until the earliest due time.
+    pub pending_wakeups: Vec<PendingWakeup>,
     /// The permission mode the harness last recorded, if it records one.
     pub permission: Option<PermissionMode>,
     /// The sandbox policy the harness last recorded (Codex), if it records one.
@@ -125,6 +129,42 @@ pub enum Certainty {
     Firm,
     /// A timing or shape heuristic, named by the [`Reason`].
     Inferred,
+}
+
+/// What kind of scheduled wakeup a harness has armed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum WakeupKind {
+    /// A dynamic `/loop` wakeup (`ScheduleWakeup` in Claude Code): fires once, then the
+    /// model decides whether to arm another.
+    Loop,
+    /// A cron job (`CronCreate`/`CronDelete` in Claude Code): a wall-clock schedule,
+    /// recurring or one-shot. A fixed-interval `/loop 5m` is represented by a cron job.
+    Cron,
+}
+
+impl WakeupKind {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            WakeupKind::Loop => "loop",
+            WakeupKind::Cron => "cron",
+        }
+    }
+}
+
+/// One wakeup a session has armed and not yet consumed.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PendingWakeup {
+    /// The kind of scheduler that owns it.
+    pub kind: WakeupKind,
+    /// When it is due, when the transcript recorded a due time.
+    pub due_at: Option<Timestamp>,
+    /// A short reason the model or harness recorded, when it did.
+    pub reason: Option<String>,
+    /// `firm` when a tool result recorded the due time or job id, `inferred` when only the
+    /// tool call is on disk.
+    pub certainty: Certainty,
 }
 
 /// A harness's permission mode, as far as it changes who can answer a prompt.

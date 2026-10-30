@@ -139,6 +139,7 @@ fn every_expected_status_checkpoint_holds() {
                     "usage",
                     "recent",
                     "background",
+                    "pending_wakeups",
                 ] {
                     let Some(want) = checkpoint.get(key) else { continue };
                     let got = if key == "title" {
@@ -241,6 +242,7 @@ fn check_database_snapshot(scenario: &Path, input: &Path) {
             "usage",
             "recent",
             "background",
+            "pending_wakeups",
         ] {
             let Some(want) = checkpoint.get(key) else { continue };
             let got = if key == "title" {

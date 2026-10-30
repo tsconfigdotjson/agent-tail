@@ -78,6 +78,10 @@ document: the code, [spec/](spec/), and [docs/](docs/) are the source of truth f
   state and no writes for the idle window.
 - **Coarse classes are not wording.** The library exposes `Activity::class()` (`needs-you`,
   `working`, `done`, `idle`), but labels and display choices belong to the consumer.
+- **A pending wakeup is state, not a new activity.** A turn that armed a scheduled wakeup is
+  still `done`; `SessionState.pending_wakeups` records the `loop`/`cron` kind, due time,
+  optional reason and certainty. It is derived only from transcript tool calls/results and
+  clearing records, never from a process registry.
 - **Thresholds are configurable.** The approval stall and idle window are options; defaults
   are 20 seconds and 15 minutes, respectively.
 

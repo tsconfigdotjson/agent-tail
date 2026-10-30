@@ -1,0 +1,35 @@
+{
+  "name": "cron_schedule",
+  "description": "Load CronCreate through ToolSearch, then schedule a recurring job.",
+  "steps": [
+    {
+      "expect": { "user_contains": "schedule a cron", "has_tool_result": false },
+      "reply": {
+        "content": [
+          { "type": "tool_use", "name": "ToolSearch", "input": { "query": "select:CronCreate", "max_results": 1 } }
+        ],
+        "usage": { "input_tokens": 10, "output_tokens": 20 }
+      }
+    },
+    {
+      "expect": { "user_contains": "schedule a cron", "has_tool_result": true },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "CronCreate",
+            "input": { "cron": "*/5 * * * *", "prompt": "Check the deploy.", "recurring": true }
+          }
+        ],
+        "usage": { "input_tokens": 20, "output_tokens": 20 }
+      }
+    },
+    {
+      "expect": { "user_contains": "schedule a cron", "has_tool_result": true },
+      "reply": {
+        "content": [{ "type": "text", "text": "Cron scheduled." }],
+        "usage": { "input_tokens": 30, "output_tokens": 5 }
+      }
+    }
+  ]
+}

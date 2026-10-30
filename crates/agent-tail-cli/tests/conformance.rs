@@ -143,6 +143,7 @@ fn status_runs_every_committed_checkpoint_file() {
                 "out_tokens",
                 "usage",
                 "recent",
+                "pending_wakeups",
             ] {
                 assert!(line.get(field).is_some(), "{}: {field} is always present", scenario.display());
             }
