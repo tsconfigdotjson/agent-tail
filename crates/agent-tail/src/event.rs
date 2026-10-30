@@ -197,6 +197,13 @@ pub enum EventKind {
         reason: Option<String>,
         job_id: Option<String>,
         recurring: bool,
+        /// The cron expression that armed a cron job, kept internally so a fire record
+        /// can identify the one-shot it consumed. Not part of the event JSON.
+        #[serde(skip)]
+        cron: Option<String>,
+        /// The prompt a cron job enqueues, kept internally with `cron`.
+        #[serde(skip)]
+        prompt: Option<String>,
         certainty: Certainty,
         source_call_id: Option<String>,
     },
@@ -207,6 +214,12 @@ pub enum EventKind {
         kind: Option<WakeupKind>,
         job_id: Option<String>,
         source_call_id: Option<String>,
+        /// A fired cron's expression, matched against armed one-shots. Not event JSON.
+        #[serde(skip)]
+        cron: Option<String>,
+        /// A fired cron's prompt, matched against armed one-shots. Not event JSON.
+        #[serde(skip)]
+        prompt: Option<String>,
     },
     Compaction {
         trigger: Option<String>,
@@ -718,6 +731,8 @@ pub(crate) struct ClaudeWakeupCall {
     pub(crate) kind: WakeupKind,
     pub(crate) action: ClaudeWakeupAction,
     pub(crate) reason: Option<String>,
+    pub(crate) cron: Option<String>,
+    pub(crate) prompt: Option<String>,
 }
 
 /// Parse state shared across records: which Codex prompt format appeared first, and the
@@ -934,18 +949,35 @@ impl Session {
                     output_file.as_deref().unwrap_or_default(),
                 );
             }
-            EventKind::WakeupScheduled { kind, due_at, reason, job_id, recurring, certainty, source_call_id } => self
-                .schedule_wakeup(ArmedWakeup {
-                    kind: *kind,
-                    due_at: *due_at,
-                    reason: reason.clone(),
-                    certainty: *certainty,
-                    id: job_id.clone().unwrap_or_default(),
-                    source_call_id: source_call_id.clone(),
-                    recurring: *recurring,
-                }),
-            EventKind::WakeupCleared { kind, job_id, source_call_id } => {
-                self.clear_wakeups(*kind, job_id.as_deref(), source_call_id.as_deref());
+            EventKind::WakeupScheduled {
+                kind,
+                due_at,
+                reason,
+                job_id,
+                recurring,
+                cron,
+                prompt,
+                certainty,
+                source_call_id,
+            } => self.schedule_wakeup(ArmedWakeup {
+                kind: *kind,
+                due_at: *due_at,
+                reason: reason.clone(),
+                certainty: *certainty,
+                id: job_id.clone().unwrap_or_default(),
+                source_call_id: source_call_id.clone(),
+                recurring: *recurring,
+                cron: cron.clone(),
+                prompt: prompt.clone(),
+            }),
+            EventKind::WakeupCleared { kind, job_id, source_call_id, cron, prompt } => {
+                self.clear_wakeups(
+                    *kind,
+                    job_id.as_deref(),
+                    source_call_id.as_deref(),
+                    cron.as_deref(),
+                    prompt.as_deref(),
+                );
             }
             EventKind::Compaction { .. }
             | EventKind::ModelChange { .. }

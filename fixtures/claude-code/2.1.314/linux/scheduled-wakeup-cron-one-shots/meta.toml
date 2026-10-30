@@ -1,0 +1,7 @@
+harness = "claude_code"
+version = "2.1.314"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-30"
+description = "Two one-shot CronCreate jobs fire a minute apart: the first fire consumes only its matching job, the second stays pending until its own fire; see NOTES.md."
+notes = "NOTES.md"

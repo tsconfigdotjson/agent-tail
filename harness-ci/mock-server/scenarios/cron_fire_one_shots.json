@@ -1,0 +1,108 @@
+{
+  "name": "cron_fire_one_shots",
+  "description": "Load CronCreate, schedule two one-shot jobs on alternating minutes, then acknowledge both fired runs.",
+  "steps": [
+    {
+      "expect": {
+        "user_contains": "schedule two reminders",
+        "has_tool_result": false
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "ToolSearch",
+            "input": {
+              "query": "select:CronCreate",
+              "max_results": 1
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 20
+        }
+      }
+    },
+    {
+      "expect": {
+        "user_contains": "schedule two reminders",
+        "has_tool_result": true
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "CronCreate",
+            "input": {
+              "cron": "*/2 * * * *",
+              "prompt": "Check the deploy.",
+              "recurring": false
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 20,
+          "output_tokens": 20
+        }
+      }
+    },
+    {
+      "expect": {
+        "user_contains": "schedule two reminders",
+        "has_tool_result": true
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "CronCreate",
+            "input": {
+              "cron": "1-59/2 * * * *",
+              "prompt": "Run the smoke test.",
+              "recurring": false
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 30,
+          "output_tokens": 20
+        }
+      }
+    },
+    {
+      "expect": {
+        "user_contains": "schedule two reminders",
+        "has_tool_result": true
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "text",
+            "text": "One-shots scheduled."
+          }
+        ],
+        "usage": {
+          "input_tokens": 40,
+          "output_tokens": 5
+        }
+      }
+    },
+    {
+      "repeat": 2,
+      "expect": {},
+      "reply": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Cron tick."
+          }
+        ],
+        "usage": {
+          "input_tokens": 50,
+          "output_tokens": 5
+        }
+      }
+    }
+  ]
+}
