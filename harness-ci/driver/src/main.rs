@@ -957,11 +957,13 @@ fn drive_phase(drive: DrivePhase<'_>) -> Result<(), String> {
                         &mut SampleSink { tail, samples, registry, registry_fields },
                         screen_state,
                         reading.background_agents,
-                        now_ms,
-                        Timestamp::from(SystemTime::now()),
-                        Duration::ZERO,
-                        true,
-                        Some("freeze"),
+                        SampleMoment {
+                            now_ms,
+                            now: Timestamp::from(SystemTime::now()),
+                            now_offset: Duration::ZERO,
+                            frozen: true,
+                            event: Some("freeze"),
+                        },
                     );
                     last_sample = Instant::now();
                 }
@@ -979,11 +981,13 @@ fn drive_phase(drive: DrivePhase<'_>) -> Result<(), String> {
                         &mut SampleSink { tail, samples, registry, registry_fields },
                         screen_state,
                         reading.background_agents,
-                        now_ms,
-                        Timestamp::from(SystemTime::now()),
-                        Duration::ZERO,
-                        true,
-                        None,
+                        SampleMoment {
+                            now_ms,
+                            now: Timestamp::from(SystemTime::now()),
+                            now_offset: Duration::ZERO,
+                            frozen: true,
+                            event: None,
+                        },
                     );
                     last_sample = Instant::now();
                 }
@@ -1028,11 +1032,7 @@ fn drive_phase(drive: DrivePhase<'_>) -> Result<(), String> {
                 &mut SampleSink { tail, samples, registry, registry_fields },
                 screen_state,
                 reading.background_agents,
-                now_ms,
-                now,
-                wake_offset,
-                false,
-                Some("wake"),
+                SampleMoment { now_ms, now, now_offset: wake_offset, frozen: false, event: Some("wake") },
             );
             last_sample = Instant::now();
             continue;
@@ -1070,11 +1070,13 @@ fn drive_phase(drive: DrivePhase<'_>) -> Result<(), String> {
                 &mut SampleSink { tail, samples, registry, registry_fields },
                 screen_state,
                 reading.background_agents,
-                now_ms,
-                Timestamp::from(SystemTime::now() + wake_offset),
-                wake_offset,
-                false,
-                None,
+                SampleMoment {
+                    now_ms,
+                    now: Timestamp::from(SystemTime::now() + wake_offset),
+                    now_offset: wake_offset,
+                    frozen: false,
+                    event: None,
+                },
             );
             last_sample = Instant::now();
         }
@@ -1095,11 +1097,13 @@ fn drive_phase(drive: DrivePhase<'_>) -> Result<(), String> {
             &mut SampleSink { tail, samples, registry, registry_fields },
             reading.state,
             reading.background_agents,
-            now_ms,
-            Timestamp::from(SystemTime::now() + wake_offset),
-            wake_offset,
-            false,
-            None,
+            SampleMoment {
+                now_ms,
+                now: Timestamp::from(SystemTime::now() + wake_offset),
+                now_offset: wake_offset,
+                frozen: false,
+                event: None,
+            },
         );
     }
     let _ = child.kill();
@@ -1255,18 +1259,23 @@ struct SampleSink<'a> {
     registry_fields: &'a mut BTreeSet<String>,
 }
 
+struct SampleMoment {
+    now_ms: u64,
+    now: Timestamp,
+    now_offset: Duration,
+    frozen: bool,
+    event: Option<&'static str>,
+}
+
 fn sample_once(
     harness: Harness,
     home: &Path,
     sink: &mut SampleSink<'_>,
     screen: ScreenState,
     background_agents: bool,
-    now_ms: u64,
-    now: Timestamp,
-    now_offset: Duration,
-    frozen: bool,
-    event: Option<&str>,
+    moment: SampleMoment,
 ) {
+    let SampleMoment { now_ms, now, now_offset, frozen, event } = moment;
     let library = library_state(sink.tail, harness, home, now, now_offset);
     sink.samples.push(Sample {
         elapsed_ms: now_ms,
@@ -2094,7 +2103,7 @@ mod tests {
         let freeze = done.freeze.expect("done scenario freezes");
         assert_eq!(freeze.on_activity.as_deref(), Some("done"));
         assert_eq!(freeze.for_ms, 3000);
-        assert!(freeze.drop_connections == false);
+        assert!(!freeze.drop_connections);
         assert_eq!(freeze.advance_now_ms, 0);
         assert_eq!(freeze.resume_send.as_deref(), Some("say hello again\r"));
 
