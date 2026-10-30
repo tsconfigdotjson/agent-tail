@@ -43,23 +43,47 @@ impl Adapter for Gemini {
             metadata(state, set, at, &mut out);
         } else if let Some(rewind) = record.get("$rewindTo") {
             // A rewind changes the logical conversation, but the incremental reducer cannot
-            // undo earlier activity. Keep the record for provenance.
-            out.push(meta(record, "rewind").at(at));
-            let _ = rewind;
+            // undo earlier activity. Rewinding the prompt that was just sent means no answer
+            // was ever written: 0.65.0 does this on an API failure, leaving the journal with
+            // only the prompt and this record. A rewind before the first prompt is routine
+            // context setup and stays metadata.
+            let target = rewind.as_str();
+            if target.is_some() && target == state.gemini_last_prompt.as_deref() {
+                state.gemini_last_prompt = None;
+                out.push(
+                    EventSeed::new(EventKind::TurnEnd {
+                        reason: TurnEndReason::Error,
+                        error: Some("Gemini discarded the prompt before answering".into()),
+                        background_agents: None,
+                        stop_reason: None,
+                        resets_at: None,
+                    })
+                    .at(at),
+                );
+            } else {
+                out.push(meta(record, "rewind").at(at));
+            }
         } else if let Some(patch) = record.get("$patch") {
             apply_patch(state, patch, at, &mut out);
         } else {
             match record["type"].as_str().unwrap_or_default() {
                 "user" => user_message(state, record, at, &mut out),
                 "gemini" => gemini_message(state, record, at, &mut out),
-                "error" => out.push(
-                    EventSeed::new(EventKind::TurnEnd {
-                        reason: TurnEndReason::Error,
-                        error: Some(message_text(record)),
-                        background_agents: None,
-                    })
-                    .at(at),
-                ),
+                "error" => {
+                    let limit = crate::event::usage_limit_stop(record);
+                    out.push(
+                        EventSeed::new(EventKind::TurnEnd {
+                            reason: TurnEndReason::Error,
+                            error: Some(message_text(record)),
+                            background_agents: None,
+                            stop_reason: limit.map(|_| crate::state::StopReason::UsageLimit),
+                            resets_at: limit
+                                .and_then(|limit| limit.resets_at)
+                                .map(crate::time::Timestamp::from_secs_f64),
+                        })
+                        .at(at),
+                    );
+                }
                 "info" | "warning" => out.push(meta(record, record["type"].as_str().unwrap_or_default()).at(at)),
                 "" if record["sessionId"].is_string() => initial_metadata(record, at, &mut out),
                 kind if known_record(kind) => out.push(meta(record, kind).at(at)),
@@ -185,6 +209,9 @@ fn user_message(state: &mut crate::event::ParseState, record: &Value, at: Option
             );
         }
     } else if !text.trim().is_empty() {
+        if let Some(id) = record["id"].as_str().filter(|id| !id.is_empty()) {
+            state.gemini_last_prompt = Some(id.into());
+        }
         out.push(
             EventSeed::new(EventKind::UserPrompt {
                 text: text.clone(),
@@ -195,7 +222,6 @@ fn user_message(state: &mut crate::event::ParseState, record: &Value, at: Option
             .at(at),
         );
     }
-    let _ = state;
 }
 
 fn workspace_from_context(text: &str) -> Option<String> {
@@ -206,6 +232,7 @@ fn workspace_from_context(text: &str) -> Option<String> {
 }
 
 fn gemini_message(state: &mut crate::event::ParseState, record: &Value, at: Option<f64>, out: &mut Vec<EventSeed>) {
+    state.gemini_last_prompt = None;
     if let Some(model) = record["model"].as_str().filter(|model| !model.is_empty()) {
         out.push(EventSeed::new(EventKind::ModelChange { model: model.into() }).at(at));
     }
@@ -252,8 +279,14 @@ fn gemini_message(state: &mut crate::event::ParseState, record: &Value, at: Opti
     // messages are followed by a function-response user record and another model message.
     if tool_calls.is_empty() && content_text(&record["content"]).is_some_and(|text| !text.is_empty()) {
         out.push(
-            EventSeed::new(EventKind::TurnEnd { reason: TurnEndReason::EndTurn, error: None, background_agents: None })
-                .at(at),
+            EventSeed::new(EventKind::TurnEnd {
+                reason: TurnEndReason::EndTurn,
+                error: None,
+                background_agents: None,
+                stop_reason: None,
+                resets_at: None,
+            })
+            .at(at),
         );
     }
 }

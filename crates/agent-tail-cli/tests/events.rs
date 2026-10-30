@@ -98,6 +98,12 @@ fn committed_expected_events_match_their_inputs() {
         "opencode/1.19.4/linux/error-step-finish",
         "opencode/1.19.4/linux/parallel-parts",
         "opencode/1.19.4/linux/child-session",
+        "claude-code/2.1.312/linux/ci-claude_usage_limit",
+        "codex/0.160/linux/ci-codex_usage_limit",
+        "pi/1.4/linux/ci-pi_usage_limit",
+        "copilot/1.0.103/linux/ci-copilot_usage_limit",
+        "opencode/1.19.4/linux/ci-opencode_usage_limit",
+        "gemini/0.65.0/linux/ci-gemini_usage_limit",
     ] {
         let got = events(&format!("{input}/input/session.jsonl"));
         let expected = fixture(&format!("{input}/expected/events.jsonl"));

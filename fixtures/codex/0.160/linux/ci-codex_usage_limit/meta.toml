@@ -1,0 +1,8 @@
+harness = "codex"
+version = "0.160.1"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-30"
+description = "Codex 0.160.1 against the mock returning HTTP 429: task_complete.error records the exhausted retries, which is a firm usage-limit stop. See NOTES.md."
+notes = "NOTES.md"
+redaction = "redaction.json"

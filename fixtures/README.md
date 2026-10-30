@@ -17,6 +17,7 @@ The committed corpus lives in the versioned layout:
 |---|---|
 | `claude-code/2.1/linux/seed-session` | a real Claude Code 2.1 session: a prompt, Bash / Read / Write calls, a generated title, a cost entry |
 | `claude-code/2.1.312/linux/ci-claude_hard_kill_mid_tool` | A harness-driver SIGKILL during a bypass-mode Bash sleep: the transcript ends on the pending `tool_use` with no tool result and no interrupt row, so it is firm `running_tool` immediately after death and firm `idle` / `no_writes_for` after 15 minutes; see the scenario `NOTES.md` |
+| `claude-code/2.1.312/linux/ci-claude_usage_limit` | A real 2.1.312 usage-limit stop: synthetic assistant error `usage_limit_reached` with `resetsAt`, followed by `informational` and `turn_duration`; checks firm `errored` with `stop_reason: "usage_limit"` and `resets_at` |
 | `claude-code/2.1.314/linux/scheduled-wakeup` | A real 2.1.314 harness capture of dynamic `/loop` `ScheduleWakeup`: the result records `scheduledFor`, the turn ends `done` with the wakeup pending, then `system/scheduled_task_fire` clears it; the checkpoints assert `done` + pending, then cleared. `NOTES.md` records the tool shapes, due time, fire record and resume behaviour |
 | `claude-code/2.1.314/linux/scheduled-wakeup-cron` | A real 2.1.314 harness capture of deferred `CronCreate`: `ToolSearch` loads the schema, the result records the job `id` and `nextFireAt`, and the turn ends `done` with a pending cron; see `NOTES.md` |
 | `claude-desktop/handmade/any/plain-qa` | Hand-made Claude Desktop local-agent-mode audit: `system/init`, a prompt, an assistant `end_turn`, then the SDK `result` frame; checks working → done → idle |
@@ -27,6 +28,7 @@ The committed corpus lives in the versioned layout:
 | `codex/0.160/linux/seed-exec` | a real `codex exec` rollout against a stand-in model |
 | `codex/0.160/linux/seed-resume` | the same session after `codex exec resume`: a patch, a command, a `request_user_input` |
 | `codex/0.160/linux/ci-codex_hard_kill_mid_tool` | Real SIGKILL during a long `exec_command`: the rollout ends on a pending `function_call` with no output, `turn_aborted` or `turn_complete`; firm `running_tool` then `idle` |
+| `codex/0.160/linux/ci-codex_usage_limit` | Codex 0.160.1 with the mock returning HTTP 429: `task_complete.error` records the exhausted retries; firm `errored` with `stop_reason: "usage_limit"` and no `resets_at` |
 | `cursor/unknown/any/seed-session` | a handmade Cursor transcript in the shape seen on a real Cursor install (October 2026) |
 | `cursor/unknown/any/awaiting-answer` | Hand-made Cursor transcript with a pending `AskUserQuestion`; the discovery spec's ask-user name makes it firm AwaitingAnswer |
 | `cursor/unknown/any/interrupted` | Hand-made Cursor transcript whose `turn_ended` error is the user-stop phrase `User aborted request`; checks interrupted rather than errored |
@@ -42,6 +44,7 @@ The committed corpus lives in the versioned layout:
 | `pi/1.4/linux/compaction-active` | Hand-made Pi 1.4.0 active branch with a `compaction` entry; its usage/cost is counted, `firstKeptEntryId` does not prune the session chain, and the follow-up turn still ends done |
 | `pi/1.4/linux/unknown-entry` | Hand-made Pi 1.4.0 session with an `extension_state` entry the adapter does not know; the entry stays an Unknown event and the following assistant stop still ends the turn done |
 | `pi/1.4/linux/ci-pi_hard_kill_mid_tool` | Real SIGKILL after a `bash` `toolCall` but before its `toolResult`: firm `running_tool`, no `aborted` stop reason, then `idle` |
+| `pi/1.4/linux/ci-pi_usage_limit` | Pi 1.4.0 with the mock returning HTTP 429: assistant `stopReason: error` and the provider `errorMessage`; firm `errored` with `stop_reason: "usage_limit"` |
 | `opencode/1.19.4/linux/plain-qa` | a real `opencode run` text turn, exported from its SQLite database |
 | `opencode/1.19.4/linux/tool` | a real `opencode run` bash call and the answer after its result |
 | `opencode/1.19.4/linux/tool-running` | a live SQLite snapshot during a `sleep 8` tool call, including the 20 s stall inference |
@@ -51,11 +54,13 @@ The committed corpus lives in the versioned layout:
 | `opencode/1.19.4/linux/parallel-parts` | Hand-made snapshot during a parallel tool step: one completed and one running tool part in the same assistant message; the pending call survives the completed result and stalls to inferred approval at 30 s |
 | `opencode/1.19.4/linux/child-session` | Hand-made parent/child row export: the parent ends done while a child session with `parent_id` set still runs a tool; feeding the child as a helper makes the parent `background_work` |
 | `opencode/1.19.4/linux/ci-opencode_hard_kill_mid_tool` | Real SIGKILL while a bash tool part is running: no `step-finish`, firm `running_tool`, existing inferred stall then `idle` |
+| `opencode/1.19.4/linux/ci-opencode_usage_limit` | OpenCode 1.19.4 with the mock returning HTTP 429: the assistant message error keeps the provider message and `statusCode: 429`; firm `errored` with `stop_reason: "usage_limit"` |
 | `gemini/0.65.0/linux/plain-qa` | Gemini CLI 0.65.0 against the mock: a session-context record, a prompt, one text answer |
 | `gemini/0.65.0/linux/tool` | Gemini CLI 0.65.0: a `run_shell_command` call written after completion with its result, then the final answer |
 | `gemini/0.65.0/linux/multi-tool` | Captured offline from Gemini CLI 0.65.0 against the mock: one completed `gemini` record carries two `run_shell_command` calls in its `toolCalls` array, the following `user` record carries both `functionResponse` parts, and the final text ends the turn done |
 | `gemini/0.65.0/linux/error` | Hand-made Gemini 0.65.0 journal with a terminal `type: "error"` record and its message; exercises the adapter's error mapping because a real API failure rewinds the prompt instead of writing this record |
 | `gemini/0.65.0/linux/ci-gemini_hard_kill_mid_tool` | Real SIGKILL before Gemini writes the completed-only `toolCalls` row: only the pre-tool journal is on disk, so it is firm `thinking` / `prompt_sent`, not an invented interrupt |
+| `gemini/0.65.0/linux/ci-gemini_usage_limit` | Gemini CLI 0.65.0 with the mock returning HTTP 429: the journal rewinds the just-sent prompt and writes no answer; firm `errored`, with no cause/reset derivable from the journal |
 | `copilot/1.0.103/linux/plain-qa` | Copilot CLI 1.0.103 against the mock: a prompt, one text answer, normal shutdown |
 | `copilot/1.0.103/linux/tool` | Copilot CLI 1.0.103: a bash call pending for two seconds, then the answer after its result |
 | `copilot/1.0.103/linux/permission-denied` | Copilot CLI 1.0.103 prompt mode with no interactive user: `permission.requested`, unattended denial, failed tool result, then the answer |
@@ -66,6 +71,7 @@ The committed corpus lives in the versioned layout:
 | `copilot/1.0.103/linux/api-error` | Hand-made 1.0.103 model failure: `assistant.turn_end`, `session.error` with `errorType: query`, then `session.shutdown`; checks the error survives the routine shutdown |
 | `copilot/1.0.103/linux/subagent-helper` | Captured offline from 1.0.103 against the mock: a background `task` helper is written into the parent event log with a top-level `agentId`; the parent turn ends while the helper is still running a bash call, then `subagent.completed` lets the parent finish. Checkpoints assert `background_work` and the helper in `background`, then `done` |
 | `copilot/1.0.103/linux/ci-copilot_hard_kill_mid_tool` | Real SIGKILL after `tool.execution_start` for a long bash call: no `tool.execution_complete`, `abort` or `session.shutdown`; firm `running_tool` then `idle` |
+| `copilot/1.0.103/linux/ci-copilot_usage_limit` | Copilot CLI 1.0.103 with the mock returning HTTP 429: `session.error` has `errorType: rate_limit` and `statusCode: 429`, then the routine shutdown; firm `errored` with `stop_reason: "usage_limit"` |
 
 The Claude Desktop fixtures are **handmade** from the public Claude Agent SDK record shape,
 not captured from an install; the matrix therefore says `ported-unverified`.

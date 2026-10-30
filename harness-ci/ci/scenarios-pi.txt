@@ -5,5 +5,7 @@ pi_api_error
 pi_parallel_tools
 pi_tool_error
 
+pi_usage_limit
+
 # SIGKILL after the toolCall row, before the toolResult row.
 pi_hard_kill_mid_tool

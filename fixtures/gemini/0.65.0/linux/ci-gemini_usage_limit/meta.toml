@@ -1,0 +1,8 @@
+harness = "gemini"
+version = "0.65.0"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-30"
+description = "Gemini CLI 0.65.0 against the mock returning HTTP 429: the journal rewinds the just-sent prompt and writes no answer, which is now a firm Errored resting state. See NOTES.md."
+notes = "NOTES.md"
+redaction = "redaction.json"

@@ -1,0 +1,12 @@
+{
+  "name": "claude_usage_limit",
+  "description": "The mock returns HTTP 429 with a usage-limit message. Claude writes its synthetic rate-limit error row; the session must rest firm Errored with stop_reason usage_limit.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/usage_limit.json",
+  "prompt": "trigger a usage limit",
+  "env": { "CLAUDE_CODE_MAX_RETRIES": "0" },
+  "run_for_ms": 30000,
+  "expected_activity": [
+    { "activity": "errored", "when": "end", "certainty": "firm" }
+  ]
+}

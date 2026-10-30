@@ -1,0 +1,55 @@
+{
+  "format": 1,
+  "file": "claude.jsonl",
+  "lorem": false,
+  "lines": 3,
+  "bytes_before": 2961,
+  "bytes_after": 2961,
+  "replacements": {
+    "home_path": 3
+  },
+  "offsets": [
+    {
+      "line": 1,
+      "before_start": 0,
+      "before_end": 1899,
+      "after_start": 0,
+      "after_end": 1899,
+      "delta": 0
+    },
+    {
+      "line": 2,
+      "before_start": 1899,
+      "before_end": 2448,
+      "after_start": 1899,
+      "after_end": 2448,
+      "delta": 0
+    },
+    {
+      "line": 3,
+      "before_start": 2448,
+      "before_end": 2961,
+      "after_start": 2448,
+      "after_end": 2961,
+      "delta": 0
+    }
+  ],
+  "findings": [
+    {
+      "line": 1,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 2,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 3,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    }
+  ],
+  "malformed_lines": []
+}

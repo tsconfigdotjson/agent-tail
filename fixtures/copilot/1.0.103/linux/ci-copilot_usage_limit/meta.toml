@@ -1,0 +1,8 @@
+harness = "copilot"
+version = "1.0.103"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-30"
+description = "Copilot CLI 1.0.103 against the mock returning HTTP 429: session.error keeps errorType rate_limit and statusCode 429 through the routine shutdown. See NOTES.md."
+notes = "NOTES.md"
+redaction = "redaction.json"

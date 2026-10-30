@@ -85,7 +85,13 @@ present.
 - **Turn end:** a `gemini` message with text and no `toolCalls` is the completed answer:
   firm `Done` / `turn_ended`. A tool-call message is followed by a function response and
   another model message, so it is not an end.
-- **Error:** `type: "error"` becomes firm `Errored`, with its content/message kept.
+- **Error:** `type: "error"` becomes firm `Errored`, with its content/message kept. A usage
+  limit recognized in that record also sets `stop_reason: "usage_limit"`.
+- **API failure rewind:** a real 429 can leave only the just-sent user prompt and a
+  `$rewindTo` of that prompt; the error itself reaches stdout/stderr, not the journal. That
+  rewind is now firm `Errored` with the error text `Gemini discarded the prompt before
+  answering`, so the session is not left `thinking`. The journal records no cause or reset,
+  so `stop_reason`/`resets_at` stay null. A pre-prompt context rewind remains metadata.
 - **Project:** `directories[0]` from a metadata update when present; otherwise the project
   short-id folder is a label only. The `<session_context>` record also contains a
   `Workspace Directories` path, which the adapter reads without treating the record as a

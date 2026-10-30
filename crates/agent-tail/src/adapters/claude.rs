@@ -157,8 +157,14 @@ fn user(state: &mut crate::event::ParseState, e: &Value, at: Option<f64>, out: &
     // the rejection. CDT treats the same string as an ending event.
     if tool_rejected(e) {
         out.push(
-            EventSeed::new(EventKind::TurnEnd { reason: TurnEndReason::EndTurn, error: None, background_agents: None })
-                .at(at),
+            EventSeed::new(EventKind::TurnEnd {
+                reason: TurnEndReason::EndTurn,
+                error: None,
+                background_agents: None,
+                stop_reason: None,
+                resets_at: None,
+            })
+            .at(at),
         );
         return;
     }
@@ -300,11 +306,14 @@ fn assistant(
     // `stop_reason` is `stop_sequence`, which is not a turn end.
     if e["isApiErrorMessage"] == true || e["error"].is_string() {
         let error = e["error"].as_str().filter(|e| !e.is_empty()).unwrap_or("api_error");
+        let limit = crate::event::usage_limit_stop(e);
         out.push(
             EventSeed::new(EventKind::TurnEnd {
                 reason: TurnEndReason::Error,
                 error: Some(error.into()),
                 background_agents: None,
+                stop_reason: limit.map(|_| crate::state::StopReason::UsageLimit),
+                resets_at: limit.and_then(|limit| limit.resets_at).map(crate::time::Timestamp::from_secs_f64),
             })
             .at(at),
         );
@@ -404,6 +413,8 @@ fn system(e: &Value, at: Option<f64>, out: &mut Vec<EventSeed>) {
                 reason: TurnEndReason::DurationRecord,
                 error: None,
                 background_agents: e["pendingBackgroundAgentCount"].as_u64().map(|n| n as usize),
+                stop_reason: None,
+                resets_at: None,
             })
             .at(at),
         ),
@@ -418,6 +429,8 @@ fn system(e: &Value, at: Option<f64>, out: &mut Vec<EventSeed>) {
                     reason: TurnEndReason::EndTurn,
                     error: None,
                     background_agents: Some(0),
+                    stop_reason: None,
+                    resets_at: None,
                 })
                 .at(at),
             );
@@ -450,7 +463,13 @@ fn system(e: &Value, at: Option<f64>, out: &mut Vec<EventSeed>) {
 }
 
 fn turn_end(reason: crate::event::TurnEndReason) -> EventSeed {
-    EventSeed::new(crate::event::EventKind::TurnEnd { reason, error: None, background_agents: None })
+    EventSeed::new(crate::event::EventKind::TurnEnd {
+        reason,
+        error: None,
+        background_agents: None,
+        stop_reason: None,
+        resets_at: None,
+    })
 }
 
 fn known_content(kind: &str) -> bool {

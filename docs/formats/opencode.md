@@ -73,7 +73,9 @@ avoids that CLI quirk.
   stays pending while the question is up.
 - A completed/error tool part is a tool result. A `step-finish` with `reason: "stop"` is
   `Done`; `error`/`failed` is `Errored`; `aborted`/`interrupted`/`cancelled` is
-  `Interrupted`.
+  `Interrupted`. An assistant message `data.error` (for example `APIError` with
+  `data.message`, `statusCode: 429`, and the provider response body) is also `Errored`;
+  a usage/rate-limit failure adds `stop_reason: "usage_limit"`.
 - **Approval prompts are not persisted.** `permission.asked` / `permission.v2.asked` are
   ephemeral events in the permission service, not rows. Only the pending/running tool part is
   on disk. After the 20 s stall threshold the status is therefore `AwaitingApproval` with

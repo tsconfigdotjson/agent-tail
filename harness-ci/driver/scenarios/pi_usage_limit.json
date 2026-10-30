@@ -1,0 +1,13 @@
+{
+  "name": "pi_usage_limit",
+  "description": "The mock returns HTTP 429 with a usage-limit message. Pi records stopReason error and the provider errorMessage; the session must rest firm Errored with stop_reason usage_limit.",
+  "harness": "pi",
+  "mock": "../../mock-server/scenarios/usage_limit.json",
+  "prompt": "trigger a usage limit",
+  "run_for_ms": 20000,
+  "no_approval": true,
+  "settings": { "retry": { "enabled": false } },
+  "expected_activity": [
+    { "activity": "errored", "when": "end", "certainty": "firm" }
+  ]
+}

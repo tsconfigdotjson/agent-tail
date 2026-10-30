@@ -52,6 +52,8 @@ impl Adapter for Cursor {
                 },
                 error: (status == "error").then(|| if error.is_empty() { "error".into() } else { error.into() }),
                 background_agents: None,
+                stop_reason: None,
+                resets_at: None,
             }));
             return out;
         }

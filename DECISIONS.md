@@ -73,7 +73,9 @@ document: the code, [spec/](spec/), and [docs/](docs/) are the source of truth f
   mode, an SDK entry point, or an AI-approval reviewer is firm `running_tool`, regardless of
   timing. An unknown mode keeps the stall inference and marks it `inferred`.
 - **Firm turn ends beat timing.** Harness-specific records for normal completion, interruption,
-  errors, and helper termination move status before the idle-age rule applies.
+  errors, and helper termination move status before the idle-age rule applies. A usage/rate-limit
+  stop is firm `errored` with `stop_reason: "usage_limit"` and `resets_at` when recorded;
+  the next turn clears both. The activity enum does not grow per stop cause.
 - **An unread session is `unknown`, not `idle`.** `idle` means the session has recognizable
   state and no writes for the idle window.
 - **Coarse classes are not wording.** The library exposes `Activity::class()` (`needs-you`,

@@ -1,0 +1,92 @@
+{
+  "format": 1,
+  "file": "gemini.jsonl",
+  "lorem": false,
+  "lines": 7,
+  "bytes_before": 1197,
+  "bytes_after": 1196,
+  "replacements": {
+    "home_path": 4
+  },
+  "offsets": [
+    {
+      "line": 1,
+      "before_start": 0,
+      "before_end": 228,
+      "after_start": 0,
+      "after_end": 228,
+      "delta": 0
+    },
+    {
+      "line": 2,
+      "before_start": 228,
+      "before_end": 844,
+      "after_start": 228,
+      "after_end": 843,
+      "delta": -1
+    },
+    {
+      "line": 3,
+      "before_start": 844,
+      "before_end": 896,
+      "after_start": 843,
+      "after_end": 895,
+      "delta": -1
+    },
+    {
+      "line": 4,
+      "before_start": 896,
+      "before_end": 1040,
+      "after_start": 895,
+      "after_end": 1039,
+      "delta": -1
+    },
+    {
+      "line": 5,
+      "before_start": 1040,
+      "before_end": 1092,
+      "after_start": 1039,
+      "after_end": 1091,
+      "delta": -1
+    },
+    {
+      "line": 6,
+      "before_start": 1092,
+      "before_end": 1145,
+      "after_start": 1091,
+      "after_end": 1144,
+      "delta": -1
+    },
+    {
+      "line": 7,
+      "before_start": 1145,
+      "before_end": 1197,
+      "after_start": 1144,
+      "after_end": 1196,
+      "delta": -1
+    }
+  ],
+  "findings": [
+    {
+      "line": 2,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 2,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 2,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 2,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    }
+  ],
+  "malformed_lines": []
+}

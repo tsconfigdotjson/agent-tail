@@ -1,0 +1,11 @@
+{
+  "name": "codex_usage_limit",
+  "description": "The mock returns HTTP 429 with a usage-limit message after Codex exhausts its retries; task_complete must read firm Errored with stop_reason usage_limit.",
+  "harness": "codex",
+  "mock": "../../mock-server/scenarios/usage_limit.json",
+  "prompt": "trigger a usage limit",
+  "run_for_ms": 45000,
+  "expected_activity": [
+    { "activity": "errored", "when": "end", "certainty": "firm" }
+  ]
+}

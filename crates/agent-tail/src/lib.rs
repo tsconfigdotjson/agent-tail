@@ -73,6 +73,6 @@ pub use sqlite::{
 };
 pub use state::{
     Activity, ActivityLine, Certainty, Diagnostics, PendingWakeup, PermissionMode, Reason, SandboxPolicy, SessionMeta,
-    SessionState, StatusClass, TokenUsage, WakeupKind,
+    SessionState, StatusClass, StopReason, TokenUsage, WakeupKind,
 };
 pub use time::Timestamp;

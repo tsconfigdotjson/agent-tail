@@ -1,0 +1,23 @@
+{
+  "name": "opencode_usage_limit",
+  "description": "The mock returns HTTP 429 with a usage-limit message after OpenCode exhausts its retries; the assistant message error must read firm Errored with stop_reason usage_limit.",
+  "harness": "opencode",
+  "mock": "../../mock-server/scenarios/usage_limit.json",
+  "command": [
+    "opencode",
+    "run",
+    "--format",
+    "json",
+    "--auto",
+    "-m",
+    "test/test-model",
+    "trigger",
+    "a",
+    "usage",
+    "limit"
+  ],
+  "run_for_ms": 120000,
+  "expected_activity": [
+    { "activity": "errored", "when": "end", "certainty": "firm" }
+  ]
+}

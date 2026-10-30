@@ -1,0 +1,85 @@
+{
+  "format": 1,
+  "file": "pi.jsonl",
+  "lorem": false,
+  "lines": 6,
+  "bytes_before": 7175,
+  "bytes_after": 7148,
+  "replacements": {
+    "home_path": 3,
+    "secret_entropy": 1
+  },
+  "offsets": [
+    {
+      "line": 1,
+      "before_start": 0,
+      "before_end": 143,
+      "after_start": 0,
+      "after_end": 143,
+      "delta": 0
+    },
+    {
+      "line": 2,
+      "before_start": 143,
+      "before_end": 279,
+      "after_start": 143,
+      "after_end": 279,
+      "delta": 0
+    },
+    {
+      "line": 3,
+      "before_start": 279,
+      "before_end": 411,
+      "after_start": 279,
+      "after_end": 411,
+      "delta": 0
+    },
+    {
+      "line": 4,
+      "before_start": 411,
+      "before_end": 6380,
+      "after_start": 411,
+      "after_end": 6353,
+      "delta": -27
+    },
+    {
+      "line": 5,
+      "before_start": 6380,
+      "before_end": 6587,
+      "after_start": 6353,
+      "after_end": 6560,
+      "delta": -27
+    },
+    {
+      "line": 6,
+      "before_start": 6587,
+      "before_end": 7175,
+      "after_start": 6560,
+      "after_end": 7148,
+      "delta": -27
+    }
+  ],
+  "findings": [
+    {
+      "line": 4,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 4,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 4,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 4,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0001>"
+    }
+  ],
+  "malformed_lines": []
+}

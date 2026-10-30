@@ -218,12 +218,15 @@ fn message(state: &mut crate::event::ParseState, e: &Value, at: Option<f64>, out
                 _ => None,
             };
             if let Some(reason) = reason {
+                let limit = (reason == TurnEndReason::Error).then(|| crate::event::usage_limit_stop(e)).flatten();
                 out.push(
                     EventSeed::new(EventKind::TurnEnd {
                         reason,
                         error: (reason == TurnEndReason::Error)
                             .then(|| m["errorMessage"].as_str().unwrap_or("error").to_string()),
                         background_agents: None,
+                        stop_reason: limit.map(|_| crate::state::StopReason::UsageLimit),
+                        resets_at: limit.and_then(|limit| limit.resets_at).map(crate::time::Timestamp::from_secs_f64),
                     })
                     .at(at),
                 );

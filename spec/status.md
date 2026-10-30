@@ -25,7 +25,9 @@ the original input, and `line` is one-based. `at` is seconds since the Unix epoc
 when the record has no time of its own. Ids are deterministic for the same harness, source
 and bytes. A port should produce the same values, not merely the same shape.
 
-The v0.1 event types are `user_prompt`, `assistant_text`, `reasoning`, `tool_call`,
+A `turn_end` may carry optional `stop_reason: "usage_limit"` and `resets_at` when the
+harness recorded a usage/rate-limit stop; both are absent on ordinary turn ends. The v0.1
+event types are `user_prompt`, `assistant_text`, `reasoning`, `tool_call`,
 `tool_result`, `approval_requested`, `approval_completed`, `turn_start`, `turn_end`, `usage`,
 `permission_mode`, `sandbox_policy`, `model_change`, `title`, `cost`, `helper_spawn`,
 `helper_end`, `wakeup_scheduled`, `wakeup_cleared`, `compaction`, `session_info`, `meta` and
@@ -59,6 +61,8 @@ and there is no per-event `truncated` flag in v0.1. Lean's count of shortened li
 | `pending_wakeups` | armed `loop`/`cron` wakeups with optional `due_at`, `reason` and `certainty`; the activity can still be `done`. Empty when nothing is pending |
 | `permission`, `sandbox` | the harness's last recorded mode/policy, or `null` |
 | `error` | the harness's error text when the turn ended with one, or `null` |
+| `stop_reason` | `usage_limit` when the turn stopped at a usage/rate limit, or `null` |
+| `resets_at` | when that limit resets, when the harness recorded a usable time, or `null` |
 | `meta` | `project`, `folder`, `branch`, `title` |
 | `cost_usd`, `usage`, `out_tokens` | recorded spend and token counts, never estimated |
 | `recent` | the last few activity lines (`prompt`, `command`, or `tool` with optional detail) |
@@ -90,8 +94,8 @@ A checkpoint may add the expected status and fixture steps:
 ```
 
 The assertable fields are `activity`, `certainty`, `reason`, `permission`, `sandbox`,
-`title`, `error`, `cost_usd`, `out_tokens`, `usage`, `recent`, `background` and
-`pending_wakeups`. They are optional in a
+`title`, `error`, `stop_reason`, `resets_at`, `cost_usd`, `out_tokens`, `usage`, `recent`,
+`background` and `pending_wakeups`. They are optional in a
 checkpoint: an input-only checkpoint (only the two required timing fields) is always
 accepted. When present, optional fields are compared; a missing optional field and an
 explicit `null` are equal. `false` is not `null`.

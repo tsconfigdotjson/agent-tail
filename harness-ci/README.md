@@ -89,7 +89,9 @@ Recent coverage additions include a hard-kill mid-tool scenario for every CLI in
 (Claude Code, Codex, Copilot CLI, Pi, OpenCode and Gemini CLI), Copilot parallel tool calls and
 a terminal `session.error`, Pi parallel tool calls plus failing-tool recovery, Pi
 compaction/unknown-entry fixtures, OpenCode error-step-finish, parallel-part and child-session
-fixtures, and a Gemini multi-tool turn captured from a real 0.65.0 journal. The hard-kill
+fixtures, and a Gemini multi-tool turn captured from a real 0.65.0 journal. Every CLI also has
+a usage-limit scenario from the mock's HTTP 429 response; Gemini's journal only rewinds the
+prompt, so its scenario pins firm `errored` without an inferred cause. The hard-kill
 scenario kills the process group without Esc/Ctrl-C/exit and pins the rows the harness
 actually flushed: `running_tool` for five harnesses, and the pre-tool
 `thinking`/`prompt_sent` journal for Gemini 0.65.0, which writes tool calls only after
