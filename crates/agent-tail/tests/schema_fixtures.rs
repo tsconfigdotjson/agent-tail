@@ -191,6 +191,12 @@ fn event_schema_accepts_every_v0_1_event_kind() {
         event_with("cost", json!({"usd":0.0})),
         event_with("helper_spawn", json!({"agent_id":null,"task_id":null,"output_file":null,"tool_use_id":null})),
         event_with("helper_end", json!({"task_id":null,"tool_use_id":null,"output_file":null,"status":"completed"})),
+        event_with(
+            "wakeup_scheduled",
+            json!({"kind":"loop","due_at":null,"reason":null,"job_id":null,"recurring":false,
+                   "certainty":"firm","source_call_id":null}),
+        ),
+        event_with("wakeup_cleared", json!({"kind":"cron","job_id":"job-1","source_call_id":null})),
         event_with("compaction", json!({"trigger":null,"pre_tokens":null,"post_tokens":null})),
         event_with(
             "session_info",

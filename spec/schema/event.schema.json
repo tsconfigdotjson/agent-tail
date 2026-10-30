@@ -184,6 +184,109 @@
           "unevaluatedProperties": false
         }
       ]
+    },
+    "wakeup_kind": {
+      "enum": [
+        "loop",
+        "cron"
+      ]
+    },
+    "wakeup_scheduled": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "wakeup_scheduled"
+        },
+        "kind": {
+          "$ref": "#/$defs/wakeup_kind"
+        },
+        "due_at": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Seconds since the Unix epoch when the transcript records a due time."
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recurring": {
+          "type": "boolean"
+        },
+        "certainty": {
+          "enum": [
+            "firm",
+            "inferred"
+          ]
+        },
+        "source_call_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "job_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The harness's job id, when it has one."
+        }
+      },
+      "required": [
+        "type",
+        "kind",
+        "recurring",
+        "certainty"
+      ],
+      "unevaluatedProperties": false
+    },
+    "wakeup_cleared": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "wakeup_cleared"
+        },
+        "kind": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/wakeup_kind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_call_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "job_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "unevaluatedProperties": false
     }
   },
   "oneOf": [
@@ -847,6 +950,103 @@
         "type",
         "record_type",
         "record"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "wakeup_scheduled"
+        },
+        "kind": {
+          "$ref": "#/$defs/wakeup_kind"
+        },
+        "due_at": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Seconds since the Unix epoch when the transcript records a due time."
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recurring": {
+          "type": "boolean"
+        },
+        "certainty": {
+          "enum": [
+            "firm",
+            "inferred"
+          ]
+        },
+        "source_call_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "job_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The harness's job id, when it has one."
+        }
+      },
+      "required": [
+        "type",
+        "kind",
+        "recurring",
+        "certainty"
+      ],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "wakeup_cleared"
+        },
+        "kind": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/wakeup_kind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_call_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "job_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type"
       ],
       "unevaluatedProperties": false
     },

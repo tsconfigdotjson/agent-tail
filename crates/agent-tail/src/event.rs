@@ -9,8 +9,8 @@ use crate::adapters;
 use crate::harness::Harness;
 use crate::lean::lean;
 use crate::reducer::ParseMode;
-use crate::session::{Last, LaunchedHelper, Session};
-use crate::state::{ActivityLine, PermissionMode, SandboxPolicy, TokenUsage};
+use crate::session::{ArmedWakeup, Last, LaunchedHelper, Session};
+use crate::state::{ActivityLine, Certainty, PermissionMode, SandboxPolicy, TokenUsage, WakeupKind};
 use crate::time::Timestamp;
 use serde::Serialize;
 use serde_json::Value;
@@ -182,6 +182,24 @@ pub enum EventKind {
         tool_use_id: Option<String>,
         output_file: Option<String>,
         status: String,
+    },
+    /// A scheduled wakeup was armed or refined. A tool call gives an inferred entry; its
+    /// result makes it firm and carries the due time or harness job id.
+    WakeupScheduled {
+        kind: WakeupKind,
+        due_at: Option<Timestamp>,
+        reason: Option<String>,
+        job_id: Option<String>,
+        recurring: bool,
+        certainty: Certainty,
+        source_call_id: Option<String>,
+    },
+    /// A scheduled wakeup fired, was deleted, stopped, or the session ended. With no
+    /// `job_id` and no `source_call_id`, every wakeup of `kind` is cleared.
+    WakeupCleared {
+        kind: Option<WakeupKind>,
+        job_id: Option<String>,
+        source_call_id: Option<String>,
     },
     Compaction {
         trigger: Option<String>,
@@ -575,6 +593,22 @@ pub(crate) struct CopilotParseState {
     pub(crate) terminal: bool,
 }
 
+/// Which scheduled-wakeup tool a Claude Code call id belongs to, kept from the assistant
+/// row until its user-row result arrives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ClaudeWakeupAction {
+    Create,
+    Delete,
+    Stop,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ClaudeWakeupCall {
+    pub(crate) kind: WakeupKind,
+    pub(crate) action: ClaudeWakeupAction,
+    pub(crate) reason: Option<String>,
+}
+
 /// Parse state shared across records: which Codex prompt format appeared first, and the
 /// highest usage seen per Claude message / the running Codex total.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -595,6 +629,8 @@ pub(crate) struct ParseState {
     pub(crate) copilot: CopilotParseState,
     /// Copilot's interleaved helper conversations, keyed by top-level `agentId`.
     pub(crate) copilot_helpers: HashMap<String, CopilotParseState>,
+    /// Claude Code scheduled-wakeup tool calls whose result has not arrived yet.
+    pub(crate) claude_wakeups: HashMap<String, ClaudeWakeupCall>,
 }
 
 /// A prompt's tag wrappers (`<user_query>…</user_query>`, `<timestamp>…</timestamp>`, …).
@@ -780,6 +816,19 @@ impl Session {
                     output_file.as_deref().unwrap_or_default(),
                 );
             }
+            EventKind::WakeupScheduled { kind, due_at, reason, job_id, recurring, certainty, source_call_id } => self
+                .schedule_wakeup(ArmedWakeup {
+                    kind: *kind,
+                    due_at: *due_at,
+                    reason: reason.clone(),
+                    certainty: *certainty,
+                    id: job_id.clone().unwrap_or_default(),
+                    source_call_id: source_call_id.clone(),
+                    recurring: *recurring,
+                }),
+            EventKind::WakeupCleared { kind, job_id, source_call_id } => {
+                self.clear_wakeups(*kind, job_id.as_deref(), source_call_id.as_deref());
+            }
             EventKind::Compaction { .. }
             | EventKind::ModelChange { .. }
             | EventKind::Meta { .. }
@@ -841,6 +890,8 @@ impl Event {
             EventKind::Cost { .. } => "cost",
             EventKind::HelperSpawn { .. } => "helper_spawn",
             EventKind::HelperEnd { .. } => "helper_end",
+            EventKind::WakeupScheduled { .. } => "wakeup_scheduled",
+            EventKind::WakeupCleared { .. } => "wakeup_cleared",
             EventKind::Compaction { .. } => "compaction",
             EventKind::SessionInfo { .. } => "session_info",
             EventKind::Meta { .. } => "meta",

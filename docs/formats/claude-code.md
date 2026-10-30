@@ -2,8 +2,9 @@
 
 This note is based on read-only surveys of 150 main transcripts and 67 subagent transcripts
 (69 `.meta.json`) from Claude Code **2.1.281 to 2.1.309** (24 versions; subagents span
-2.1.283 to 2.1.309). Most of the survey corpus ran under `--dangerously-skip-permissions`.
-Everything labelled *inference* still needs a harness-CI fixture.
+2.1.283 to 2.1.309), plus offline harness captures through **2.1.314**. Most of the survey
+corpus ran under `--dangerously-skip-permissions`. Everything labelled *inference* still
+needs a harness-CI fixture.
 
 ## Paths and layout
 
@@ -154,6 +155,32 @@ subagent `end_turn` (inferred: a subagent can end_turn and still be continued). 
 **Compaction:** `system/compact_boundary` (`parentUuid: null`, `logicalParentUuid` → the last
 pre-compaction uuid) is followed directly by a `user` record with `isCompactSummary: true`.
 The transcript continues **in the same file**. All 5 seen were `trigger: auto`.
+
+**Scheduled wakeups (firm from tool results).** Two schedulers write enough disk evidence to
+reconstruct a pending wakeup; neither writes a separate state file for the default
+session-only case.
+
+- Dynamic `/loop` calls `ScheduleWakeup` directly. Its input has `delaySeconds, noop, prompt,
+  reason`; the result row carries `toolUseResult.scheduledFor` in epoch milliseconds plus
+  `clampedDelaySeconds` and `wasClamped`. `{"stop":true}` returns `stopped:true` and
+  `cancelledWakeups`, and cancels dynamic-loop wakeups (not a fixed-interval cron).
+- Fixed `/loop 5m` and cron-style jobs use the deferred `CronCreate`. `ToolSearch` loads its
+  schema, then `CronCreate` takes `cron, prompt, recurring[, durable]`. Its result carries
+  `id, humanSchedule, recurring, durable, nextFireAt` (`nextFireAt` in epoch milliseconds).
+  `CronDelete` takes `id`; its success result is `Cancelled job <id>.` with
+  `toolUseResult:{id}`. `CronList` reports jobs and next runs.
+- When a wakeup fires, the transcript writes `system/scheduled_task_fire` with `content,
+  cron, cronKind, taskKind, taskId, prompt`, followed by a `user` row with `isMeta:true`,
+  `promptSource:"system"`, `wakeupSource` (`loop_wakeup`), `turnOrigin:"scheduled"`,
+  `scheduledFireId` and `scheduledTaskId`. That system record is the clearing evidence.
+- A later turn is not required for the pending state: the call and result stay in the JSONL,
+  so a fresh reducer or a resumed session sees it. The 2.1.314 binary re-arms a still-future
+  dynamic wakeup after resume; default session-only cron jobs die with the process and
+  `durable:true` cron jobs persist in `.claude/scheduled_tasks.json`.
+
+`agent-tail` projects these rows as `SessionState.pending_wakeups` (`kind: loop|cron`,
+`due_at`, optional `reason`, and `certainty`). See the fixtures under
+`fixtures/claude-code/2.1.314/linux/scheduled-wakeup*` and their `NOTES.md`.
 
 **Other:** `queue-operation` shows prompts typed while busy. `cost-state` is the last record in
 140/150 files (*inference: written on exit/flush*). `api-request` is written as a request is

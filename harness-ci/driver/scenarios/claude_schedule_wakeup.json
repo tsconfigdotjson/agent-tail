@@ -1,0 +1,13 @@
+{
+  "name": "claude_schedule_wakeup",
+  "description": "Local capture for schedule-wakeup reducer support. Without --bare so the built-in ScheduleWakeup is offered. Not in the pinned stable matrix: the committed fixture is from 2.1.314.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/schedule_wakeup.json",
+  "command": ["claude", "--model", "claude-sonnet-4-5", "--dangerously-skip-permissions"],
+  "prompt": "schedule a wakeup in sixty seconds to check the deploy",
+  "run_for_ms": 20000,
+  "no_approval": true,
+  "expected_activity": [
+    { "activity": "done", "certainty": "firm", "when": "end" }
+  ]
+}

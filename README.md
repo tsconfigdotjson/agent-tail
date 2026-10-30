@@ -48,7 +48,8 @@ on a timing or shape heuristic. A pending tool in bypass/never-ask mode is firml
 stall threshold.
 
 The state also carries the project, branch, title, model, permission/sandbox information,
-token usage, recorded cost, the last few activity lines, running helpers, and diagnostics.
+token usage, recorded cost, the last few activity lines, running helpers, pending scheduled
+wakeups, and diagnostics.
 The library never reads the clock: callers pass `now`, which makes status timelines
 deterministic and testable.
 

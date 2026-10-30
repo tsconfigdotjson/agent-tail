@@ -1,0 +1,7 @@
+harness = "claude_code"
+version = "2.1.314"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-30"
+description = "A dynamic /loop ScheduleWakeup: the tool result records scheduledFor, the turn ends done with the wakeup pending, then system/scheduled_task_fire clears it; see NOTES.md."
+notes = "NOTES.md"

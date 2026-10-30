@@ -28,7 +28,8 @@ and bytes. A port should produce the same values, not merely the same shape.
 The v0.1 event types are `user_prompt`, `assistant_text`, `reasoning`, `tool_call`,
 `tool_result`, `approval_requested`, `approval_completed`, `turn_start`, `turn_end`, `usage`,
 `permission_mode`, `sandbox_policy`, `model_change`, `title`, `cost`, `helper_spawn`,
-`helper_end`, `compaction`, `session_info`, `meta` and `unknown`. Known records with no richer
+`helper_end`, `wakeup_scheduled`, `wakeup_cleared`, `compaction`, `session_info`, `meta` and
+`unknown`. Known records with no richer
 form are `meta`; records or lines this version does not understand are `unknown`, never
 dropped. Required fields are the deterministic id, provenance and the fields that make the
 event meaningful. An optional field may be absent or `null`; `agent-tail` emits explicit
@@ -55,6 +56,7 @@ and there is no per-event `truncated` flag in v0.1. Lean's count of shortened li
 | `reason` | the one rule that decided the activity |
 | `since`, `last_at`, `last_write` | seconds since the epoch, or `null`; the activity's start, the last state-changing entry, and the newest transcript/helper write |
 | `background` | helpers (subagents/tasks) still running, each with its own activity, certainty, reason and times |
+| `pending_wakeups` | armed `loop`/`cron` wakeups with optional `due_at`, `reason` and `certainty`; the activity can still be `done`. Empty when nothing is pending |
 | `permission`, `sandbox` | the harness's last recorded mode/policy, or `null` |
 | `error` | the harness's error text when the turn ended with one, or `null` |
 | `meta` | `project`, `folder`, `branch`, `title` |
@@ -88,7 +90,8 @@ A checkpoint may add the expected status and fixture steps:
 ```
 
 The assertable fields are `activity`, `certainty`, `reason`, `permission`, `sandbox`,
-`title`, `error`, `cost_usd`, `out_tokens`, `usage`, `recent` and `background`. They are optional in a
+`title`, `error`, `cost_usd`, `out_tokens`, `usage`, `recent`, `background` and
+`pending_wakeups`. They are optional in a
 checkpoint: an input-only checkpoint (only the two required timing fields) is always
 accepted. When present, optional fields are compared; a missing optional field and an
 explicit `null` are equal. `false` is not `null`.
@@ -106,7 +109,7 @@ main transcript (Copilot) need no helper step: `background` can be asserted dire
 2. Write canonical JSON: object keys sorted at every depth, arrays in order, a missing
    optional field equal to `null`, and all status fields (`activity`, `certainty`, `reason`,
    `permission`, `sandbox`, `title`, `error`, `cost_usd`, `out_tokens`, `usage`, `recent`,
-   `background`) emitted even when null.
+   `background`, `pending_wakeups`) emitted even when empty/null.
 3. For each checkpoint, feed the main transcript up to `after_line`, apply any helper/meta
    steps, compute the state at `now`, and compare the declared fields. Exit non-zero on a
    mismatch; an unreached checkpoint is also a failure.

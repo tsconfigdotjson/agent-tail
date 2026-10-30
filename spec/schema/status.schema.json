@@ -223,6 +223,40 @@
         "reason"
       ],
       "unevaluatedProperties": false
+    },
+    "wakeup_kind": {
+      "enum": [
+        "loop",
+        "cron"
+      ]
+    },
+    "pending_wakeup": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/wakeup_kind"
+        },
+        "due_at": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "certainty": {
+          "$ref": "#/$defs/certainty"
+        }
+      },
+      "required": [
+        "kind",
+        "certainty"
+      ],
+      "unevaluatedProperties": false
     }
   },
   "type": "object",
@@ -309,6 +343,12 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/helper_state"
+      }
+    },
+    "pending_wakeups": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pending_wakeup"
       }
     }
   },

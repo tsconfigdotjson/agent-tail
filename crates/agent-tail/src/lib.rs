@@ -72,7 +72,7 @@ pub use sqlite::{
     read_state_vscdb_jsonl, state_vscdb_path,
 };
 pub use state::{
-    Activity, ActivityLine, Certainty, Diagnostics, PermissionMode, Reason, SandboxPolicy, SessionMeta, SessionState,
-    StatusClass, TokenUsage,
+    Activity, ActivityLine, Certainty, Diagnostics, PendingWakeup, PermissionMode, Reason, SandboxPolicy, SessionMeta,
+    SessionState, StatusClass, TokenUsage, WakeupKind,
 };
 pub use time::Timestamp;

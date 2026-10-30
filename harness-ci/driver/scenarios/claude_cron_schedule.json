@@ -1,0 +1,13 @@
+{
+  "name": "claude_cron_schedule",
+  "description": "Local capture for cron-wakeup reducer support. ToolSearch loads deferred CronCreate, then the model schedules a recurring job. Not in the pinned stable matrix: the committed fixture is from 2.1.314.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/cron_schedule.json",
+  "command": ["claude", "--model", "claude-sonnet-4-5", "--dangerously-skip-permissions"],
+  "prompt": "schedule a cron every five minutes to check the deploy",
+  "run_for_ms": 25000,
+  "no_approval": true,
+  "expected_activity": [
+    { "activity": "done", "certainty": "firm", "when": "end" }
+  ]
+}

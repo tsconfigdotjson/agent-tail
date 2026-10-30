@@ -1,0 +1,31 @@
+{
+  "name": "schedule_wakeup",
+  "description": "First turn calls ScheduleWakeup; the second turn acknowledges after its tool result.",
+  "steps": [
+    {
+      "expect": { "user_contains": "schedule a wakeup", "has_tool_result": false },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "ScheduleWakeup",
+            "input": {
+              "delaySeconds": 60,
+              "noop": false,
+              "prompt": "Check the deploy.",
+              "reason": "Watching the deploy."
+            }
+          }
+        ],
+        "usage": { "input_tokens": 10, "output_tokens": 20 }
+      }
+    },
+    {
+      "expect": { "user_contains": "schedule a wakeup", "has_tool_result": true },
+      "reply": {
+        "content": [{ "type": "text", "text": "Wakeup scheduled." }],
+        "usage": { "input_tokens": 20, "output_tokens": 5 }
+      }
+    }
+  ]
+}

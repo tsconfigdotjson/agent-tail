@@ -50,7 +50,7 @@ claude_code|codex|cursor|pi` overrides harness detection.
 ```json
 {"activity":"done","after_line":8,"background":[],"certainty":"firm","cost_usd":0.0,
  "error":null,"now_offset_s":30.0,"out_tokens":5,"permission":null,"reason":"turn_ended",
- "recent":[{"kind":"prompt","text":"use the tool"}],"sandbox":null,
+ "pending_wakeups":[],"recent":[{"kind":"prompt","text":"use the tool"}],"sandbox":null,
  "title":"use the tool","usage":{"cache_creation_input_tokens":0,
  "cache_read_input_tokens":0,"input_tokens":10,"output_tokens":5}}
 ```
@@ -58,7 +58,8 @@ claude_code|codex|cursor|pi` overrides harness detection.
 A checkpoint file such as `expected/status.jsonl` is both the timing script and the expected
 result. A checkpoint may declare only `after_line` and `now_offset_s`; then it is input-only
 and always accepted. Optional `permission`, `sandbox`, `title`, `error`, `cost_usd`,
-`out_tokens`, `usage`, `recent` and `background` fields are compared when present.
+`out_tokens`, `usage`, `recent`, `background` and `pending_wakeups` fields are compared when
+present.
 
 ## Shape survey
 
