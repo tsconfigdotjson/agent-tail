@@ -1,0 +1,22 @@
+{
+  "name": "claude_cron_fire_one_shots",
+  "description": "Local capture for one-shot cron wakeups. Schedules two one-shot jobs and observes both fires in turn; not in the pinned stable matrix.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/cron_fire_one_shots.json",
+  "command": [
+    "claude",
+    "--model",
+    "claude-sonnet-4-5",
+    "--dangerously-skip-permissions"
+  ],
+  "prompt": "schedule two reminders",
+  "run_for_ms": 200000,
+  "no_approval": true,
+  "expected_activity": [
+    {
+      "activity": "done",
+      "certainty": "firm",
+      "when": "end"
+    }
+  ]
+}

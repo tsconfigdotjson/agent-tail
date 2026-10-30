@@ -422,7 +422,14 @@ fn system(e: &Value, at: Option<f64>, out: &mut Vec<EventSeed>) {
         // Its in-memory wakeups die with it too.
         Some("agents_killed") => {
             out.push(
-                EventSeed::new(EventKind::WakeupCleared { kind: None, job_id: None, source_call_id: None }).at(at),
+                EventSeed::new(EventKind::WakeupCleared {
+                    kind: None,
+                    job_id: None,
+                    source_call_id: None,
+                    cron: None,
+                    prompt: None,
+                })
+                .at(at),
             );
             out.push(
                 EventSeed::new(EventKind::TurnEnd {
@@ -457,8 +464,14 @@ fn system(e: &Value, at: Option<f64>, out: &mut Vec<EventSeed>) {
             };
             if let Some(kind) = kind {
                 out.push(
-                    EventSeed::new(EventKind::WakeupCleared { kind: Some(kind), job_id: None, source_call_id: None })
-                        .at(at),
+                    EventSeed::new(EventKind::WakeupCleared {
+                        kind: Some(kind),
+                        job_id: None,
+                        source_call_id: None,
+                        cron: e["cron"].as_str().filter(|text| !text.is_empty()).map(String::from),
+                        prompt: e["prompt"].as_str().filter(|text| !text.is_empty()).map(String::from),
+                    })
+                    .at(at),
                 );
             }
             out.push(meta(e).at(at));
@@ -658,16 +671,28 @@ fn wakeup_call(
         "CronDelete" => (WakeupKind::Cron, ClaudeWakeupAction::Delete),
         _ => return None,
     };
+    let cron = input["cron"].as_str().filter(|text| !text.is_empty()).map(String::from);
+    let prompt = input["prompt"].as_str().filter(|text| !text.is_empty()).map(String::from);
     let reason = input["reason"]
         .as_str()
         .or_else(|| input["prompt"].as_str())
         .map(crate::session::first_line)
         .filter(|reason| !reason.is_empty())
         .map(String::from);
-    state.claude_wakeups.insert(call_id.into(), ClaudeWakeupCall { kind, action, reason: reason.clone() });
+    state.claude_wakeups.insert(
+        call_id.into(),
+        ClaudeWakeupCall { kind, action, reason: reason.clone(), cron: cron.clone(), prompt: prompt.clone() },
+    );
     match action {
         ClaudeWakeupAction::Stop => Some(
-            EventSeed::new(EventKind::WakeupCleared { kind: Some(kind), job_id: None, source_call_id: None }).at(at),
+            EventSeed::new(EventKind::WakeupCleared {
+                kind: Some(kind),
+                job_id: None,
+                source_call_id: None,
+                cron: None,
+                prompt: None,
+            })
+            .at(at),
         ),
         ClaudeWakeupAction::Delete => None,
         ClaudeWakeupAction::Create => {
@@ -684,6 +709,8 @@ fn wakeup_call(
                     reason,
                     job_id: None,
                     recurring: kind == WakeupKind::Cron && input["recurring"].as_bool().unwrap_or(true),
+                    cron,
+                    prompt,
                     certainty: Certainty::Inferred,
                     source_call_id: Some(call_id.into()),
                 })
@@ -711,10 +738,18 @@ fn wakeup_result(
     if is_error {
         let kind = call.as_ref().map(|call| call.kind);
         return Some(
-            EventSeed::new(EventKind::WakeupCleared { kind, job_id: None, source_call_id: Some(call_id.into()) })
-                .at(at),
+            EventSeed::new(EventKind::WakeupCleared {
+                kind,
+                job_id: None,
+                source_call_id: Some(call_id.into()),
+                cron: None,
+                prompt: None,
+            })
+            .at(at),
         );
     }
+    let cron = call.as_ref().and_then(|call| call.cron.clone());
+    let prompt = call.as_ref().and_then(|call| call.prompt.clone());
     let data = &e["toolUseResult"];
     let text = result_text(&result["content"]).unwrap_or_default();
 
@@ -726,6 +761,8 @@ fn wakeup_result(
                         kind: Some(WakeupKind::Loop),
                         job_id: None,
                         source_call_id: None,
+                        cron: None,
+                        prompt: None,
                     })
                     .at(at),
                 );
@@ -737,6 +774,8 @@ fn wakeup_result(
                         kind: Some(WakeupKind::Cron),
                         job_id: id.map(String::from),
                         source_call_id: Some(call_id.into()),
+                        cron: None,
+                        prompt: None,
                     })
                     .at(at),
                 );
@@ -751,6 +790,8 @@ fn wakeup_result(
                 kind: Some(WakeupKind::Loop),
                 job_id: None,
                 source_call_id: None,
+                cron: None,
+                prompt: None,
             })
             .at(at),
         );
@@ -764,6 +805,8 @@ fn wakeup_result(
                 reason,
                 job_id: None,
                 recurring: false,
+                cron: None,
+                prompt: None,
                 certainty: Certainty::Firm,
                 source_call_id: Some(call_id.into()),
             })
@@ -780,6 +823,8 @@ fn wakeup_result(
                     reason,
                     job_id: Some(id.into()),
                     recurring: data["recurring"].as_bool().unwrap_or(true),
+                    cron,
+                    prompt,
                     certainty: Certainty::Firm,
                     source_call_id: Some(call_id.into()),
                 })
@@ -794,6 +839,8 @@ fn wakeup_result(
                     kind: Some(WakeupKind::Cron),
                     job_id: Some(id.into()),
                     source_call_id: Some(call_id.into()),
+                    cron: None,
+                    prompt: None,
                 })
                 .at(at),
             );
@@ -809,6 +856,8 @@ fn wakeup_result(
                 kind: Some(WakeupKind::Cron),
                 job_id: Some(id.into()),
                 source_call_id: Some(call_id.into()),
+                cron: None,
+                prompt: None,
             })
             .at(at),
         );
@@ -824,6 +873,8 @@ fn wakeup_result(
                 kind: Some(WakeupKind::Loop),
                 job_id: None,
                 source_call_id: Some(call_id.into()),
+                cron: None,
+                prompt: None,
             })
             .at(at),
         );
@@ -1350,23 +1401,38 @@ mod tests {
     }
 
     fn cron_create(id: &str, recurring: bool, ago: f64) -> (Value, Value) {
+        cron_create_full(id, "*/5 * * * *", "Check the deploy.", recurring, 1793324620207, ago)
+    }
+
+    fn cron_create_full(
+        id: &str,
+        cron: &str,
+        prompt: &str,
+        recurring: bool,
+        next_fire_at: u64,
+        ago: f64,
+    ) -> (Value, Value) {
         let call = json!({"type": "assistant", "timestamp": at(ago),
             "message": {"id": format!("m-{id}"), "stop_reason": "tool_use", "content": [
                 {"type": "tool_use", "id": format!("toolu_{id}"), "name": "CronCreate",
-                 "input": {"cron": "*/5 * * * *", "prompt": "Check the deploy.", "recurring": recurring}}]}});
+                 "input": {"cron": cron, "prompt": prompt, "recurring": recurring}}]}});
         let result = json!({"type": "user", "timestamp": at(ago - 0.1),
             "message": {"content": [{"type": "tool_result", "tool_use_id": format!("toolu_{id}"),
                 "content": format!("Scheduled job {id}.")}]},
             "toolUseResult": {"id": id, "humanSchedule": "Every 5 minutes", "recurring": recurring,
-                "durable": false, "nextFireAt": 1793324620207_u64}});
+                "durable": false, "nextFireAt": next_fire_at}});
         (call, result)
     }
 
-    fn cron_fire(ago: f64) -> Value {
+    fn cron_fire_for(cron: &str, prompt: &str, ago: f64) -> Value {
         // A fire record may name a task id that isn't the cron job id, or carry none at all.
         json!({"type": "system", "subtype": "scheduled_task_fire", "timestamp": at(ago),
-            "content": "Claude resuming cron wakeup", "cron": "*/5 * * * *",
-            "prompt": "Check the deploy.", "taskKind": "cron", "cronKind": "cron"})
+            "content": "Running scheduled task", "taskId": "not-the-cron-id", "cron": cron,
+            "prompt": prompt})
+    }
+
+    fn cron_fire(ago: f64) -> Value {
+        cron_fire_for("*/5 * * * *", "Check the deploy.", ago)
     }
 
     fn cron_fire_without_kind(ago: f64) -> Value {
@@ -1436,6 +1502,113 @@ mod tests {
         assert_eq!(pending.len(), 1, "the one-shot was consumed; the recurring job is still armed: {pending:#?}");
         assert_eq!(pending[0].kind, crate::WakeupKind::Cron);
         assert!(pending[0].recurring);
+    }
+
+    #[test]
+    fn a_one_shot_fire_clears_only_the_matching_one() {
+        let (first_call, first_result) =
+            cron_create_full("job-2pm", "0 14 30 10 *", "Check the deploy.", false, 1793325600000, 5.0);
+        let (second_call, second_result) =
+            cron_create_full("job-3pm", "0 15 30 10 *", "Run the smoke test.", false, 1793329200000, 4.8);
+        let mut s = session(&[
+            prompt("schedule two one-shots", 6.0),
+            first_call,
+            first_result,
+            second_call,
+            second_result,
+            end_turn(3.0, "m2"),
+        ]);
+        assert_eq!(s.pending_wakeups().len(), 2);
+
+        s.apply(&cron_fire_for("0 14 30 10 *", "Check the deploy.", 2.0));
+        let pending = s.pending_wakeups();
+        assert_eq!(pending.len(), 1, "only the fired one-shot is consumed: {pending:#?}");
+        assert_eq!(pending[0].due_at, Some(crate::Timestamp::from_secs_f64(1793329200.0)));
+        assert_eq!(pending[0].reason.as_deref(), Some("Run the smoke test."));
+    }
+
+    #[test]
+    fn a_fire_clears_one_of_two_identical_one_shots_earliest_first() {
+        let (first_call, first_result) =
+            cron_create_full("job-a", "0 14 30 10 *", "Check the deploy.", false, 1793325600000, 5.0);
+        let (second_call, second_result) =
+            cron_create_full("job-b", "0 14 30 10 *", "Check the deploy.", false, 1793329200000, 4.8);
+        let mut s = session(&[
+            prompt("schedule two reminders", 6.0),
+            first_call,
+            first_result,
+            second_call,
+            second_result,
+            end_turn(3.0, "m2"),
+        ]);
+        assert_eq!(s.pending_wakeups().len(), 2);
+
+        s.apply(&cron_fire_for("0 14 30 10 *", "Check the deploy.", 2.0));
+        let pending = s.pending_wakeups();
+        assert_eq!(pending.len(), 1, "one fire consumes one job: {pending:#?}");
+        assert_eq!(
+            pending[0].due_at,
+            Some(crate::Timestamp::from_secs_f64(1793329200.0)),
+            "the earliest due one-shot was the one consumed"
+        );
+    }
+
+    #[test]
+    fn a_fire_that_matches_nothing_leaves_one_shots_armed() {
+        let (first_call, first_result) =
+            cron_create_full("job-2pm", "0 14 30 10 *", "Check the deploy.", false, 1793325600000, 5.0);
+        let (second_call, second_result) =
+            cron_create_full("job-3pm", "0 15 30 10 *", "Run the smoke test.", false, 1793329200000, 4.8);
+        let mut s = session(&[
+            prompt("schedule two one-shots", 6.0),
+            first_call,
+            first_result,
+            second_call,
+            second_result,
+            end_turn(3.0, "m2"),
+        ]);
+
+        s.apply(&cron_fire_for("0 16 30 10 *", "Something else.", 2.0));
+        assert_eq!(s.pending_wakeups().len(), 2, "a non-matching fire clears nothing");
+
+        s.apply(&json!({"type": "system", "subtype": "scheduled_task_fire", "timestamp": at(1.0),
+            "content": "Running scheduled task", "taskId": "not-the-cron-id",
+            "taskKind": "cron", "cronKind": "cron"}));
+        assert_eq!(s.pending_wakeups().len(), 2, "a fire without cron and prompt clears nothing");
+    }
+
+    #[test]
+    fn recurring_and_one_shot_fires_leave_each_other_armed() {
+        let pair = || {
+            let (recurring_call, recurring_result) =
+                cron_create_full("job-rec", "*/5 * * * *", "Check the deploy.", true, 1793324620207, 5.0);
+            let (one_shot_call, one_shot_result) =
+                cron_create_full("job-one", "0 15 30 10 *", "Run the smoke test.", false, 1793329200000, 4.8);
+            session(&[
+                prompt("schedule a recurring and a one-shot", 6.0),
+                recurring_call,
+                recurring_result,
+                one_shot_call,
+                one_shot_result,
+                end_turn(3.0, "m2"),
+            ])
+        };
+
+        let mut s = pair();
+        s.apply(&cron_fire_for("0 15 30 10 *", "Run the smoke test.", 2.0));
+        let pending = s.pending_wakeups();
+        assert_eq!(pending.len(), 1, "the one-shot fired; the recurring job stays: {pending:#?}");
+        assert!(pending[0].recurring);
+        assert_eq!(pending[0].due_at, None);
+        assert_eq!(pending[0].certainty, crate::Certainty::Inferred);
+
+        let mut s = pair();
+        s.apply(&cron_fire_for("*/5 * * * *", "Check the deploy.", 2.0));
+        let pending = s.pending_wakeups();
+        assert_eq!(pending.len(), 2, "the recurring job stays and the one-shot stays: {pending:#?}");
+        let one_shot = pending.iter().find(|wakeup| !wakeup.recurring).expect("the one-shot is still armed");
+        assert_eq!(one_shot.due_at, Some(crate::Timestamp::from_secs_f64(1793329200.0)));
+        assert_eq!(one_shot.certainty, crate::Certainty::Firm);
     }
 
     #[test]

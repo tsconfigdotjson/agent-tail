@@ -1,0 +1,6 @@
+{"after_line":47,"now_offset_s":0,"activity":"done","certainty":"firm","reason":"turn_ended","permission":"bypass_permissions","pending_wakeups":[{"kind":"cron","due_at":1793367120.0,"reason":"Check the deploy.","certainty":"firm","recurring":false},{"kind":"cron","due_at":1793367180.0,"reason":"Run the smoke test.","certainty":"firm","recurring":false}]}
+{"after_line":50,"now_offset_s":0,"activity":"done","certainty":"firm","reason":"turn_ended","permission":"bypass_permissions","pending_wakeups":[{"kind":"cron","due_at":1793367180.0,"reason":"Run the smoke test.","certainty":"firm","recurring":false}]}
+{"after_line":55,"now_offset_s":0,"activity":"done","certainty":"firm","reason":"turn_ended","permission":"bypass_permissions","pending_wakeups":[{"kind":"cron","due_at":1793367180.0,"reason":"Run the smoke test.","certainty":"firm","recurring":false}]}
+{"after_line":58,"now_offset_s":0,"activity":"done","certainty":"firm","reason":"turn_ended","permission":"bypass_permissions","pending_wakeups":[]}
+{"after_line":63,"now_offset_s":0,"activity":"done","certainty":"firm","reason":"turn_ended","permission":"bypass_permissions","pending_wakeups":[]}
+{"after_line":63,"now_offset_s":901,"activity":"idle","certainty":"firm","reason":"no_writes_for","permission":"bypass_permissions","pending_wakeups":[]}

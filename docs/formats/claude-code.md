@@ -180,12 +180,14 @@ session-only case.
   `promptSource:"system"`, `wakeupSource` (`loop_wakeup`), `turnOrigin:"scheduled"`,
   `scheduledFireId` and `scheduledTaskId`. Dynamic-loop fires also carry `cronKind` and
   `taskKind: "loop"`; 2.1.314 cron fires omit both, and their `taskId` is the cron job id.
-- That system record consumes a dynamic loop and a one-shot cron. A recurring cron stays
-  armed: its old `nextFireAt` is no longer a due time, and the adapter does not derive the
-  scheduler's next run from the fire record, so the entry keeps `due_at: null` with
-  `certainty: inferred`. It is cleared by `CronDelete` with its id, `agents_killed`, or
-  session end. If a fire record carries no job id, the safe fallback is to keep every
-  recurring job armed rather than risk reporting it as gone.
+- That system record consumes a dynamic loop and the one-shot cron whose `cron` expression
+  and `prompt` both match the fire, clearing the earliest `due_at` if several are identical.
+  It does not rely on `taskId`, which may differ from the `CronCreate` result id. If the fire
+  lacks either field or nothing matches, one-shots stay armed rather than being falsely
+  reported as gone. A recurring cron stays armed: its old `nextFireAt` is no longer a due
+  time, and the adapter does not derive the scheduler's next run from the fire record, so the
+  entry keeps `due_at: null` with `certainty: inferred`. It is cleared by `CronDelete` with
+  its id, `agents_killed`, or session end.
 - A later turn is not required for the pending state: the call and result stay in the JSONL,
   so a fresh reducer or a resumed session sees it. The 2.1.314 binary re-arms a still-future
   dynamic wakeup after resume; default session-only cron jobs die with the process and

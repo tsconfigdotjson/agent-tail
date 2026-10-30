@@ -122,6 +122,10 @@ pub(crate) struct ArmedWakeup {
     pub(crate) id: String,
     pub(crate) source_call_id: Option<String>,
     pub(crate) recurring: bool,
+    /// The cron expression the job was armed with, when the tool call recorded one.
+    pub(crate) cron: Option<String>,
+    /// The prompt the cron job enqueues, when the tool call recorded one.
+    pub(crate) prompt: Option<String>,
 }
 
 /// One session's state, built up entry by entry by its harness's adapter. Times are seconds
@@ -373,23 +377,61 @@ impl Session {
 
     /// Clear wakeups by harness job id, by the tool call that armed them, or by kind. With
     /// no id and no source call id, `None` clears every armed wakeup. A cron clear with no
-    /// id is a fire: it consumes one-shot jobs, while recurring jobs stay armed with an
-    /// unknown next due time.
-    pub(crate) fn clear_wakeups(&mut self, kind: Option<WakeupKind>, id: Option<&str>, source_call_id: Option<&str>) {
+    /// id is a fire: it consumes the one-shot job whose cron expression and prompt both
+    /// match, while recurring jobs stay armed with an unknown next due time. Without both
+    /// fields, or when nothing matches, one-shots stay armed: a false "pending" is safe,
+    /// a false "not pending" is not.
+    pub(crate) fn clear_wakeups(
+        &mut self,
+        kind: Option<WakeupKind>,
+        id: Option<&str>,
+        source_call_id: Option<&str>,
+        cron: Option<&str>,
+        prompt: Option<&str>,
+    ) {
         let by_id = id.filter(|id| !id.is_empty());
         let by_call = source_call_id.filter(|id| !id.is_empty());
-        let cron_fire = kind == Some(WakeupKind::Cron) && by_id.is_none() && by_call.is_none();
+        if kind == Some(WakeupKind::Cron) && by_id.is_none() && by_call.is_none() {
+            // A recurring job is still armed, but the old due time belonged to the run that
+            // just fired. This is the #129 behaviour, kept for every recurring job.
+            for wakeup in self.wakeups.values_mut() {
+                if wakeup.kind == WakeupKind::Cron && wakeup.recurring {
+                    wakeup.due_at = None;
+                    wakeup.certainty = Certainty::Inferred;
+                }
+            }
+            let (Some(cron), Some(prompt)) =
+                (cron.filter(|text| !text.is_empty()), prompt.filter(|text| !text.is_empty()))
+            else {
+                return;
+            };
+            // The fire may name a task id that isn't the CronCreate id, so match on the
+            // content instead. Identical jobs can share both fields: consume the earliest.
+            let due = |wakeup: &ArmedWakeup| wakeup.due_at.map_or(f64::INFINITY, Timestamp::as_secs_f64);
+            let matched = self
+                .wakeups
+                .iter()
+                .filter(|(_, wakeup)| {
+                    wakeup.kind == WakeupKind::Cron
+                        && !wakeup.recurring
+                        && wakeup.cron.as_deref() == Some(cron)
+                        && wakeup.prompt.as_deref() == Some(prompt)
+                })
+                .min_by(|(key_a, a), (key_b, b)| {
+                    due(a).partial_cmp(&due(b)).unwrap_or(std::cmp::Ordering::Equal).then_with(|| key_a.cmp(key_b))
+                })
+                .map(|(key, _)| key.clone());
+            if let Some(key) = matched {
+                self.wakeups.remove(&key);
+            }
+            return;
+        }
         self.wakeups.retain(|_, wakeup| {
             if let Some(id) = by_id {
                 return wakeup.id != id;
             }
             if let Some(call_id) = by_call {
                 return wakeup.source_call_id.as_deref() != Some(call_id);
-            }
-            if cron_fire && wakeup.kind == WakeupKind::Cron && wakeup.recurring {
-                wakeup.due_at = None;
-                wakeup.certainty = Certainty::Inferred;
-                return true;
             }
             kind.is_some_and(|kind| wakeup.kind != kind)
         });
@@ -502,7 +544,7 @@ impl Session {
         // A user abort cancels the dynamic loop's pending wakeups in Claude Code. A cron
         // job is separate and is only cleared by CronDelete, its fire record or exit.
         if last == Last::Interrupted {
-            self.clear_wakeups(Some(WakeupKind::Loop), None, None);
+            self.clear_wakeups(Some(WakeupKind::Loop), None, None, None, None);
         }
     }
 
