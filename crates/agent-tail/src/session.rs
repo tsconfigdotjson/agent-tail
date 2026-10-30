@@ -348,6 +348,7 @@ impl Session {
                 due_at: wakeup.due_at,
                 reason: wakeup.reason.clone(),
                 certainty: wakeup.certainty,
+                recurring: wakeup.recurring,
             })
             .collect()
     }
@@ -371,10 +372,13 @@ impl Session {
     }
 
     /// Clear wakeups by harness job id, by the tool call that armed them, or by kind. With
-    /// no id and no source call id, `None` clears every armed wakeup.
+    /// no id and no source call id, `None` clears every armed wakeup. A cron clear with no
+    /// id is a fire: it consumes one-shot jobs, while recurring jobs stay armed with an
+    /// unknown next due time.
     pub(crate) fn clear_wakeups(&mut self, kind: Option<WakeupKind>, id: Option<&str>, source_call_id: Option<&str>) {
         let by_id = id.filter(|id| !id.is_empty());
         let by_call = source_call_id.filter(|id| !id.is_empty());
+        let cron_fire = kind == Some(WakeupKind::Cron) && by_id.is_none() && by_call.is_none();
         self.wakeups.retain(|_, wakeup| {
             if let Some(id) = by_id {
                 return wakeup.id != id;
@@ -382,7 +386,12 @@ impl Session {
             if let Some(call_id) = by_call {
                 return wakeup.source_call_id.as_deref() != Some(call_id);
             }
-            kind.is_none_or(|kind| wakeup.kind != kind)
+            if cron_fire && wakeup.kind == WakeupKind::Cron && wakeup.recurring {
+                wakeup.due_at = None;
+                wakeup.certainty = Certainty::Inferred;
+                return true;
+            }
+            kind.is_some_and(|kind| wakeup.kind != kind)
         });
     }
 

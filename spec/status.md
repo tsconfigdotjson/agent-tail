@@ -58,7 +58,7 @@ and there is no per-event `truncated` flag in v0.1. Lean's count of shortened li
 | `reason` | the one rule that decided the activity |
 | `since`, `last_at`, `last_write` | seconds since the epoch, or `null`; the activity's start, the last state-changing entry, and the newest transcript/helper write |
 | `background` | helpers (subagents/tasks) still running, each with its own activity, certainty, reason and times |
-| `pending_wakeups` | armed `loop`/`cron` wakeups with optional `due_at`, `reason` and `certainty`; the activity can still be `done`. Empty when nothing is pending |
+| `pending_wakeups` | armed `loop`/`cron` wakeups with optional `due_at`, `reason`, `certainty` and `recurring`; a recurring cron stays here after a fire with `due_at: null` and inferred certainty until it is deleted or the session ends. The activity can still be `done`. Empty when nothing is pending |
 | `permission`, `sandbox` | the harness's last recorded mode/policy, or `null` |
 | `error` | the harness's error text when the turn ended with one, or `null` |
 | `stop_reason` | `usage_limit` when the turn stopped at a usage/rate limit, or `null` |

@@ -10,7 +10,7 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 
 | Harness | Status | CI scenarios | Fixtures | Versions | Evidence |
 |---|---|---:|---:|---|---|
-| Claude Code | **CI-verified** | 18 | 21 | `2.1.292`, `2.1.310`, `2.1.311`, `2.1.312`, `2.1.314` | 18 CI scenario(s); 15 ci-scripted, 2 donated, 4 hand-made fixture(s) |
+| Claude Code | **CI-verified** | 18 | 22 | `2.1.292`, `2.1.310`, `2.1.311`, `2.1.312`, `2.1.314` | 18 CI scenario(s); 16 ci-scripted, 2 donated, 4 hand-made fixture(s) |
 | Claude Desktop | **ported-unverified** | 0 | 5 | unknown | 5 hand-made/synthetic fixture(s); no real capture |
 | Codex | **CI-verified** | 15 | 11 | `0.160.1` | 15 CI scenario(s); 6 ci-scripted, 2 donated, 3 hand-made fixture(s) |
 | Cursor | **donated-verified** | 0 | 7 | `3.27.12` | 3 donated fixture(s); no CI scenario |
@@ -61,6 +61,7 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | claude_code | `2.1.312` | `linux` | `donated` | `claude-code/2.1.312/linux/ci-claude_usage_limit` |
 | claude_code | `2.1.314` | `linux` | `ci-scripted` | `claude-code/2.1.314/linux/scheduled-wakeup` |
 | claude_code | `2.1.314` | `linux` | `ci-scripted` | `claude-code/2.1.314/linux/scheduled-wakeup-cron` |
+| claude_code | `2.1.314` | `linux` | `ci-scripted` | `claude-code/2.1.314/linux/scheduled-wakeup-cron-recurring` |
 | claude_desktop | `unknown` | `any` | `handmade` | `claude-desktop/handmade/any/error` |
 | claude_desktop | `unknown` | `any` | `handmade` | `claude-desktop/handmade/any/interrupted` |
 | claude_desktop | `unknown` | `any` | `handmade` | `claude-desktop/handmade/any/plain-qa` |

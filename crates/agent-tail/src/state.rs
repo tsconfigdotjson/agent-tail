@@ -181,6 +181,9 @@ pub struct PendingWakeup {
     /// `firm` when a tool result recorded the due time or job id, `inferred` when only the
     /// tool call is on disk.
     pub certainty: Certainty,
+    /// Whether the job fires again after this run. A recurring cron stays pending after a
+    /// fire; a one-shot cron and a dynamic loop wakeup are consumed by it.
+    pub recurring: bool,
 }
 
 /// A harness's permission mode, as far as it changes who can answer a prompt.

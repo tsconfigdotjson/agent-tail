@@ -82,8 +82,10 @@ document: the code, [spec/](spec/), and [docs/](docs/) are the source of truth f
   `working`, `done`, `idle`), but labels and display choices belong to the consumer.
 - **A pending wakeup is state, not a new activity.** A turn that armed a scheduled wakeup is
   still `done`; `SessionState.pending_wakeups` records the `loop`/`cron` kind, due time,
-  optional reason and certainty. It is derived only from transcript tool calls/results and
-  clearing records, never from a process registry.
+  optional reason, certainty and whether it recurs. A recurring cron stays armed after a
+  fire with an unknown next due time, while a one-shot cron or dynamic loop is consumed. It
+  is derived only from transcript tool calls/results and clearing records, never from a
+  process registry.
 - **Thresholds are configurable.** The approval stall and idle window are options; defaults
   are 20 seconds and 15 minutes, respectively.
 

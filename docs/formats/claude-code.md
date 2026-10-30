@@ -60,7 +60,7 @@ files), sessionKind ("bg" for background sessions)`.
 `stop_hook_summary` 890 (`hookCount, hasOutput, preventedContinuation, stopReason` (always ""), `toolUseID`),
 `away_summary` 225, `informational` 30, `local_command` 11 (`commandRun`), `bridge_status` 8,
 `compact_boundary` 5 (`compactMetadata.{trigger,preTokens,postTokens,durationMs,cumulativeDroppedTokens}`,
-`logicalParentUuid`), `scheduled_task_fire` 3 (`cron, cronKind, taskKind`: `loop`), `agents_killed` 1.
+`logicalParentUuid`), `scheduled_task_fire` 3 (`cron, cronKind, taskKind`: `loop`; 2.1.314 cron fires omit `cronKind`/`taskKind` and use `taskId`), `agents_killed` 1.
 
 **Content blocks:** assistant: `thinking` (`thinking, signature`), `text`, `tool_use` (`id, name,
 input, caller.type`: `direct`). user: `tool_result` (`tool_use_id, content` str|list of
@@ -176,16 +176,23 @@ session-only case.
   `CronDelete` takes `id`; its success result is `Cancelled job <id>.` with
   `toolUseResult:{id}`. `CronList` reports jobs and next runs.
 - When a wakeup fires, the transcript writes `system/scheduled_task_fire` with `content,
-  cron, cronKind, taskKind, taskId, prompt`, followed by a `user` row with `isMeta:true`,
+  cron, taskId, prompt`, followed by a `user` row with `isMeta:true`,
   `promptSource:"system"`, `wakeupSource` (`loop_wakeup`), `turnOrigin:"scheduled"`,
-  `scheduledFireId` and `scheduledTaskId`. That system record is the clearing evidence.
+  `scheduledFireId` and `scheduledTaskId`. Dynamic-loop fires also carry `cronKind` and
+  `taskKind: "loop"`; 2.1.314 cron fires omit both, and their `taskId` is the cron job id.
+- That system record consumes a dynamic loop and a one-shot cron. A recurring cron stays
+  armed: its old `nextFireAt` is no longer a due time, and the adapter does not derive the
+  scheduler's next run from the fire record, so the entry keeps `due_at: null` with
+  `certainty: inferred`. It is cleared by `CronDelete` with its id, `agents_killed`, or
+  session end. If a fire record carries no job id, the safe fallback is to keep every
+  recurring job armed rather than risk reporting it as gone.
 - A later turn is not required for the pending state: the call and result stay in the JSONL,
   so a fresh reducer or a resumed session sees it. The 2.1.314 binary re-arms a still-future
   dynamic wakeup after resume; default session-only cron jobs die with the process and
   `durable:true` cron jobs persist in `.claude/scheduled_tasks.json`.
 
 `agent-tail` projects these rows as `SessionState.pending_wakeups` (`kind: loop|cron`,
-`due_at`, optional `reason`, and `certainty`). See the fixtures under
+`due_at`, optional `reason`, `certainty`, and `recurring`). See the fixtures under
 `fixtures/claude-code/2.1.314/linux/scheduled-wakeup*` and their `NOTES.md`.
 
 **Other:** `queue-operation` shows prompts typed while busy. `cost-state` is the last record in
