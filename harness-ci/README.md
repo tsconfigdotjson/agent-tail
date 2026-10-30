@@ -215,7 +215,10 @@ suffix to the branch name.
 ## Adding a harness or scenario
 
 1. Add the mock scenario and driver scenario.
-2. Add the scenario name to the matching `ci/scenarios-*.txt` list.
+2. Add the scenario name to the matching `ci/scenarios-*.txt` list. If that list feeds a
+   committed shape baseline, refresh the baseline for every pinned version from a real run
+   of the expanded list in the same change; otherwise the next nightly correctly reports
+   same-version drift for fields the new scenario introduced.
 3. Add a CI job or extend the matrix for the harness, using a temp home and an offline mock
    endpoint.
 4. Capture or hand-make a fixture, add status checkpoints, and update the support matrix.
