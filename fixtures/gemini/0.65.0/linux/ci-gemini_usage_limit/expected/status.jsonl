@@ -1,0 +1,2 @@
+{"after_line":4,"now_offset_s":5.0,"activity":"thinking","certainty":"firm","reason":"prompt_sent","stop_reason":null,"resets_at":null}
+{"after_line":6,"now_offset_s":5.0,"activity":"errored","certainty":"firm","reason":"errored","error":"Gemini discarded the prompt before answering","stop_reason":null,"resets_at":null}

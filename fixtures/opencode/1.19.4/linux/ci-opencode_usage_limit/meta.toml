@@ -1,0 +1,8 @@
+harness = "opencode"
+version = "1.19.4"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-30"
+description = "OpenCode 1.19.4 against the mock returning HTTP 429: the assistant message error carries the provider message and statusCode 429, a firm usage-limit stop. See NOTES.md."
+notes = "NOTES.md"
+redaction = "redaction.json"

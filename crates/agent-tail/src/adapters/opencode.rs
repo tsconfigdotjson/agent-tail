@@ -132,12 +132,15 @@ fn message(state: &mut crate::event::ParseState, row: &Value) -> Vec<EventSeed> 
             out.push(EventSeed::new(EventKind::ModelChange { model: model.into() }).at(at));
         }
         if let Some(error) = payload.get("error").filter(|error| !error.is_null()) {
-            let message = error["message"].as_str().or_else(|| error.as_str()).unwrap_or("OpenCode error");
+            let message = error_message(error).unwrap_or("OpenCode error");
+            let limit = crate::event::usage_limit_stop(row);
             out.push(
                 EventSeed::new(EventKind::TurnEnd {
                     reason: TurnEndReason::Error,
                     error: Some(message.into()),
                     background_agents: None,
+                    stop_reason: limit.map(|_| crate::state::StopReason::UsageLimit),
+                    resets_at: limit.and_then(|limit| limit.resets_at).map(crate::time::Timestamp::from_secs_f64),
                 })
                 .at(at),
             );
@@ -192,23 +195,34 @@ fn part(state: &mut crate::event::ParseState, row: &Value) -> Vec<EventSeed> {
                             reason: TurnEndReason::EndTurn,
                             error: None,
                             background_agents: None,
+                            stop_reason: None,
+                            resets_at: None,
                         })
                         .at(at),
                     );
                 }
-                "error" | "failed" => out.push(
-                    EventSeed::new(EventKind::TurnEnd {
-                        reason: TurnEndReason::Error,
-                        error: payload["error"]["message"].as_str().map(String::from),
-                        background_agents: None,
-                    })
-                    .at(at),
-                ),
+                "error" | "failed" => {
+                    let limit = crate::event::usage_limit_stop(&payload);
+                    out.push(
+                        EventSeed::new(EventKind::TurnEnd {
+                            reason: TurnEndReason::Error,
+                            error: error_message(&payload["error"]).map(String::from),
+                            background_agents: None,
+                            stop_reason: limit.map(|_| crate::state::StopReason::UsageLimit),
+                            resets_at: limit
+                                .and_then(|limit| limit.resets_at)
+                                .map(crate::time::Timestamp::from_secs_f64),
+                        })
+                        .at(at),
+                    );
+                }
                 "aborted" | "interrupted" | "cancelled" | "canceled" => out.push(
                     EventSeed::new(EventKind::TurnEnd {
                         reason: TurnEndReason::Interrupted,
                         error: None,
                         background_agents: None,
+                        stop_reason: None,
+                        resets_at: None,
                     })
                     .at(at),
                 ),
@@ -292,6 +306,15 @@ fn tool_part(payload: &Value, at: Option<f64>, out: &mut Vec<EventSeed>) {
         );
         out.push(EventSeed::new(EventKind::ToolResult { call_id, is_error: status == "error", size }).at(at));
     }
+}
+
+fn error_message(error: &Value) -> Option<&str> {
+    error["message"]
+        .as_str()
+        .or_else(|| error["data"]["message"].as_str())
+        .or_else(|| error["error"]["message"].as_str())
+        .or_else(|| error.as_str())
+        .filter(|message| !message.is_empty())
 }
 
 fn describe_tool(name: &str, input: &Value) -> ActivityLine {

@@ -50,6 +50,8 @@ stall threshold.
 The state also carries the project, branch, title, model, permission/sandbox information,
 token usage, recorded cost, the last few activity lines, running helpers, pending scheduled
 wakeups, and diagnostics.
+A usage/rate-limit stop is firm `errored` with `stop_reason: "usage_limit"` and, when the
+harness records one, `resets_at`; a new turn clears both.
 The library never reads the clock: callers pass `now`, which makes status timelines
 deterministic and testable.
 

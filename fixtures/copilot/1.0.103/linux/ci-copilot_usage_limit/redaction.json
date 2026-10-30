@@ -1,0 +1,154 @@
+{
+  "format": 1,
+  "file": "copilot.jsonl",
+  "lorem": false,
+  "lines": 7,
+  "bytes_before": 35576,
+  "bytes_after": 35326,
+  "replacements": {
+    "email": 1,
+    "home_path": 4,
+    "secret_entropy": 11
+  },
+  "offsets": [
+    {
+      "line": 1,
+      "before_start": 0,
+      "before_end": 435,
+      "after_start": 0,
+      "after_end": 435,
+      "delta": 0
+    },
+    {
+      "line": 2,
+      "before_start": 435,
+      "before_end": 984,
+      "after_start": 435,
+      "after_end": 984,
+      "delta": 0
+    },
+    {
+      "line": 3,
+      "before_start": 984,
+      "before_end": 34200,
+      "after_start": 984,
+      "after_end": 33950,
+      "delta": -250
+    },
+    {
+      "line": 4,
+      "before_start": 34200,
+      "before_end": 34442,
+      "after_start": 33950,
+      "after_end": 34192,
+      "delta": -250
+    },
+    {
+      "line": 5,
+      "before_start": 34442,
+      "before_end": 34627,
+      "after_start": 34192,
+      "after_end": 34377,
+      "delta": -250
+    },
+    {
+      "line": 6,
+      "before_start": 34627,
+      "before_end": 35075,
+      "after_start": 34377,
+      "after_end": 34825,
+      "delta": -250
+    },
+    {
+      "line": 7,
+      "before_start": 35075,
+      "before_end": 35576,
+      "after_start": 34825,
+      "after_end": 35326,
+      "delta": -250
+    }
+  ],
+  "findings": [
+    {
+      "line": 1,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 3,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 3,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 3,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 3,
+      "kind": "email",
+      "placeholder": "<email>"
+    },
+    {
+      "line": 3,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0001>"
+    },
+    {
+      "line": 3,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0002>"
+    },
+    {
+      "line": 3,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0002>"
+    },
+    {
+      "line": 3,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0002>"
+    },
+    {
+      "line": 3,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0003>"
+    },
+    {
+      "line": 3,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0004>"
+    },
+    {
+      "line": 3,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0005>"
+    },
+    {
+      "line": 3,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0003>"
+    },
+    {
+      "line": 3,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0006>"
+    },
+    {
+      "line": 3,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0007>"
+    },
+    {
+      "line": 3,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0008>"
+    }
+  ],
+  "malformed_lines": []
+}

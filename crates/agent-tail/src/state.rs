@@ -36,6 +36,13 @@ pub struct SessionState {
     /// The error the harness recorded, when the turn ended with one (e.g. `server_error`,
     /// `Connection failed`). Cleared when another activity takes over.
     pub error: Option<String>,
+    /// Why the turn stopped, when the harness recorded a recognizable stop reason beyond an
+    /// error: currently `usage_limit` for a usage/rate-limit stop. Cleared when the next turn
+    /// starts.
+    pub stop_reason: Option<StopReason>,
+    /// When the harness said the usage/rate limit resets, when it recorded a usable time.
+    /// Cleared with [`stop_reason`](Self::stop_reason).
+    pub resets_at: Option<Timestamp>,
     pub meta: SessionMeta,
     /// Spend in US dollars, as the harness recorded it (Claude Code); never estimated.
     pub cost_usd: Option<f64>,
@@ -50,6 +57,15 @@ pub struct SessionState {
     /// [`ReducerOptions::recent_lines`](crate::ReducerOptions::recent_lines)).
     pub recent: Vec<ActivityLine>,
     pub diagnostics: Diagnostics,
+}
+
+/// Why a turn stopped, when an error is not specific enough.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum StopReason {
+    /// The harness stopped at a usage or rate limit. The next send starts a new turn.
+    UsageLimit,
 }
 
 /// What a session is doing. Shaped for the v0.1 status contract: see

@@ -320,6 +320,22 @@
         "null"
       ]
     },
+    "stop_reason": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "usage_limit",
+        null
+      ]
+    },
+    "resets_at": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
     "cost_usd": {
       "type": [
         "number",

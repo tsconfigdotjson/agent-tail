@@ -6,5 +6,7 @@ copilot_permission_denied
 copilot_parallel_tools
 copilot_api_error
 
+copilot_usage_limit
+
 # SIGKILL after tool.execution_start, before execution_complete; no abort row.
 copilot_hard_kill_mid_tool

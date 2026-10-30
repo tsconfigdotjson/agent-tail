@@ -1,0 +1,75 @@
+{
+  "format": 1,
+  "file": "opencode.jsonl",
+  "lorem": false,
+  "lines": 4,
+  "bytes_before": 2241,
+  "bytes_after": 2221,
+  "replacements": {
+    "home_path": 3,
+    "host": 1,
+    "secret_entropy": 1
+  },
+  "offsets": [
+    {
+      "line": 1,
+      "before_start": 0,
+      "before_end": 377,
+      "after_start": 0,
+      "after_end": 377,
+      "delta": 0
+    },
+    {
+      "line": 2,
+      "before_start": 377,
+      "before_end": 723,
+      "after_start": 377,
+      "after_end": 723,
+      "delta": 0
+    },
+    {
+      "line": 3,
+      "before_start": 723,
+      "before_end": 1000,
+      "after_start": 723,
+      "after_end": 1000,
+      "delta": 0
+    },
+    {
+      "line": 4,
+      "before_start": 1000,
+      "before_end": 2241,
+      "after_start": 1000,
+      "after_end": 2221,
+      "delta": -20
+    }
+  ],
+  "findings": [
+    {
+      "line": 1,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 4,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 4,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 4,
+      "kind": "host",
+      "placeholder": "<host>"
+    },
+    {
+      "line": 4,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0001>"
+    }
+  ],
+  "malformed_lines": []
+}

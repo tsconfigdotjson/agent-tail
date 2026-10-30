@@ -1,0 +1,8 @@
+harness = "claude_code"
+version = "2.1.312"
+os = "linux"
+capture = "donated"
+date = "2026-10-30"
+description = "A real Claude Code 2.1.312 usage-limit stop: the synthetic assistant error says usage_limit_reached and records resetsAt; the following informational and turn_duration rows do not undo Errored. See NOTES.md."
+notes = "NOTES.md"
+redaction = "redaction.json"

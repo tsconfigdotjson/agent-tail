@@ -1,0 +1,2 @@
+{"after_line":2,"now_offset_s":5.0,"activity":"thinking","certainty":"firm","reason":"prompt_sent","stop_reason":null,"resets_at":null}
+{"after_line":9,"now_offset_s":5.0,"activity":"errored","certainty":"firm","reason":"errored","error":"exceeded retry limit, last status: 429 Too Many Requests","stop_reason":"usage_limit","resets_at":null}

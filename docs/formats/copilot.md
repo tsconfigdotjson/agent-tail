@@ -85,6 +85,9 @@ continues.
   `message`. 1.0.103 writes `assistant.turn_end` before `abort`/`session.error`, then a
   routine `session.shutdown`; the adapter keeps the terminal interrupted/errored state
   instead of letting that shutdown turn it back into `Done`.
+- **Usage limit:** `session.error` may carry `errorType: "rate_limit"`, `statusCode: 429`,
+  and a message ending in the provider's usage-limit text. It stays firm `errored`, adds
+  `stop_reason: "usage_limit"`, and is not undone by the routine shutdown.
 - **Usage:** each `session.usage_record` is a per-call count keyed by `apiCallId`; the
   session total is their sum.
 - **Subagents:** `subagent.started` creates a background helper, `subagent.completed` (or

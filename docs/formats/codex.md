@@ -79,6 +79,11 @@ Enums seen: `approval_policy: on-request`; `sandbox_policy.type: workspace-write
 - **Turn end:** `event_msg/task_complete` (same `turn_id`). Firm. The original 0.118 sample
   had neither `turn_aborted` nor `turn_complete`; the live 0.160.1 run saw `turn_aborted` with
   `reason: interrupted`, and the 0.160.1 fixtures cover `turn_complete`.
+- **Usage limit:** a 429 that exhausts Codex's retries ends in `task_complete.error`, e.g.
+  `{"message": "exceeded retry limit, last status: 429 Too Many Requests",
+  "codex_error_info": {"response_too_many_failed_attempts": {"http_status_code": 429}}}`.
+  The provider body is not persisted. `agent-tail` keeps firm `errored` and adds
+  `stop_reason: "usage_limit"`; no reset time is recorded on this path.
 - **Approval:** `turn_context.approval_policy` is firm for "can't ask" when it is `never`.
   `approvals_reviewer: auto_review` also means no human; `on-failure` is the older name for
   `on-request`. `sandbox_policy.type` is recorded in `SessionState.sandbox` but does not by

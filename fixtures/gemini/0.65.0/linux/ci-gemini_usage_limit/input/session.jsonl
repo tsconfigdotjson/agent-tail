@@ -1,0 +1,7 @@
+{"sessionId":"0feff314-d44f-49b3-823a-59ccd25cbf70","projectHash":"3a7b8110f0c8f8f72d31b11406a30f06939e6b6a25ec098bf08a38956781f746","startTime":"2026-10-30T01:49:17.598Z","lastUpdated":"2026-10-30T01:49:17.598Z","kind":"main"}
+{"id":"d04923d38bb0f6017037e74183378ef4","timestamp":"2026-10-30T01:49:17.610Z","type":"user","content":[{"text":"<session_context>\nThis is the Gemini CLI. We are setting up the context for our chat.\nToday's date is Friday, October 30, 2026 (formatted according to the user's locale).\nMy operating system is: linux\nThe project's temporary directory is: /home/<user>/tmp/.tmpuVYZRO/home/<user>/tmp/work\n- **Workspace Directories:**\n  - /home/<user>/tmp/.tmpuVYZRO/work\n- **Directory Structure:**\n\nShowing up to 200 items (files + folders).\n\n/home/<user>/tmp/.tmpuVYZRO/work/\n\n\n\n</session_context>"}]}
+{"$set":{"lastUpdated":"2026-10-30T01:49:17.617Z"}}
+{"id":"41587e71-fe7d-48bc-adf6-3582c49fdbbf","timestamp":"2026-10-30T01:49:18.162Z","type":"user","content":[{"text":"trigger a usage limit"}]}
+{"$set":{"lastUpdated":"2026-10-30T01:49:18.167Z"}}
+{"$rewindTo":"41587e71-fe7d-48bc-adf6-3582c49fdbbf"}
+{"$set":{"lastUpdated":"2026-10-30T01:49:18.440Z"}}

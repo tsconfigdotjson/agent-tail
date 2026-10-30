@@ -1,0 +1,12 @@
+{
+  "name": "gemini_usage_limit",
+  "description": "The mock returns HTTP 429 with a usage-limit message. Gemini's journal rewinds the just-sent prompt without an answer; the session must rest firm Errored. The journal records no cause, so stop_reason is null.",
+  "harness": "gemini",
+  "mock": "../../mock-server/scenarios/usage_limit.json",
+  "prompt": "trigger a usage limit",
+  "run_for_ms": 30000,
+  "settings": { "general": { "maxAttempts": 1 } },
+  "expected_activity": [
+    { "activity": "errored", "when": "end", "certainty": "firm" }
+  ]
+}

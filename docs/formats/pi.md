@@ -108,6 +108,11 @@ cumulative `cost-state`.
   `Done` / `turn_ended`. `aborted` is firm `Interrupted` / `interrupted`. `error` is firm
   `Errored` / `errored`, carrying `errorMessage`. `deferred` was documented but not observed;
   it is left as `Meta`, so it does not claim a finished turn.
+- **Usage limit:** a 429 exhausted by Pi (retries disabled in CI) is an assistant message with
+  `stopReason: "error"` and an `errorMessage` such as `429 {"error":{"message":"You've hit
+  your 5-hour limit …","type":"rate_limit_error"}}`. It stays firm `errored`, adds
+  `stop_reason: "usage_limit"`, and keeps `resets_at` null because the reset is a local clock
+  time without a date.
 - **Compaction:** a `compaction` entry becomes `Compaction`. Pi does not record whether it
   was manual, threshold or overflow, so `trigger` remains `None`.
 - **Model changes:** `model_change` and each assistant message name the model; the last

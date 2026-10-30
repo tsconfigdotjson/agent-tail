@@ -6,7 +6,7 @@ use crate::harness::Harness;
 use crate::reducer::ReducerOptions;
 use crate::state::{
     Activity, ActivityLine, Certainty, Diagnostics, PendingWakeup, PermissionMode, Reason, SandboxPolicy, SessionMeta,
-    SessionState, TokenUsage, WakeupKind,
+    SessionState, StopReason, TokenUsage, WakeupKind,
 };
 use crate::time::Timestamp;
 use serde_json::Value;
@@ -167,6 +167,10 @@ pub(crate) struct Session {
     pub(crate) no_stall_inference: bool,
     /// The error the harness recorded, if the last thing was an error.
     pub(crate) error: Option<String>,
+    /// Why the last turn stopped, when the harness named a usage/rate limit.
+    pub(crate) stop_reason: Option<StopReason>,
+    /// When the harness said that limit resets, if it recorded a usable time.
+    pub(crate) resets_at: Option<f64>,
     /// Claude Code's `turn_duration.pendingBackgroundAgentCount`, when it records one.
     pub(crate) background_agents: usize,
     /// How many explicit zero counts (Claude's `agents_killed`, or a `turn_duration` with no
@@ -246,6 +250,8 @@ impl Session {
             // Cursor's database says when an approval card is up; don't also guess from age.
             no_stall_inference: harness == Harness::Cursor,
             error: None,
+            stop_reason: None,
+            resets_at: None,
             background_agents: 0,
             background_kills: 0,
             background_killed_at: 0.0,
@@ -401,6 +407,8 @@ impl Session {
             permission: self.permission,
             sandbox: self.sandbox,
             error: self.error.clone(),
+            stop_reason: self.stop_reason,
+            resets_at: self.resets_at.and_then(some),
             meta: SessionMeta {
                 project: self.project.clone(),
                 folder: self.folder.clone(),
@@ -470,6 +478,8 @@ impl Session {
         (self.last, self.last_at) = (last, t);
         if last != Last::Errored {
             self.error = None;
+            self.stop_reason = None;
+            self.resets_at = None;
         }
         // A new turn (or its end) discards any calls left over from the last one.
         if matches!(last, Last::Prompt | Last::EndTurn | Last::Interrupted | Last::Errored) {
@@ -491,6 +501,15 @@ impl Session {
     pub(crate) fn set_error(&mut self, error: impl Into<String>, t: f64) {
         self.set(Last::Errored, t);
         self.error = Some(error.into());
+        self.stop_reason = None;
+        self.resets_at = None;
+    }
+
+    /// The turn stopped at a usage/rate limit, which may record when it resets.
+    pub(crate) fn set_usage_limit(&mut self, error: impl Into<String>, resets_at: Option<f64>, t: f64) {
+        self.set_error(error, t);
+        self.stop_reason = Some(StopReason::UsageLimit);
+        self.resets_at = resets_at;
     }
 
     /// Record one API message's usage, keeping the highest value each field has reported.

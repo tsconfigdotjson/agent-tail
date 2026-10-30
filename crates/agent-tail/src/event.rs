@@ -10,7 +10,7 @@ use crate::harness::Harness;
 use crate::lean::lean;
 use crate::reducer::ParseMode;
 use crate::session::{ArmedWakeup, Last, LaunchedHelper, Session};
-use crate::state::{ActivityLine, Certainty, PermissionMode, SandboxPolicy, TokenUsage, WakeupKind};
+use crate::state::{ActivityLine, Certainty, PermissionMode, SandboxPolicy, StopReason, TokenUsage, WakeupKind};
 use crate::time::Timestamp;
 use serde::Serialize;
 use serde_json::Value;
@@ -139,6 +139,12 @@ pub enum EventKind {
         error: Option<String>,
         /// Claude's `turn_duration.pendingBackgroundAgentCount`, or 0 for `agents_killed`.
         background_agents: Option<usize>,
+        /// Set when the harness recorded a usage/rate-limit stop.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        stop_reason: Option<StopReason>,
+        /// The limit's reset time, when the harness recorded one that can be read.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        resets_at: Option<Timestamp>,
     },
     /// Token usage. `usage` is what this event contributes to the total (so summing events
     /// gives the true total); `reported` is what the harness reported for this record.
@@ -259,6 +265,110 @@ impl ToolKind {
             _ => ToolKind::Other,
         }
     }
+}
+
+/// A usage/rate-limit stop recognized from a harness's own error record.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct LimitStop {
+    pub(crate) resets_at: Option<f64>,
+}
+
+/// Whether an error record says the turn stopped at a usage or rate limit, and when it
+/// resets if the record has a usable `resetsAt`/`resets_at` field or an RFC 3339 time in its
+/// text. Only call this for records that already represent a terminal error: a user prompt
+/// that happens to mention a limit is not a stop.
+pub(crate) fn usage_limit_stop(record: &Value) -> Option<LimitStop> {
+    let mut text = String::new();
+    collect_text(record, &mut text);
+    let lower = text.to_ascii_lowercase();
+    let limit = lower.contains("usage limit")
+        || lower.contains("usage_limit")
+        || lower.contains("usage-limit")
+        || lower.contains("5-hour limit")
+        || lower.contains("5 hour limit")
+        || lower.contains("five-hour limit")
+        || lower.contains("quota")
+        || lower.contains("limit reached")
+        || lower.contains("rate limit")
+        || lower.contains("rate_limit")
+        || lower.contains("rate-limit")
+        || lower.contains("too many requests")
+        || lower.contains("resource_exhausted");
+    if !limit && !lower.contains("429") {
+        return None;
+    }
+    Some(LimitStop { resets_at: reset_time(record).or_else(|| reset_in_text(&text)) })
+}
+
+fn collect_text(value: &Value, out: &mut String) {
+    if out.len() >= 64 * 1024 {
+        return;
+    }
+    match value {
+        Value::String(text) => {
+            out.push_str(text);
+            out.push('\n');
+        }
+        Value::Array(items) => items.iter().for_each(|item| collect_text(item, out)),
+        Value::Object(map) => map.values().for_each(|item| collect_text(item, out)),
+        _ => {}
+    }
+}
+
+fn reset_time(value: &Value) -> Option<f64> {
+    match value {
+        Value::Array(items) => items.iter().find_map(reset_time),
+        Value::Object(map) => {
+            for (key, value) in map {
+                let key = key.to_ascii_lowercase().replace(['_', '-'], "");
+                if matches!(key.as_str(), "resetsat" | "resetat")
+                    && let Some(time) = epoch_value(value)
+                {
+                    return Some(time);
+                }
+            }
+            map.values().find_map(reset_time)
+        }
+        _ => None,
+    }
+}
+
+fn epoch_value(value: &Value) -> Option<f64> {
+    let time = match value {
+        Value::Number(number) => number.as_f64()?,
+        Value::String(text) => {
+            if let Some(time) = Timestamp::parse_rfc3339(text) {
+                return Some(time.as_secs_f64());
+            }
+            text.trim().parse().ok()?
+        }
+        _ => return None,
+    };
+    if time > 1_000_000_000_000.0 {
+        Some(time / 1000.0)
+    } else if time > 1_000_000_000.0 {
+        Some(time)
+    } else {
+        None
+    }
+}
+
+fn reset_in_text(text: &str) -> Option<f64> {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    for (index, word) in words.iter().enumerate() {
+        let word = word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-').to_ascii_lowercase();
+        if !matches!(word.as_str(), "reset" | "resets" | "resetat" | "resetsat" | "reset_at" | "resets_at") {
+            continue;
+        }
+        for next in words.iter().skip(index + 1).take(4) {
+            let next =
+                next.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != ':' && c != '+' && c != '.');
+            if let Some(time) = Timestamp::parse_rfc3339(next) {
+                return Some(time.as_secs_f64());
+            }
+        }
+    }
+    None
 }
 
 /// Why a turn ended, in the v0.1 event vocabulary.
@@ -625,6 +735,8 @@ pub(crate) struct ParseState {
     pub(crate) gemini_tools: HashSet<String>,
     /// Gemini tool call ids whose result has already been emitted.
     pub(crate) gemini_results: HashSet<String>,
+    /// The last Gemini user prompt id, so a `$rewindTo` of that prompt can end the turn.
+    pub(crate) gemini_last_prompt: Option<String>,
     /// Copilot's parent conversation state.
     pub(crate) copilot: CopilotParseState,
     /// Copilot's interleaved helper conversations, keyed by top-level `agentId`.
@@ -757,7 +869,7 @@ impl Session {
                 self.approval_completed(call_id.as_deref().unwrap_or_default(), t);
             }
             EventKind::TurnStart { .. } => self.set(Last::Prompt, t),
-            EventKind::TurnEnd { reason, error, background_agents } => {
+            EventKind::TurnEnd { reason, error, background_agents, stop_reason, resets_at } => {
                 match reason {
                     TurnEndReason::EndTurn => self.set(Last::EndTurn, t),
                     TurnEndReason::DurationRecord => {
@@ -768,6 +880,11 @@ impl Session {
                         }
                     }
                     TurnEndReason::Interrupted | TurnEndReason::Aborted => self.set(Last::Interrupted, t),
+                    TurnEndReason::Error if stop_reason.is_some() => self.set_usage_limit(
+                        error.as_deref().unwrap_or("error"),
+                        resets_at.map(Timestamp::as_secs_f64),
+                        t,
+                    ),
                     TurnEndReason::Error => self.set_error(error.as_deref().unwrap_or("error"), t),
                 }
                 if let Some(n) = background_agents {

@@ -9,5 +9,7 @@ codex_turn_aborted
 codex_task_error
 codex_resume
 
+codex_usage_limit
+
 # SIGKILL while a long exec_command is pending; the rollout must stay running_tool.
 codex_hard_kill_mid_tool

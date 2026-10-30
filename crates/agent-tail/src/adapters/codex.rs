@@ -107,14 +107,25 @@ impl Adapter for Codex {
                 ),
                 "task_complete" | "turn_complete" => out.push(
                     EventSeed::new(match task_error(p) {
-                        Some(error) => EventKind::TurnEnd {
-                            reason: TurnEndReason::Error,
-                            error: Some(error.into()),
-                            background_agents: None,
-                        },
-                        None => {
-                            EventKind::TurnEnd { reason: TurnEndReason::EndTurn, error: None, background_agents: None }
+                        Some(error) => {
+                            let limit = crate::event::usage_limit_stop(p);
+                            EventKind::TurnEnd {
+                                reason: TurnEndReason::Error,
+                                error: Some(error.into()),
+                                background_agents: None,
+                                stop_reason: limit.map(|_| crate::state::StopReason::UsageLimit),
+                                resets_at: limit
+                                    .and_then(|limit| limit.resets_at)
+                                    .map(crate::time::Timestamp::from_secs_f64),
+                            }
                         }
+                        None => EventKind::TurnEnd {
+                            reason: TurnEndReason::EndTurn,
+                            error: None,
+                            background_agents: None,
+                            stop_reason: None,
+                            resets_at: None,
+                        },
                     })
                     .at(at),
                 ),
@@ -123,6 +134,8 @@ impl Adapter for Codex {
                         reason: TurnEndReason::Aborted,
                         error: p["reason"].as_str().map(String::from),
                         background_agents: None,
+                        stop_reason: None,
+                        resets_at: None,
                     })
                     .at(at),
                 ),

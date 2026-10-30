@@ -117,6 +117,8 @@ fn parse_record(state: &mut crate::event::CopilotParseState, event: &Value) -> V
                         reason: TurnEndReason::EndTurn,
                         error: None,
                         background_agents: None,
+                        stop_reason: None,
+                        resets_at: None,
                     })
                     .at(at),
                 );
@@ -164,6 +166,8 @@ fn parse_record(state: &mut crate::event::CopilotParseState, event: &Value) -> V
                         reason: if error.is_some() { TurnEndReason::Error } else { TurnEndReason::EndTurn },
                         error: error.map(String::from),
                         background_agents: None,
+                        stop_reason: None,
+                        resets_at: None,
                     })
                     .at(at),
                 );
@@ -176,6 +180,8 @@ fn parse_record(state: &mut crate::event::CopilotParseState, event: &Value) -> V
                     reason: TurnEndReason::Interrupted,
                     error: data["reason"].as_str().map(String::from),
                     background_agents: None,
+                    stop_reason: None,
+                    resets_at: None,
                 })
                 .at(at),
             );
@@ -187,11 +193,14 @@ fn parse_record(state: &mut crate::event::CopilotParseState, event: &Value) -> V
                 .or_else(|| data["error"]["message"].as_str())
                 .or_else(|| data["error"].as_str())
                 .unwrap_or("Copilot session error");
+            let limit = crate::event::usage_limit_stop(event);
             out.push(
                 EventSeed::new(EventKind::TurnEnd {
                     reason: TurnEndReason::Error,
                     error: Some(message.into()),
                     background_agents: None,
+                    stop_reason: limit.map(|_| crate::state::StopReason::UsageLimit),
+                    resets_at: limit.and_then(|limit| limit.resets_at).map(crate::time::Timestamp::from_secs_f64),
                 })
                 .at(at),
             );

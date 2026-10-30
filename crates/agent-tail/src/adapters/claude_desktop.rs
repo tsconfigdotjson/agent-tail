@@ -74,7 +74,16 @@ fn result(record: &Value, at: Option<f64>) -> Vec<EventSeed> {
             "result_error".into()
         }
     });
-    let mut out = vec![EventSeed::new(EventKind::TurnEnd { reason, error, background_agents: None }).at(at)];
+    let mut out = vec![
+        EventSeed::new(EventKind::TurnEnd {
+            reason,
+            error,
+            background_agents: None,
+            stop_reason: None,
+            resets_at: None,
+        })
+        .at(at),
+    ];
     if let Some(cost) = record["total_cost_usd"].as_f64().or_else(|| record["total_cost_usd"].as_str()?.parse().ok()) {
         out.push(EventSeed::new(EventKind::Cost { usd: cost }).at(at));
     }

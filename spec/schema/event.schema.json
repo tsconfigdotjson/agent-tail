@@ -581,6 +581,22 @@
             "null"
           ],
           "minimum": 0
+        },
+        "stop_reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "usage_limit",
+            null
+          ]
+        },
+        "resets_at": {
+          "type": [
+            "number",
+            "null"
+          ]
         }
       },
       "required": [

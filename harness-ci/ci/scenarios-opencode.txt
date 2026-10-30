@@ -3,5 +3,7 @@
 opencode_plain_qa
 opencode_tool
 
+opencode_usage_limit
+
 # SIGKILL while a tool part is running; no step-finish row.
 opencode_hard_kill_mid_tool

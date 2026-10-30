@@ -127,6 +127,12 @@ proceed with this tool use`, `toolDenialKind: "user-rejected"`, no `permissionDe
 `stop_reason: stop_sequence`), followed by `turn_duration`. This is the firm **Errored** signal.
 Mid-stream aborts: `isAbortedMidStream` (2).
 
+**Usage limit (2.1.312+):** the same synthetic assistant row uses `error: "rate_limit"`,
+`apiError: "usage_limit_reached"`, `apiErrorStatus: 429`, and records the reset under
+`apiErrorParams.rate_limit_info.resetsAt` and `quotaLimits.resetsAt` (epoch seconds). The text
+is `You've hit your 5-hour limit · resets …`. `agent-tail` keeps firm `errored`, adds
+`stop_reason: "usage_limit"` and `resets_at`, and clears both when the next turn starts.
+
 **Subagents (firm linkage):**
 1. Parent `assistant` `tool_use` named **`Agent`** (54; `Task` never seen), with input keys
    `description, prompt, subagent_type[, run_in_background, isolation]`. `run_in_background`

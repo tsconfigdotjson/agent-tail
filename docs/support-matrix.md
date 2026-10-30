@@ -10,14 +10,14 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 
 | Harness | Status | CI scenarios | Fixtures | Versions | Evidence |
 |---|---|---:|---:|---|---|
-| Claude Code | **CI-verified** | 13 | 20 | `2.1.292`, `2.1.310`, `2.1.311`, `2.1.312`, `2.1.314` | 13 CI scenario(s); 15 ci-scripted, 1 donated, 4 hand-made fixture(s) |
+| Claude Code | **CI-verified** | 14 | 21 | `2.1.292`, `2.1.310`, `2.1.311`, `2.1.312`, `2.1.314` | 14 CI scenario(s); 15 ci-scripted, 2 donated, 4 hand-made fixture(s) |
 | Claude Desktop | **ported-unverified** | 0 | 5 | unknown | 5 hand-made/synthetic fixture(s); no real capture |
-| Codex | **CI-verified** | 10 | 6 | `0.160.1` | 10 CI scenario(s); 1 ci-scripted, 2 donated, 3 hand-made fixture(s) |
+| Codex | **CI-verified** | 11 | 7 | `0.160.1` | 11 CI scenario(s); 2 ci-scripted, 2 donated, 3 hand-made fixture(s) |
 | Cursor | **donated-verified** | 0 | 7 | `3.27.12` | 3 donated fixture(s); no CI scenario |
-| Pi | **CI-verified** | 6 | 9 | `1.4.0` | 6 CI scenario(s); 4 ci-scripted, 0 donated, 5 hand-made fixture(s) |
-| OpenCode | **CI-verified** | 3 | 9 | `1.19.4` | 3 CI scenario(s); 4 ci-scripted, 0 donated, 5 hand-made fixture(s) |
-| Gemini CLI | **CI-verified** | 4 | 5 | `0.65.0` | 4 CI scenario(s); 4 ci-scripted, 0 donated, 1 hand-made fixture(s) |
-| GitHub Copilot CLI | **CI-verified** | 6 | 10 | `1.0.103` | 6 CI scenario(s); 5 ci-scripted, 0 donated, 5 hand-made fixture(s) |
+| Pi | **CI-verified** | 7 | 10 | `1.4.0` | 7 CI scenario(s); 5 ci-scripted, 0 donated, 5 hand-made fixture(s) |
+| OpenCode | **CI-verified** | 4 | 10 | `1.19.4` | 4 CI scenario(s); 5 ci-scripted, 0 donated, 5 hand-made fixture(s) |
+| Gemini CLI | **CI-verified** | 5 | 6 | `0.65.0` | 5 CI scenario(s); 5 ci-scripted, 0 donated, 1 hand-made fixture(s) |
+| GitHub Copilot CLI | **CI-verified** | 7 | 11 | `1.0.103` | 7 CI scenario(s); 6 ci-scripted, 0 donated, 5 hand-made fixture(s) |
 
 ## What each harness can read
 
@@ -54,6 +54,7 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | claude_code | `2.1.311` | `linux` | `ci-scripted` | `claude-code/2.1.311/linux/ci-claude_plain_qa` |
 | claude_code | `2.1.311` | `linux` | `ci-scripted` | `claude-code/2.1.311/linux/ci-claude_plan_exit` |
 | claude_code | `2.1.312` | `linux` | `ci-scripted` | `claude-code/2.1.312/linux/ci-claude_hard_kill_mid_tool` |
+| claude_code | `2.1.312` | `linux` | `donated` | `claude-code/2.1.312/linux/ci-claude_usage_limit` |
 | claude_code | `2.1.314` | `linux` | `ci-scripted` | `claude-code/2.1.314/linux/scheduled-wakeup` |
 | claude_code | `2.1.314` | `linux` | `ci-scripted` | `claude-code/2.1.314/linux/scheduled-wakeup-cron` |
 | claude_desktop | `unknown` | `any` | `handmade` | `claude-desktop/handmade/any/error` |
@@ -65,10 +66,12 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | codex | `0.160.1` | `linux` | `handmade` | `codex/0.160/linux/approval-never` |
 | codex | `0.160.1` | `linux` | `handmade` | `codex/0.160/linux/approval-on-request` |
 | codex | `0.160.1` | `linux` | `ci-scripted` | `codex/0.160/linux/ci-codex_hard_kill_mid_tool` |
+| codex | `0.160.1` | `linux` | `ci-scripted` | `codex/0.160/linux/ci-codex_usage_limit` |
 | codex | `0.160.1` | `linux` | `donated` | `codex/0.160/linux/seed-exec` |
 | codex | `0.160.1` | `linux` | `donated` | `codex/0.160/linux/seed-resume` |
 | copilot | `1.0.103` | `linux` | `handmade` | `copilot/1.0.103/linux/api-error` |
 | copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/ci-copilot_hard_kill_mid_tool` |
+| copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/ci-copilot_usage_limit` |
 | copilot | `1.0.103` | `linux` | `handmade` | `copilot/1.0.103/linux/interrupt` |
 | copilot | `1.0.103` | `linux` | `handmade` | `copilot/1.0.103/linux/parallel-tools` |
 | copilot | `1.0.103` | `linux` | `handmade` | `copilot/1.0.103/linux/permission-approved` |
@@ -85,12 +88,14 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | cursor | `unknown` | `any` | `handmade` | `cursor/unknown/any/interrupted` |
 | cursor | `unknown` | `any` | `handmade` | `cursor/unknown/any/seed-session` |
 | gemini | `0.65.0` | `linux` | `ci-scripted` | `gemini/0.65.0/linux/ci-gemini_hard_kill_mid_tool` |
+| gemini | `0.65.0` | `linux` | `ci-scripted` | `gemini/0.65.0/linux/ci-gemini_usage_limit` |
 | gemini | `0.65.0` | `linux` | `handmade` | `gemini/0.65.0/linux/error` |
 | gemini | `0.65.0` | `linux` | `ci-scripted` | `gemini/0.65.0/linux/multi-tool` |
 | gemini | `0.65.0` | `linux` | `ci-scripted` | `gemini/0.65.0/linux/plain-qa` |
 | gemini | `0.65.0` | `linux` | `ci-scripted` | `gemini/0.65.0/linux/tool` |
 | opencode | `1.19.4` | `linux` | `handmade` | `opencode/1.19.4/linux/child-session` |
 | opencode | `1.19.4` | `linux` | `ci-scripted` | `opencode/1.19.4/linux/ci-opencode_hard_kill_mid_tool` |
+| opencode | `1.19.4` | `linux` | `ci-scripted` | `opencode/1.19.4/linux/ci-opencode_usage_limit` |
 | opencode | `1.19.4` | `linux` | `handmade` | `opencode/1.19.4/linux/error-step-finish` |
 | opencode | `1.19.4` | `linux` | `handmade` | `opencode/1.19.4/linux/interrupted` |
 | opencode | `1.19.4` | `linux` | `handmade` | `opencode/1.19.4/linux/parallel-parts` |
@@ -101,6 +106,7 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | pi | `1.4.0` | `linux` | `ci-scripted` | `pi/1.4/linux/api-error` |
 | pi | `1.4.0` | `linux` | `handmade` | `pi/1.4/linux/branched` |
 | pi | `1.4.0` | `linux` | `ci-scripted` | `pi/1.4/linux/ci-pi_hard_kill_mid_tool` |
+| pi | `1.4.0` | `linux` | `ci-scripted` | `pi/1.4/linux/ci-pi_usage_limit` |
 | pi | `1.4.0` | `linux` | `handmade` | `pi/1.4/linux/compaction-active` |
 | pi | `1.4.0` | `linux` | `handmade` | `pi/1.4/linux/interrupted` |
 | pi | `1.4.0` | `linux` | `handmade` | `pi/1.4/linux/parallel-tools` |

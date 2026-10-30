@@ -17,3 +17,4 @@ claude_interrupt_tool
 claude_hard_kill_mid_tool
 claude_accept_edits
 claude_background_agent
+claude_usage_limit

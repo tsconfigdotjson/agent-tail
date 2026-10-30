@@ -1,0 +1,11 @@
+{
+  "name": "copilot_usage_limit",
+  "description": "The mock returns HTTP 429 with a usage-limit message. Copilot records session.error errorType rate_limit, then a routine shutdown; the session must stay firm Errored with stop_reason usage_limit.",
+  "harness": "copilot",
+  "mock": "../../mock-server/scenarios/usage_limit.json",
+  "prompt": "trigger a usage limit",
+  "run_for_ms": 120000,
+  "expected_activity": [
+    { "activity": "errored", "when": "end", "certainty": "firm" }
+  ]
+}
