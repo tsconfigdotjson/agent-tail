@@ -1,0 +1,27 @@
+{
+  "name": "codex_sigstop_wake_answer_long_gap",
+  "description": "Codex is frozen with a request_user_input question up; the mock drops open connections and the wake clock jumps an hour, then the answer's next turn is recorded.",
+  "harness": "codex",
+  "mock": "../../mock-server/scenarios/codex_request_user_input.json",
+  "prompt": "/plan",
+  "keys": [
+    { "on": "idle", "send": "ask me which color\r", "occurrence": 0, "after_ms": 1500 }
+  ],
+  "freeze": {
+    "on_activity": "awaiting_answer",
+    "after_ms": 1000,
+    "for_ms": 4000,
+    "drop_connections": true,
+    "advance_now_ms": 3600000,
+    "resume_send": "\r"
+  },
+  "run_for_ms": 30000,
+  "expected_activity": [
+    { "activity": "awaiting_answer", "when": "ever", "screen": "ask_user_question", "certainty": "firm" },
+    { "activity": "done", "when": "end", "screen": "idle", "certainty": "firm" }
+  ],
+  "expect_observations": {
+    "codex_approval_policies": ["on-request"],
+    "codex_no_approval_events": true
+  }
+}

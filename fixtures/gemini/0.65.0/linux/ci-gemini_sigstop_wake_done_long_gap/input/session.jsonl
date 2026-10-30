@@ -1,0 +1,11 @@
+{"kind":"main","lastUpdated":"2026-10-30T02:38:27.222Z","projectHash":"8db8fcb832c0e6f73739369edf013ce450bb484792fd7c46a8247701459c2634","sessionId":"f68390f6-18d8-4667-a76b-b3cdd79f92d4","startTime":"2026-10-30T02:38:27.222Z"}
+{"content":[{"text":"<session_context>\nThis is the Gemini CLI. We are setting up the context for our chat.\nToday's date is Friday, October 30, 2026 (formatted according to the user's locale).\nMy operating system is: linux\nThe project's temporary directory is: /home/<user><secret-0001><user>/tmp/work\n- **Workspace Directories:**\n  - /home/<user><secret-0002>\n- **Directory Structure:**\n\nShowing up to 200 items (files + folders).\n\n/home/<user><secret-0003>\n\n\n\n</session_context>"}],"id":"d04923d38bb0f6017037e74183378ef4","timestamp":"2026-10-30T02:38:27.224Z","type":"user"}
+{"$set":{"lastUpdated":"2026-10-30T02:38:27.227Z"}}
+{"content":[{"text":"say hello"}],"id":"4988a3a8-92f9-45ac-93b9-7532ccd7dc73","timestamp":"2026-10-30T02:38:27.500Z","type":"user"}
+{"$set":{"lastUpdated":"2026-10-30T02:38:27.500Z"}}
+{"content":"Hello before the freeze.","id":"2ed3df46-0659-4a2c-bbec-e25787d71d56","model":"gemini-3.8-flash","thoughts":[],"timestamp":"2026-10-30T02:38:28.096Z","tokens":{"cached":0,"input":10,"output":5,"thoughts":0,"tool":0,"total":15},"type":"gemini"}
+{"$set":{"lastUpdated":"2026-10-30T02:38:28.096Z"}}
+{"content":[{"text":"say hello again"}],"id":"93389bc2-cbf3-4e9a-9f08-9fa803f2484f","timestamp":"2026-10-30T03:38:35.262Z","type":"user"}
+{"$set":{"lastUpdated":"2026-10-30T03:38:35.262Z"}}
+{"content":"Hello after the freeze.","id":"daf9edbc-e78f-48e5-a9d7-f7b2af3ba08d","model":"gemini-3.8-flash","thoughts":[],"timestamp":"2026-10-30T03:38:35.792Z","tokens":{"cached":0,"input":20,"output":6,"thoughts":0,"tool":0,"total":26},"type":"gemini"}
+{"$set":{"lastUpdated":"2026-10-30T03:38:35.792Z"}}

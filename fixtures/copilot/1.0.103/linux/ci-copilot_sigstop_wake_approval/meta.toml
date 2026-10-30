@@ -1,0 +1,7 @@
+harness = "copilot"
+version = "1.0.103"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-30"
+description = "An approval wait is frozen while on screen, then the approval records the next turn."
+notes = "NOTES.md"

@@ -1,0 +1,3 @@
+{"activity":"awaiting_approval","after_line":10,"certainty":"inferred","now_offset_s":30.0,"permission":"on_request","reason":"tool_call_stalled"}
+{"activity":"awaiting_approval","after_line":10,"certainty":"inferred","now_offset_s":33.0,"permission":"on_request","reason":"tool_call_stalled"}
+{"activity":"done","after_line":18,"certainty":"firm","now_offset_s":0.0,"permission":"on_request","reason":"turn_ended"}

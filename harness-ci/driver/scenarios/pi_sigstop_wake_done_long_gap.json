@@ -1,0 +1,26 @@
+{
+  "name": "pi_sigstop_wake_done_long_gap",
+  "description": "Pi interacts in its TUI: after the first done turn the live process is frozen, the mock drops open connections and the wake clock jumps an hour, then a resumed prompt records the next turn.",
+  "harness": "pi",
+  "pty": true,
+  "mock": "../../mock-server/scenarios/wake_plain_qa.json",
+  "command": [
+    "pi", "--model", "mock/mock-model",
+    "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes",
+    "--no-context-files", "--no-mcp", "--approve", "say hello"
+  ],
+  "freeze": {
+    "on_activity": "done",
+    "after_ms": 500,
+    "for_ms": 4000,
+    "drop_connections": true,
+    "advance_now_ms": 3600000,
+    "resume_send": "say hello again\r"
+  },
+  "run_for_ms": 30000,
+  "no_approval": true,
+  "expected_activity": [
+    { "activity": "done", "when": "ever", "certainty": "firm" },
+    { "activity": "done", "when": "end", "certainty": "firm" }
+  ]
+}

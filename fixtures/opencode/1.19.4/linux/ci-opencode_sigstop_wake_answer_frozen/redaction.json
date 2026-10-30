@@ -1,0 +1,90 @@
+{
+  "format": 1,
+  "file": "session.jsonl",
+  "lorem": false,
+  "lines": 6,
+  "bytes_before": 2352,
+  "bytes_after": 2295,
+  "replacements": {
+    "home_path": 2,
+    "secret_entropy": 3
+  },
+  "offsets": [
+    {
+      "line": 1,
+      "before_start": 0,
+      "before_end": 340,
+      "after_start": 0,
+      "after_end": 320,
+      "delta": -20
+    },
+    {
+      "line": 2,
+      "before_start": 340,
+      "before_end": 686,
+      "after_start": 320,
+      "after_end": 666,
+      "delta": -20
+    },
+    {
+      "line": 3,
+      "before_start": 686,
+      "before_end": 960,
+      "after_start": 666,
+      "after_end": 940,
+      "delta": -20
+    },
+    {
+      "line": 4,
+      "before_start": 960,
+      "before_end": 1523,
+      "after_start": 940,
+      "after_end": 1466,
+      "delta": -57
+    },
+    {
+      "line": 5,
+      "before_start": 1523,
+      "before_end": 1771,
+      "after_start": 1466,
+      "after_end": 1714,
+      "delta": -57
+    },
+    {
+      "line": 6,
+      "before_start": 1771,
+      "before_end": 2352,
+      "after_start": 1714,
+      "after_end": 2295,
+      "delta": -57
+    }
+  ],
+  "findings": [
+    {
+      "line": 1,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 1,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0001>"
+    },
+    {
+      "line": 4,
+      "kind": "home_path",
+      "placeholder": "<user>"
+    },
+    {
+      "line": 4,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0002>"
+    },
+    {
+      "line": 4,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0001>"
+    }
+  ],
+  "malformed_lines": []
+}

@@ -1,0 +1,22 @@
+{
+  "name": "opencode_sigstop_wake_answer",
+  "description": "OpenCode is frozen while its question tool is pending (firm awaiting_answer), then wakes and records the answer's next turn in the same TUI.",
+  "harness": "opencode",
+  "pty": true,
+  "mock": "../../mock-server/scenarios/opencode_question_wake.json",
+  "command": [
+    "opencode", "--prompt", "ask me which color", "--auto",
+    "-m", "test/test-model"
+  ],
+  "freeze": {
+    "on_activity": "awaiting_answer",
+    "after_ms": 1000,
+    "for_ms": 3000,
+    "resume_send": "\r"
+  },
+  "run_for_ms": 45000,
+  "expected_activity": [
+    { "activity": "awaiting_answer", "when": "ever", "certainty": "firm" },
+    { "activity": "done", "when": "end", "certainty": "firm" }
+  ]
+}

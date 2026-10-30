@@ -1,0 +1,21 @@
+{
+  "name": "claude_sigstop_wake_answer_long_gap",
+  "description": "Claude Code is frozen with an AskUserQuestion up; the mock drops open connections and the wake clock jumps an hour, then the answer's next turn is recorded.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/ask_user.json",
+  "command": ["claude", "--model", "claude-sonnet-4-5"],
+  "prompt": "ask which library",
+  "freeze": {
+    "on_activity": "awaiting_answer",
+    "after_ms": 1000,
+    "for_ms": 4000,
+    "drop_connections": true,
+    "advance_now_ms": 3600000,
+    "resume_send": "\r"
+  },
+  "run_for_ms": 30000,
+  "expected_activity": [
+    { "activity": "awaiting_answer", "when": "ever", "screen": "ask_user_question", "certainty": "firm" },
+    { "activity": "done", "when": "end", "screen": "idle", "certainty": "firm" }
+  ]
+}

@@ -1,0 +1,7 @@
+harness = "claude-code"
+version = "2.1.311"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-30"
+description = "An ask-user question is frozen while on screen, then the answer records the next turn. The mock drops open connections while the process is stopped and the reducer clock (and post-wake writes) advance one hour."
+notes = "NOTES.md"

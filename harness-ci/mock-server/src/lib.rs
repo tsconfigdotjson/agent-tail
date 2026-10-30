@@ -21,10 +21,10 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde_json::{Value, json};
-use std::convert::Infallible;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::sync::watch;
 
 /// Shared server state: the scenario, where it is up to, and the request log.
 #[derive(Debug)]
@@ -32,6 +32,9 @@ pub struct MockState {
     pub scenario: Scenario,
     inner: Mutex<Inner>,
     log: Option<PathBuf>,
+    /// Incremented by the harness driver while the CLI is stopped. An in-flight stream
+    /// watching this closes as if the peer dropped the connection.
+    drop: watch::Sender<u64>,
 }
 
 #[derive(Debug, Default)]
@@ -49,15 +52,25 @@ pub struct MockFailure {
 
 impl MockState {
     pub fn new(scenario: Scenario) -> Arc<Self> {
-        Arc::new(MockState { scenario, inner: Mutex::new(Inner::default()), log: None })
+        let (drop, _) = watch::channel(0);
+        Arc::new(MockState { scenario, inner: Mutex::new(Inner::default()), log: None, drop })
     }
 
     pub fn with_log(self: Arc<Self>, path: impl Into<PathBuf>) -> Arc<Self> {
+        let (drop, _) = watch::channel(0);
         Arc::new(MockState {
             scenario: self.scenario.clone(),
             inner: Mutex::new(Inner::default()),
             log: Some(path.into()),
+            drop,
         })
+    }
+
+    /// Drop open mock connections. A stream waiting on a delay wakes and fails its body,
+    /// which closes the HTTP connection the CLI is reading.
+    pub fn drop_connections(&self) {
+        let next = *self.drop.borrow() + 1;
+        let _ = self.drop.send(next);
     }
 
     pub fn remaining(&self) -> usize {
@@ -208,8 +221,15 @@ pub fn router(state: Arc<MockState>) -> Router {
         .route("/chat/completions", post(openai_chat_completions))
         .route("/v1beta/models/{*path}", post(gemini_generate))
         .route("/v1/models", get(models))
+        .route("/__mock/drop", post(drop_connections))
         .fallback(fallback)
         .with_state(state)
+}
+
+async fn drop_connections(State(state): State<Arc<MockState>>) -> Response {
+    state.log_simple("POST", "/__mock/drop");
+    state.drop_connections();
+    Json(json!({"dropped": true})).into_response()
 }
 
 async fn anthropic_messages(State(state): State<Arc<MockState>>, body: Bytes) -> Response {
@@ -221,9 +241,9 @@ async fn anthropic_messages(State(state): State<Arc<MockState>>, body: Bytes) ->
     };
     if is_title_request(&body) {
         state.log_simple("POST", "/v1/messages?source=title");
-        return title_response(&body, state.scenario.title.as_deref());
+        return title_response(&body, Arc::clone(&state), state.scenario.title.as_deref());
     }
-    if let Some(response) = probe_response(&state, &body) {
+    if let Some(response) = probe_response(Arc::clone(&state), &body) {
         return response;
     }
     let (index, step) = match state.take_step(Api::Anthropic, "/v1/messages", &body) {
@@ -245,7 +265,7 @@ async fn anthropic_messages(State(state): State<Arc<MockState>>, body: Bytes) ->
     let stop_reason = state.scenario.stop_reason(&step);
     if stream {
         let events = anthropic::stream_events(index, &model, &step.reply, &stop_reason);
-        sse_response(events)
+        sse_response(state.clone(), events)
     } else {
         Json(anthropic::message(index, &model, &step.reply, &stop_reason)).into_response()
     }
@@ -311,7 +331,7 @@ fn is_codex_title_request(body: &Value) -> bool {
     })
 }
 
-fn openai_title_response(body: &Value, override_title: Option<&str>) -> Response {
+fn openai_title_response(body: &Value, state: Arc<MockState>, override_title: Option<&str>) -> Response {
     let reply = scenario::Reply {
         model: None,
         content: vec![scenario::Block::Text { text: override_title.unwrap_or("Mock session title").to_string() }],
@@ -322,13 +342,13 @@ fn openai_title_response(body: &Value, override_title: Option<&str>) -> Response
     let model = body.get("model").and_then(Value::as_str).unwrap_or("gpt-5");
     let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(true);
     if stream {
-        sse_response(openai::stream_events(9000, model, &reply, "end_turn"))
+        sse_response(state.clone(), openai::stream_events(9000, model, &reply, "end_turn"))
     } else {
         Json(openai::response(9000, model, &reply, "end_turn")).into_response()
     }
 }
 
-fn probe_response(state: &MockState, body: &Value) -> Option<Response> {
+fn probe_response(state: Arc<MockState>, body: &Value) -> Option<Response> {
     let view = RequestView::from_anthropic(body);
     if !state.scenario.is_probe(body, &view.user_text) {
         return None;
@@ -351,14 +371,14 @@ fn probe_response(state: &MockState, body: &Value) -> Option<Response> {
     let model = body.get("model").and_then(Value::as_str).unwrap_or("claude-sonnet-4-5");
     let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
     let response = if stream {
-        sse_response(anthropic::stream_events(9001, model, &reply, "end_turn"))
+        sse_response(state.clone(), anthropic::stream_events(9001, model, &reply, "end_turn"))
     } else {
         Json(anthropic::message(9001, model, &reply, "end_turn")).into_response()
     };
     Some(response)
 }
 
-fn title_response(body: &Value, override_title: Option<&str>) -> Response {
+fn title_response(body: &Value, state: Arc<MockState>, override_title: Option<&str>) -> Response {
     let reply = Step {
         expect: Default::default(),
         reply: scenario::Reply {
@@ -373,7 +393,7 @@ fn title_response(body: &Value, override_title: Option<&str>) -> Response {
     let model = body.get("model").and_then(Value::as_str).unwrap_or("claude-sonnet-4-5");
     let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
     if stream {
-        sse_response(anthropic::stream_events(9000, model, &reply.reply, "end_turn"))
+        sse_response(Arc::clone(&state), anthropic::stream_events(9000, model, &reply.reply, "end_turn"))
     } else {
         Json(anthropic::message(9000, model, &reply.reply, "end_turn")).into_response()
     }
@@ -394,7 +414,7 @@ async fn openai_responses(State(state): State<Arc<MockState>>, body: Bytes) -> R
     };
     if is_codex_title_request(&body) {
         state.log_simple("POST", "/v1/responses?source=title");
-        return openai_title_response(&body, state.scenario.title.as_deref());
+        return openai_title_response(&body, Arc::clone(&state), state.scenario.title.as_deref());
     }
     let (index, step) = match state.take_step(Api::OpenAi, "/v1/responses", &body) {
         Ok(found) => found,
@@ -408,7 +428,7 @@ async fn openai_responses(State(state): State<Arc<MockState>>, body: Bytes) -> R
     let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(true);
     if stream {
         let events = openai::stream_events(index, &model, &step.reply, &stop_reason);
-        sse_response(events)
+        sse_response(state.clone(), events)
     } else {
         Json(openai::response(index, &model, &step.reply, &stop_reason)).into_response()
     }
@@ -423,7 +443,7 @@ async fn openai_chat_completions(State(state): State<Arc<MockState>>, body: Byte
     };
     if is_opencode_title_request(&body) {
         state.log_simple("POST", "/v1/chat/completions?source=title");
-        return opencode_title_response(&body, state.scenario.title.as_deref());
+        return opencode_title_response(&body, Arc::clone(&state), state.scenario.title.as_deref());
     }
     let (index, step) = match state.take_step(Api::OpenAiChat, "/v1/chat/completions", &body) {
         Ok(found) => found,
@@ -436,7 +456,7 @@ async fn openai_chat_completions(State(state): State<Arc<MockState>>, body: Byte
     let stop_reason = state.scenario.stop_reason(&step);
     let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
     if stream {
-        sse_response(chat::stream_events(index, &model, &step.reply, &stop_reason))
+        sse_response(state.clone(), chat::stream_events(index, &model, &step.reply, &stop_reason))
     } else {
         Json(chat::completion(index, &model, &step.reply, &stop_reason)).into_response()
     }
@@ -456,7 +476,7 @@ fn is_opencode_title_request(body: &Value) -> bool {
     })
 }
 
-fn opencode_title_response(body: &Value, override_title: Option<&str>) -> Response {
+fn opencode_title_response(body: &Value, state: Arc<MockState>, override_title: Option<&str>) -> Response {
     let reply = scenario::Reply {
         model: None,
         content: vec![scenario::Block::Text { text: override_title.unwrap_or("Mock session title").to_string() }],
@@ -467,7 +487,7 @@ fn opencode_title_response(body: &Value, override_title: Option<&str>) -> Respon
     let model = body.get("model").and_then(Value::as_str).unwrap_or("test-model");
     let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
     if stream {
-        sse_response(chat::stream_events(9000, model, &reply, "end_turn"))
+        sse_response(state.clone(), chat::stream_events(9000, model, &reply, "end_turn"))
     } else {
         Json(chat::completion(9000, model, &reply, "end_turn")).into_response()
     }
@@ -514,7 +534,7 @@ async fn gemini_generate(State(state): State<Arc<MockState>>, uri: Uri, body: By
     let model = state.scenario.model(&step, requested);
     let stop_reason = state.scenario.stop_reason(&step);
     if path.contains(":streamGenerateContent") {
-        sse_response(gemini::stream_events(index, &model, &step.reply, &stop_reason))
+        sse_response(state.clone(), gemini::stream_events(index, &model, &step.reply, &stop_reason))
     } else {
         Json(gemini::response(index, &model, &step.reply, &stop_reason)).into_response()
     }
@@ -553,13 +573,37 @@ async fn fallback(State(state): State<Arc<MockState>>, req: Request) -> Response
         .into_response()
 }
 
-fn sse_response(events: Vec<(u64, String)>) -> Response {
-    let stream = futures_util::stream::unfold(events.into_iter(), |mut events| async move {
-        let (delay, frame) = events.next()?;
-        if delay > 0 {
-            tokio::time::sleep(Duration::from_millis(delay)).await;
+fn sse_response(state: Arc<MockState>, events: Vec<(u64, String)>) -> Response {
+    let drops = state.drop.subscribe();
+    let epoch = *drops.borrow();
+    let stream = futures_util::stream::unfold(events.into_iter(), move |mut events| {
+        let mut drops = drops.clone();
+        async move {
+            let (delay, frame) = events.next()?;
+            if delay > 0 {
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_millis(delay)) => {}
+                    changed = drops.changed() => {
+                        if changed.is_ok() && *drops.borrow() != epoch {
+                            return Some((Err::<Bytes, std::io::Error>(std::io::Error::new(
+                                std::io::ErrorKind::ConnectionAborted,
+                                "mock dropped open connection",
+                            )), events));
+                        }
+                    }
+                }
+            }
+            if *drops.borrow() != epoch {
+                return Some((
+                    Err::<Bytes, std::io::Error>(std::io::Error::new(
+                        std::io::ErrorKind::ConnectionAborted,
+                        "mock dropped open connection",
+                    )),
+                    events,
+                ));
+            }
+            Some((Ok::<_, std::io::Error>(Bytes::from(frame)), events))
         }
-        Some((Ok::<_, Infallible>(Bytes::from(frame)), events))
     });
     Response::builder()
         .status(StatusCode::OK)
@@ -719,6 +763,25 @@ mod tests {
         let (status, body) = post(app, "/v1/messages", json!({"stream": false, "messages": []})).await;
         assert_eq!(status, StatusCode::from_u16(529).unwrap());
         assert!(body.contains("overloaded_error"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn dropping_connections_aborts_an_in_flight_stream() {
+        let mut step = text_step("unused");
+        step.reply.fault = Some(Fault::SlowFirstToken { delay_ms: 5000 });
+        let state = state(vec![step]);
+        let app = router(state.clone());
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/messages")
+            .header("content-type", "application/json")
+            .body(Body::from(json!({"stream": true, "messages": []}).to_string()))
+            .expect("request");
+        let response = app.oneshot(req).await.expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        state.drop_connections();
+        let body = to_bytes(response.into_body(), usize::MAX).await;
+        assert!(body.is_err(), "the dropped stream should end with a body error");
     }
 
     #[tokio::test]

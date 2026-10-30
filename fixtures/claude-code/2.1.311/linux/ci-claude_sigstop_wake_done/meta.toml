@@ -1,0 +1,7 @@
+harness = "claude-code"
+version = "2.1.311"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-10-30"
+description = "A completed turn is frozen, woken, and the same live session records the next turn."
+notes = "NOTES.md"

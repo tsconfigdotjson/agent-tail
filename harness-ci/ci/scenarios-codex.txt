@@ -13,3 +13,10 @@ codex_usage_limit
 
 # SIGKILL while a long exec_command is pending; the rollout must stay running_tool.
 codex_hard_kill_mid_tool
+
+# SIGSTOP/SIGCONT wake from done, ask-user and/or approval wait; the _long_gap variants
+# drop open mock connections and advance the reducer clock by an hour.
+codex_sigstop_wake_done
+codex_sigstop_wake_answer
+codex_sigstop_wake_answer_long_gap
+codex_sigstop_wake_approval

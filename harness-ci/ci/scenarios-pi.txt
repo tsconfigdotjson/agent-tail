@@ -9,3 +9,8 @@ pi_usage_limit
 
 # SIGKILL after the toolCall row, before the toolResult row.
 pi_hard_kill_mid_tool
+
+# SIGSTOP/SIGCONT wake from done, ask-user and/or approval wait; the _long_gap variants
+# drop open mock connections and advance the reducer clock by an hour.
+pi_sigstop_wake_done
+pi_sigstop_wake_done_long_gap
