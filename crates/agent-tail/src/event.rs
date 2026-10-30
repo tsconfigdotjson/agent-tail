@@ -201,7 +201,8 @@ pub enum EventKind {
         source_call_id: Option<String>,
     },
     /// A scheduled wakeup fired, was deleted, stopped, or the session ended. With no
-    /// `job_id` and no `source_call_id`, every wakeup of `kind` is cleared.
+    /// `job_id` and no `source_call_id`, every wakeup of `kind` is cleared, except that a
+    /// cron fire leaves recurring jobs armed with their next due time unknown.
     WakeupCleared {
         kind: Option<WakeupKind>,
         job_id: Option<String>,

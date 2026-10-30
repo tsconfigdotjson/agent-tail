@@ -297,11 +297,15 @@
         },
         "certainty": {
           "$ref": "#/$defs/certainty"
+        },
+        "recurring": {
+          "type": "boolean"
         }
       },
       "required": [
         "kind",
-        "certainty"
+        "certainty",
+        "recurring"
       ],
       "unevaluatedProperties": false
     }

@@ -1,0 +1,43 @@
+{
+  "name": "cron_fire_recurring",
+  "description": "Load CronCreate, schedule a recurring job every minute, then acknowledge two fired runs.",
+  "steps": [
+    {
+      "expect": { "user_contains": "schedule a cron every minute", "has_tool_result": false },
+      "reply": {
+        "content": [
+          { "type": "tool_use", "name": "ToolSearch", "input": { "query": "select:CronCreate", "max_results": 1 } }
+        ],
+        "usage": { "input_tokens": 10, "output_tokens": 20 }
+      }
+    },
+    {
+      "expect": { "user_contains": "schedule a cron every minute", "has_tool_result": true },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "CronCreate",
+            "input": { "cron": "* * * * *", "prompt": "Check the deploy.", "recurring": true }
+          }
+        ],
+        "usage": { "input_tokens": 20, "output_tokens": 20 }
+      }
+    },
+    {
+      "expect": { "user_contains": "schedule a cron every minute", "has_tool_result": true },
+      "reply": {
+        "content": [{ "type": "text", "text": "Cron scheduled." }],
+        "usage": { "input_tokens": 30, "output_tokens": 5 }
+      }
+    },
+    {
+      "repeat": 3,
+      "expect": { "user_contains": "Check the deploy." },
+      "reply": {
+        "content": [{ "type": "text", "text": "Cron tick." }],
+        "usage": { "input_tokens": 40, "output_tokens": 5 }
+      }
+    }
+  ]
+}

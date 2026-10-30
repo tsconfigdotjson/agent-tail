@@ -447,6 +447,12 @@ fn system(e: &Value, at: Option<f64>, out: &mut Vec<EventSeed>) {
             let kind = match e["taskKind"].as_str().or_else(|| e["cronKind"].as_str()) {
                 Some("loop") => Some(crate::state::WakeupKind::Loop),
                 Some("cron") => Some(crate::state::WakeupKind::Cron),
+                // 2.1.314 cron fires omit taskKind/cronKind; the content says "loop" only
+                // for dynamic wakeups, and a cron expression is on every fire record.
+                _ if e["content"].as_str().is_some_and(|content| content.contains("/loop")) => {
+                    Some(crate::state::WakeupKind::Loop)
+                }
+                _ if e["cron"].is_string() => Some(crate::state::WakeupKind::Cron),
                 _ => None,
             };
             if let Some(kind) = kind {
@@ -677,7 +683,7 @@ fn wakeup_call(
                     due_at,
                     reason,
                     job_id: None,
-                    recurring: false,
+                    recurring: kind == WakeupKind::Cron && input["recurring"].as_bool().unwrap_or(true),
                     certainty: Certainty::Inferred,
                     source_call_id: Some(call_id.into()),
                 })
@@ -773,7 +779,7 @@ fn wakeup_result(
                     due_at: Some(Timestamp::from_secs_f64(millis / 1000.0)),
                     reason,
                     job_id: Some(id.into()),
-                    recurring: data["recurring"].as_bool().unwrap_or(false),
+                    recurring: data["recurring"].as_bool().unwrap_or(true),
                     certainty: Certainty::Firm,
                     source_call_id: Some(call_id.into()),
                 })
@@ -1330,6 +1336,7 @@ mod tests {
         assert_eq!(pending[0].kind, crate::WakeupKind::Cron);
         assert_eq!(pending[0].due_at, Some(crate::Timestamp::from_secs_f64(1793324620.207)));
         assert_eq!(pending[0].certainty, crate::Certainty::Firm);
+        assert!(pending[0].recurring);
 
         let delete = json!({"type": "assistant", "timestamp": at(1.0),
             "message": {"id": "m3", "stop_reason": "tool_use", "content": [
@@ -1340,6 +1347,95 @@ mod tests {
         s.apply(&delete);
         s.apply(&deleted);
         assert!(s.pending_wakeups().is_empty(), "CronDelete clears the matching job");
+    }
+
+    fn cron_create(id: &str, recurring: bool, ago: f64) -> (Value, Value) {
+        let call = json!({"type": "assistant", "timestamp": at(ago),
+            "message": {"id": format!("m-{id}"), "stop_reason": "tool_use", "content": [
+                {"type": "tool_use", "id": format!("toolu_{id}"), "name": "CronCreate",
+                 "input": {"cron": "*/5 * * * *", "prompt": "Check the deploy.", "recurring": recurring}}]}});
+        let result = json!({"type": "user", "timestamp": at(ago - 0.1),
+            "message": {"content": [{"type": "tool_result", "tool_use_id": format!("toolu_{id}"),
+                "content": format!("Scheduled job {id}.")}]},
+            "toolUseResult": {"id": id, "humanSchedule": "Every 5 minutes", "recurring": recurring,
+                "durable": false, "nextFireAt": 1793324620207_u64}});
+        (call, result)
+    }
+
+    fn cron_fire(ago: f64) -> Value {
+        // A fire record may name a task id that isn't the cron job id, or carry none at all.
+        json!({"type": "system", "subtype": "scheduled_task_fire", "timestamp": at(ago),
+            "content": "Claude resuming cron wakeup", "cron": "*/5 * * * *",
+            "prompt": "Check the deploy.", "taskKind": "cron", "cronKind": "cron"})
+    }
+
+    fn cron_fire_without_kind(ago: f64) -> Value {
+        // 2.1.314 cron fires carry only the job id, cron expression and prompt.
+        json!({"type": "system", "subtype": "scheduled_task_fire", "timestamp": at(ago),
+            "content": "Running scheduled task (Oct 30 12:17pm)", "taskId": "083784d8",
+            "cron": "*/5 * * * *", "prompt": "Check the deploy."})
+    }
+
+    #[test]
+    fn a_recurring_cron_stays_armed_after_it_fires() {
+        let (create, created) = cron_create("083784d8", true, 5.0);
+        let mut s = session(&[prompt("schedule a cron", 6.0), create, created, end_turn(3.0, "m2")]);
+        assert_eq!(s.pending_wakeups()[0].due_at, Some(crate::Timestamp::from_secs_f64(1793324620.207)));
+
+        s.apply(&cron_fire(2.0));
+        let pending = s.pending_wakeups();
+        assert_eq!(pending.len(), 1, "{pending:#?}");
+        assert_eq!(pending[0].kind, crate::WakeupKind::Cron);
+        assert_eq!(pending[0].due_at, None, "the next run isn't derivable from the fire record");
+        assert_eq!(pending[0].certainty, crate::Certainty::Inferred);
+        assert!(pending[0].recurring);
+        assert_eq!(pending[0].reason.as_deref(), Some("Check the deploy."));
+
+        s.apply(&cron_fire_without_kind(1.0));
+        let pending = s.pending_wakeups();
+        assert_eq!(pending.len(), 1, "a second fire leaves it armed too");
+        assert_eq!(pending[0].due_at, None);
+        assert_eq!(pending[0].certainty, crate::Certainty::Inferred);
+
+        s.apply(&json!({"type": "assistant", "timestamp": at(0.8),
+            "message": {"id": "m3", "stop_reason": "tool_use", "content": [
+                {"type": "tool_use", "id": "toolu_c2", "name": "CronDelete", "input": {"id": "083784d8"}}]}}));
+        s.apply(&json!({"type": "user", "timestamp": at(0.7),
+            "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_c2", "content": "Cancelled job 083784d8."}]},
+            "toolUseResult": {"id": "083784d8"}}));
+        assert!(s.pending_wakeups().is_empty(), "CronDelete clears a recurring job by id");
+    }
+
+    #[test]
+    fn agents_killed_clears_a_recurring_cron_after_a_fire() {
+        let (create, created) = cron_create("083784d8", true, 5.0);
+        let mut s = session(&[prompt("schedule a cron", 6.0), create, created, end_turn(3.0, "m2")]);
+        s.apply(&cron_fire_without_kind(2.0));
+        assert_eq!(s.pending_wakeups().len(), 1);
+        s.apply(&json!({"type": "system", "subtype": "agents_killed", "timestamp": at(1.0),
+            "content": "2 background agents killed"}));
+        assert!(s.pending_wakeups().is_empty(), "session end clears a recurring job");
+    }
+
+    #[test]
+    fn one_shot_crons_clear_on_fire_but_recurring_ones_stay() {
+        let (recurring_call, recurring_result) = cron_create("083784d8", true, 5.0);
+        let (one_shot_call, one_shot_result) = cron_create("c0ffee42", false, 4.8);
+        let mut s = session(&[
+            prompt("schedule crons", 6.0),
+            recurring_call,
+            recurring_result,
+            one_shot_call,
+            one_shot_result,
+            end_turn(3.0, "m2"),
+        ]);
+        assert_eq!(s.pending_wakeups().len(), 2);
+
+        s.apply(&cron_fire_without_kind(2.0));
+        let pending = s.pending_wakeups();
+        assert_eq!(pending.len(), 1, "the one-shot was consumed; the recurring job is still armed: {pending:#?}");
+        assert_eq!(pending[0].kind, crate::WakeupKind::Cron);
+        assert!(pending[0].recurring);
     }
 
     #[test]

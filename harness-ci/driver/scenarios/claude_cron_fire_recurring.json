@@ -1,0 +1,13 @@
+{
+  "name": "claude_cron_fire_recurring",
+  "description": "Local capture for recurring cron wakeups. Schedules a job every minute and observes two fires; not in the pinned stable matrix.",
+  "harness": "claude_code",
+  "mock": "../../mock-server/scenarios/cron_fire_recurring.json",
+  "command": ["claude", "--model", "claude-sonnet-4-5", "--dangerously-skip-permissions"],
+  "prompt": "schedule a cron every minute to check the deploy",
+  "run_for_ms": 130000,
+  "no_approval": true,
+  "expected_activity": [
+    { "activity": "done", "certainty": "firm", "when": "end" }
+  ]
+}
