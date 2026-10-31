@@ -1,0 +1,212 @@
+{
+  "format": 1,
+  "file": "session.jsonl",
+  "lorem": false,
+  "lines": 18,
+  "bytes_before": 12486,
+  "bytes_after": 11534,
+  "replacements": {
+    "email": 2,
+    "host": 5,
+    "secret_entropy": 3
+  },
+  "offsets": [
+    {
+      "line": 1,
+      "before_start": 0,
+      "before_end": 61,
+      "after_start": 0,
+      "after_end": 56,
+      "delta": -5
+    },
+    {
+      "line": 2,
+      "before_start": 61,
+      "before_end": 144,
+      "after_start": 56,
+      "after_end": 134,
+      "delta": -10
+    },
+    {
+      "line": 3,
+      "before_start": 144,
+      "before_end": 205,
+      "after_start": 134,
+      "after_end": 190,
+      "delta": -15
+    },
+    {
+      "line": 4,
+      "before_start": 205,
+      "before_end": 399,
+      "after_start": 190,
+      "after_end": 372,
+      "delta": -27
+    },
+    {
+      "line": 5,
+      "before_start": 399,
+      "before_end": 892,
+      "after_start": 372,
+      "after_end": 823,
+      "delta": -69
+    },
+    {
+      "line": 6,
+      "before_start": 892,
+      "before_end": 1247,
+      "after_start": 823,
+      "after_end": 1150,
+      "delta": -97
+    },
+    {
+      "line": 7,
+      "before_start": 1247,
+      "before_end": 1721,
+      "after_start": 1150,
+      "after_end": 1591,
+      "delta": -130
+    },
+    {
+      "line": 8,
+      "before_start": 1721,
+      "before_end": 2976,
+      "after_start": 1591,
+      "after_end": 2765,
+      "delta": -211
+    },
+    {
+      "line": 9,
+      "before_start": 2976,
+      "before_end": 6776,
+      "after_start": 2765,
+      "after_end": 6399,
+      "delta": -377
+    },
+    {
+      "line": 10,
+      "before_start": 6776,
+      "before_end": 7699,
+      "after_start": 6399,
+      "after_end": 7207,
+      "delta": -492
+    },
+    {
+      "line": 11,
+      "before_start": 7699,
+      "before_end": 8778,
+      "after_start": 7207,
+      "after_end": 8203,
+      "delta": -575
+    },
+    {
+      "line": 12,
+      "before_start": 8778,
+      "before_end": 9127,
+      "after_start": 8203,
+      "after_end": 8523,
+      "delta": -604
+    },
+    {
+      "line": 13,
+      "before_start": 9127,
+      "before_end": 9321,
+      "after_start": 8523,
+      "after_end": 8705,
+      "delta": -616
+    },
+    {
+      "line": 14,
+      "before_start": 9321,
+      "before_end": 9539,
+      "after_start": 8705,
+      "after_end": 8910,
+      "delta": -629
+    },
+    {
+      "line": 15,
+      "before_start": 9539,
+      "before_end": 10553,
+      "after_start": 8910,
+      "after_end": 9755,
+      "delta": -798
+    },
+    {
+      "line": 16,
+      "before_start": 10553,
+      "before_end": 11059,
+      "after_start": 9755,
+      "after_end": 10219,
+      "delta": -840
+    },
+    {
+      "line": 17,
+      "before_start": 11059,
+      "before_end": 12137,
+      "after_start": 10219,
+      "after_end": 11214,
+      "delta": -923
+    },
+    {
+      "line": 18,
+      "before_start": 12137,
+      "before_end": 12486,
+      "after_start": 11214,
+      "after_end": 11534,
+      "delta": -952
+    }
+  ],
+  "findings": [
+    {
+      "line": 8,
+      "kind": "email",
+      "placeholder": "<email>"
+    },
+    {
+      "line": 8,
+      "kind": "host",
+      "placeholder": "<host>"
+    },
+    {
+      "line": 8,
+      "kind": "host",
+      "placeholder": "<host>"
+    },
+    {
+      "line": 8,
+      "kind": "email",
+      "placeholder": "<email>"
+    },
+    {
+      "line": 9,
+      "kind": "host",
+      "placeholder": "<host>"
+    },
+    {
+      "line": 9,
+      "kind": "host",
+      "placeholder": "<host>"
+    },
+    {
+      "line": 9,
+      "kind": "host",
+      "placeholder": "<host>"
+    },
+    {
+      "line": 10,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0001>"
+    },
+    {
+      "line": 15,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0002>"
+    },
+    {
+      "line": 15,
+      "kind": "secret_entropy",
+      "placeholder": "<secret-0003>"
+    }
+  ],
+  "malformed_lines": []
+}
