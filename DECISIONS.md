@@ -71,7 +71,12 @@ document: the code, [spec/](spec/), and [docs/](docs/) are the source of truth f
 
 - **Approval is only possible when the mode allows it.** A pending tool in bypass/never-ask
   mode, an SDK entry point, or an AI-approval reviewer is firm `running_tool`, regardless of
-  timing. An unknown mode keeps the stall inference and marks it `inferred`.
+  timing. An unknown mode keeps the stall inference and marks it `inferred`. Auto mode is a
+  special case: its classifier approves nearly every tool, and Claude writes no transcript
+  record while a fallback permission prompt is up, so a stalled tool without a firm approval
+  record stays `running_tool` with inferred certainty rather than becoming
+  `awaiting_approval`. Default mode keeps the inferred stall, and a harness that persists a
+  permission request still reports firm `awaiting_approval` first.
 - **Firm turn ends beat timing.** Harness-specific records for normal completion, interruption,
   errors, and helper termination move status before the idle-age rule applies. A usage/rate-limit
   stop is firm `errored` with `stop_reason: "usage_limit"` and `resets_at` when recorded;

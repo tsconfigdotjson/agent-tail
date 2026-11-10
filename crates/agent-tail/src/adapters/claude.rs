@@ -989,6 +989,47 @@ mod tests {
     }
 
     #[test]
+    fn an_auto_mode_stalled_tool_keeps_running_inferred() {
+        // Auto mode can prompt only when its classifier falls back, and Claude writes no
+        // transcript record while that prompt is up. A stalled tool is therefore a
+        // long-running command unless a firm approval record arrives.
+        let events = [
+            json!({"type": "permission-mode", "timestamp": at(31.0), "permissionMode": "auto"}),
+            tool_use("Bash", json!({"command": "sleep 60"}), STALL_AFTER + 10.0, "m1"),
+        ];
+        let s = session(&events);
+        assert_eq!(status(&s), (Status::Working, "working"));
+        let st = s.state(
+            crate::time::Timestamp::from_secs_f64(crate::testutil::NOW),
+            &crate::ReducerOptions::default(),
+            crate::Diagnostics::default(),
+        );
+        assert_eq!(
+            (st.activity, st.certainty, st.reason),
+            (crate::Activity::RunningTool, crate::Certainty::Inferred, crate::Reason::ToolCallPending)
+        );
+        assert_eq!(st.permission, Some(PermissionMode::Auto));
+    }
+
+    #[test]
+    fn an_auto_mode_tool_is_still_firm_before_the_stall_threshold() {
+        let events = [
+            json!({"type": "permission-mode", "timestamp": at(31.0), "permissionMode": "auto"}),
+            tool_use("Bash", json!({"command": "sleep 60"}), 10.0, "m1"),
+        ];
+        let s = session(&events);
+        let st = s.state(
+            crate::time::Timestamp::from_secs_f64(crate::testutil::NOW),
+            &crate::ReducerOptions::default(),
+            crate::Diagnostics::default(),
+        );
+        assert_eq!(
+            (st.activity, st.certainty, st.reason),
+            (crate::Activity::RunningTool, crate::Certainty::Firm, crate::Reason::ToolCallPending)
+        );
+    }
+
+    #[test]
     fn an_sdk_entrypoint_has_no_human_to_ask() {
         let mut tool = tool_use("Bash", json!({"command": "sleep 60"}), STALL_AFTER + 10.0, "m1");
         tool["entrypoint"] = json!("sdk-cli");

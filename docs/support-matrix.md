@@ -10,7 +10,7 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 
 | Harness | Status | CI scenarios | Fixtures | Versions | Evidence |
 |---|---|---:|---:|---|---|
-| Claude Code | **CI-verified** | 18 | 41 | `2.1.292`, `2.1.310`, `2.1.311`, `2.1.312`, `2.1.314`, `2.1.322` | 18 CI scenario(s); 35 ci-scripted, 2 donated, 4 hand-made fixture(s) |
+| Claude Code | **CI-verified** | 18 | 42 | `2.1.292`, `2.1.310`, `2.1.311`, `2.1.312`, `2.1.314`, `2.1.319`, `2.1.322` | 18 CI scenario(s); 35 ci-scripted, 3 donated, 4 hand-made fixture(s) |
 | Claude Desktop | **ported-unverified** | 0 | 5 | unknown | 5 hand-made/synthetic fixture(s); no real capture |
 | Codex | **CI-verified** | 15 | 11 | `0.160.1` | 15 CI scenario(s); 6 ci-scripted, 2 donated, 3 hand-made fixture(s) |
 | Cursor | **donated-verified** | 0 | 7 | `3.27.12` | 3 donated fixture(s); no CI scenario |
@@ -23,7 +23,7 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 
 | Harness | Root (below home) | Ask-user tools | Modes observed | Helpers | Quirks |
 |---|---|---|---|---|---|
-| Claude Code | `.claude/projects` | `AskUserQuestion`, `ExitPlanMode` | `default`, `acceptEdits`, `plan`, `bypassPermissions` | yes | 7 |
+| Claude Code | `.claude/projects` | `AskUserQuestion`, `ExitPlanMode` | `default`, `acceptEdits`, `plan`, `bypassPermissions`, `auto` | yes | 7 |
 | Claude Desktop | `.config/Claude/local-agent-mode-sessions` | none observed | none observed | no | 7 |
 | Codex | `.codex/sessions` | `request_user_input` | `on-request`, `never` | no | 6 |
 | Cursor | `.cursor/projects` | `AskQuestion`, `AskUserQuestion`, `AskFollowupQuestion`, `RequestUserInput` | none observed | yes | 5 |
@@ -63,6 +63,7 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | claude_code | `2.1.314` | `linux` | `ci-scripted` | `claude-code/2.1.314/linux/scheduled-wakeup-cron` |
 | claude_code | `2.1.314` | `linux` | `ci-scripted` | `claude-code/2.1.314/linux/scheduled-wakeup-cron-one-shots` |
 | claude_code | `2.1.314` | `linux` | `ci-scripted` | `claude-code/2.1.314/linux/scheduled-wakeup-cron-recurring` |
+| claude_code | `2.1.319` | `linux` | `donated` | `claude-code/2.1.319/linux/auto-mode-long-tool` |
 | claude_code | `2.1.322` | `linux` | `ci-scripted` | `claude-code/2.1.322/linux/ci-claude_accept_edits` |
 | claude_code | `2.1.322` | `linux` | `ci-scripted` | `claude-code/2.1.322/linux/ci-claude_api_error_529` |
 | claude_code | `2.1.322` | `linux` | `ci-scripted` | `claude-code/2.1.322/linux/ci-claude_ask_user` |

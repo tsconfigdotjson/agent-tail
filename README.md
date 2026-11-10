@@ -45,7 +45,9 @@ which rule decided it.
 `certainty` is `firm` when the transcript says so and `inferred` when the activity depends
 on a timing or shape heuristic. A pending tool in bypass/never-ask mode is firmly
 `running_tool`; an unknown mode can only produce an inferred `awaiting_approval` after the
-stall threshold.
+stall threshold. Auto mode also keeps a stalled tool `running_tool` (inferred), because
+Claude only asks a human when its classifier falls back and writes no transcript record
+while that prompt is up.
 
 The state also carries the project, branch, title, model, permission/sandbox information,
 token usage, recorded cost, the last few activity lines, running helpers, pending scheduled
