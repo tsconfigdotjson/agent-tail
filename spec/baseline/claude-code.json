@@ -16,6 +16,7 @@
   "mcp_instructions_delta",
   "model",
   "nested_memory",
+  "plan_mode",
   "prompt_snapshot",
   "queued_command",
   "read_truncation_notice",
@@ -56,7 +57,8 @@
  "enums": {
   "assistant.error": [
    "server_error",
-   "authentication_failed"
+   "authentication_failed",
+   "rate_limit"
   ],
   "compactMetadata.trigger": [
    "auto"
@@ -101,8 +103,10 @@
    "user_reject"
   ],
   "permissionMode": [
+   "acceptEdits",
    "bypassPermissions",
-   "default"
+   "default",
+   "plan"
   ],
   "promptSource": [
    "typed",
@@ -160,12 +164,23 @@
   "api-request": [
    "id",
    "base",
+   "cacheControl",
+   "cacheControl[].path",
+   "cacheControl[].value",
+   "cacheControl[].value.type",
    "keep",
+   "params.betas",
+   "params.context_management",
+   "params.context_management.edits",
+   "params.context_management.edits[].keep",
+   "params.context_management.edits[].type",
    "params.max_tokens",
    "params.model",
+   "params.thinking",
    "querySource",
    "requestDigest",
    "shapeHash",
+   "tail",
    "timestamp",
    "version",
    "agentId",
@@ -200,7 +215,12 @@
    "attributionAgent",
    "attributionMcpServer",
    "attributionMcpTool",
-   "attributionSkill"
+   "attributionSkill",
+   "apiErrorIsTransient",
+   "apiErrorStatus",
+   "failedResponseHadNoToolCall",
+   "promptCacheRequested",
+   "toolInputStreamMs"
   ],
   "cost-state": [
    "totalCostUSD",
@@ -351,6 +371,11 @@
    "input",
    "caller.type"
   ],
+  "tools-used": [
+   "sessionId",
+   "tools",
+   "type"
+  ],
   "user": [
    "message.role",
    "message.content",
@@ -381,7 +406,11 @@
    "sandboxed",
    "classifierBoundary",
    "scheduledFireId",
-   "scheduledTaskId"
+   "scheduledTaskId",
+   "turnOrigin",
+   "turnPosition",
+   "turnPosition.promptIndex",
+   "turnPosition.turnIndex"
   ]
  },
  "harness": "claude-code",
@@ -416,6 +445,7 @@
    "pr-link",
    "queue-operation",
    "system",
+   "tools-used",
    "user"
   ],
   "subagent": [
@@ -446,6 +476,7 @@
   "AskUserQuestion",
   "Bash",
   "Edit",
+  "ExitPlanMode",
   "ListAgents",
   "Monitor",
   "PushNotification",
@@ -485,6 +516,11 @@
   "2.1.305",
   "2.1.306",
   "2.1.308",
-  "2.1.309"
+  "2.1.309",
+  "2.1.310",
+  "2.1.311",
+  "2.1.312",
+  "2.1.314",
+  "2.1.322"
  ]
 }

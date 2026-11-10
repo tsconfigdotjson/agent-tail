@@ -115,6 +115,7 @@ fn known_record(kind: &str) -> bool {
             | "pr-link"
             | "queue-operation"
             | "summary"
+            | "tools-used"
     )
 }
 
@@ -1279,6 +1280,16 @@ mod tests {
     fn takes_the_generated_title() {
         let s = session(&[json!({"type": "ai-title", "aiTitle": "Fix flaky tests"})]);
         assert_eq!(s.title, "Fix flaky tests");
+    }
+
+    #[test]
+    fn falls_back_to_the_opening_prompt_when_ai_title_is_absent() {
+        let s = session(&[prompt("Fix flaky tests\nand rerun them", 5.0)]);
+        assert_eq!(s.title, "Fix flaky tests");
+        let s = session(&[prompt("opening prompt", 5.0), json!({"type": "ai-title", "aiTitle": "Generated"})]);
+        assert_eq!(s.title, "Generated", "an older version's generated title still wins");
+        let s = session(&[prompt("first prompt", 5.0), end_turn(4.0, "m1"), prompt("later prompt", 3.0)]);
+        assert_eq!(s.title, "first prompt", "later prompts do not replace the fallback");
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 This note is based on read-only surveys of 150 main transcripts and 67 subagent transcripts
 (69 `.meta.json`) from Claude Code **2.1.281 to 2.1.309** (24 versions; subagents span
-2.1.283 to 2.1.309), plus offline harness captures through **2.1.314**. Most of the survey
+2.1.283 to 2.1.309), plus offline harness captures through **2.1.322**. Most of the survey
 corpus ran under `--dangerously-skip-permissions`. Everything labelled *inference* still
 needs a harness-CI fixture.
 
@@ -39,14 +39,15 @@ files), sessionKind ("bg" for background sessions)`.
 
 | type | n | notable fields |
 |---|---|---|
-| assistant | 20101 | `message.{id,model,role,stop_reason,stop_sequence,usage,content[]}`, `requestId`, `apiBlockIndex`, `effort`, `perTurnEffort`, `advisorModel`, `thinkingDurationMs`, `thinkingDisplay`, `error`, `isApiErrorMessage`, `isAbortedMidStream`, `truncatedAfterOutput`, `attribution*` |
+| assistant | 20101 | `message.{id,model,role,stop_reason,stop_sequence,usage,content[]}`, `requestId`, `apiBlockIndex`, `effort`, `perTurnEffort`, `advisorModel`, `thinkingDurationMs`, `thinkingDisplay`, `error`, `isApiErrorMessage`, `isAbortedMidStream`, `truncatedAfterOutput`, `attribution*`; 2.1.322 adds `failedResponseHadNoToolCall` (API-error rows only), `promptCacheRequested` and `toolInputStreamMs` |
 | user | 10700 | `message.content` (str or blocks), `toolUseResult`, `sourceToolAssistantUUID`, `permissionDecision.{decision,source,reasonType,reasonCode,grantScope}`, `permissionMode`, `promptSource`, `promptId`, `origin.{kind,producer,runId}`, `interruptedMessageId`, `toolDenialKind`, `isMeta`, `isCompactSummary`, `queue*`, `sandboxed`, `classifierBoundary` |
 | attachment | 17590 | `attachment.type` (26 kinds, e.g. `total_tokens_reminder`, `deferred_tools_record`, `queued_command`, `hook_cancelled`) |
 | system | 2360 | `subtype` (below), `level`, `content`, `isMeta` |
 | api-request / -blob / -shape | 4986 / 9739 / 111 | `querySource` (`repl_main_thread`, `agent:builtin:*`, `agent:custom`, `sdk`), request digests |
 | mode, permission-mode | 4111 each | `mode` (`normal` only); `permissionMode` |
 | last-prompt | 4240 | `lastPrompt`, `leafUuid`, `explicit` |
-| ai-title | 3981 | `aiTitle` |
+| tools-used | 2.1.311+ | `tools` (the names already loaded in the turn), `sessionId` |
+| ai-title | 3981 | `aiTitle`; removed in 2.1.322 |
 | atis-latch | 4214 | `atis` |
 | pr-link | 1390 | `prNumber, prRepository, prUrl` |
 | queue-operation | 1102 | `operation` enqueue/dequeue/remove, `reason` (`absorbed_mid_turn`, `delivered_to_agent`) |
@@ -133,6 +134,13 @@ Mid-stream aborts: `isAbortedMidStream` (2).
 is `You've hit your 5-hour limit · resets …`. `agent-tail` keeps firm `errored`, adds
 `stop_reason: "usage_limit"` and `resets_at`, and clears both when the next turn starts.
 
+**Title (2.1.322+):** 2.1.322 stopped writing the `ai-title` record. `agent-tail` still takes
+`aiTitle` when an older transcript has it and otherwise falls back to the opening prompt's
+first line. The added `failedResponseHadNoToolCall` field is true only on the synthetic
+API-error rows already classified by `isApiErrorMessage`; `promptCacheRequested` and
+`toolInputStreamMs` are request metadata, not status signals, so the adapter does not use
+them.
+
 **Subagents (firm linkage):**
 1. Parent `assistant` `tool_use` named **`Agent`** (54; `Task` never seen), with input keys
    `description, prompt, subagent_type[, run_in_background, isolation]`. `run_in_background`
@@ -211,7 +219,8 @@ messagingSocketPath, pidDomain`. From the binary, `status` is `busy | idle | wai
 local-only, and liveness has to be checked by pid (*inference from source; one live file seen*).
 
 ## Versions seen
-2.1.281, .283 to .287, .289 to .296, .299 to .306, .308, .309.
+2.1.281, .283 to .287, .289 to .296, .299 to .306, .308, .309; harness captures
+through 2.1.310, .311, .312, .314 and .322.
 
 ## How agent-tail handles these records
 
