@@ -298,7 +298,9 @@ pub enum Reason {
     /// A tool call has had no result for `stall_after`: perhaps a permission prompt.
     /// `AwaitingApproval`, inferred.
     ToolCallStalled,
-    /// A tool call is waiting for its result: `RunningTool`.
+    /// A tool call is waiting for its result: `RunningTool`. Firm while its age is below
+    /// the stall threshold; inferred in auto mode after the threshold, because auto mode
+    /// writes no record for a pending classifier fallback prompt.
     ToolCallPending,
     /// The user sent a prompt, or a turn started: `Thinking`.
     PromptSent,

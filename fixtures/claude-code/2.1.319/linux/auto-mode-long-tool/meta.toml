@@ -1,0 +1,7 @@
+harness = "claude_code"
+version = "2.1.319"
+os = "linux"
+capture = "donated"
+date = "2026-11-09"
+description = "A real auto-mode session: a Bash call runs for 31.9 s with no result, so a stall must stay running_tool (inferred), not become awaiting_approval."
+notes = "NOTES.md"

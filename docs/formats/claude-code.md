@@ -79,8 +79,9 @@ Rows per `message.id` run from 1 to 6. In 2.1.28x+ every row of a message carrie
 135/150 files; the other 15 start with `queue-operation`). The pair is re-appended through the
 session alongside `last-prompt`, mostly after a tool result or a prompt, so it is a
 metadata-flush cluster, not a turn marker. Prompt records also carry `user.permissionMode`
-(1311). Values seen: `bypassPermissions` (all 4111 records), `default` (2, on `sdk` prompts).
-`mode` is always `normal`. Vocabulary from the 2.1.309 binary: `default, acceptEdits, plan,
+(1311). Values seen: `bypassPermissions` (all 4111 records), `default` (2, on `sdk` prompts),
+and `auto` in a real 2.1.319 session (fixture `auto-mode-long-tool`). `mode` is always
+`normal`. Vocabulary from the 2.1.309 binary: `default, acceptEdits, plan,
 bypassPermissions, dontAsk, auto`. **Firm for "can't be asking".**
 
 **Post-hoc approval record (new, firm).** Each tool result's `user` record carries
@@ -93,8 +94,11 @@ human in this corpus.
 
 **Pending permission prompt: no transcript record.** Nothing is written while a prompt is up.
 The registry (below) does not set `waitingFor` for the `permission_prompt` dialog kind in
-2.1.309 (from minified source, *inference*). AwaitingApproval stays inferred, and is
-impossible under `bypassPermissions` except for the ask tools.
+2.1.309 (from minified source, *inference*). Auto mode's classifier normally approves a call
+without a prompt; when it falls back to asking a human, that prompt also writes no transcript
+record before its result. (`permission_check_status` is an SDK/output-stream event, not a
+transcript row.) AwaitingApproval stays inferred, and is impossible under
+`bypassPermissions` except for the ask tools.
 
 **Turn end, in order (n = turns):**
 `assistant(stop_reason=end_turn)` → `system/stop_hook_summary` (when hooks ran) →
@@ -220,13 +224,15 @@ local-only, and liveness has to be checked by pid (*inference from source; one l
 
 ## Versions seen
 2.1.281, .283 to .287, .289 to .296, .299 to .306, .308, .309; harness captures
-through 2.1.310, .311, .312, .314 and .322.
+through 2.1.310, .311, .312, .314, .319 and .322.
 
 ## How agent-tail handles these records
 
 - Reads `permission-mode` and `user.permissionMode`. Under bypass, a pending tool remains
   firmly `running_tool`; the 20 second approval inference only applies when the recorded mode
-  can still ask a human.
+  can still ask a human. In auto mode a stalled pending tool stays `running_tool` with
+  inferred certainty, because a fallback prompt leaves no transcript record; only a firm
+  approval record (such as Copilot's persisted permission request) overrides that.
 - Reads the firm turn-end records (`turn_duration`, `stop_hook_summary`, `agents_killed`) and
   keeps interruption, error, and normal completion distinct. A synthetic API-error row is
   `errored` even when its `stop_reason` is `stop_sequence`.

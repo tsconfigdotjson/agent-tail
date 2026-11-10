@@ -79,7 +79,7 @@ values = [
   { value = "plan", can_ask_human = true, observed = true, evidence = "harness-ci/driver/scenarios/claude_plan_exit.json" },
   { value = "bypassPermissions", can_ask_human = false, observed = true, evidence = "harness-ci/driver/scenarios/claude_bash_bypass.json; docs/formats/claude-code.md#status-signals" },
   { value = "dontAsk", can_ask_human = false, observed = false, evidence = "docs/formats/claude-code.md#status-signals (2.1.309 binary vocabulary)" },
-  { value = "auto", can_ask_human = true, observed = false, evidence = "docs/formats/claude-code.md#status-signals (2.1.309 binary vocabulary)" },
+  { value = "auto", can_ask_human = true, observed = true, evidence = "fixtures/claude-code/2.1.319/linux/auto-mode-long-tool; docs/formats/claude-code.md#status-signals" },
 ]
 
 [[quirks]]

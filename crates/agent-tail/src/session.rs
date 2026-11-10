@@ -499,6 +499,13 @@ impl Session {
             // A pending tool can only be waiting on a human when this mode can ask one.
             // Under bypass/dontAsk/never, or with no human at an SDK entrypoint, it runs.
             Last::ToolUse if !self.can_ask_human() || self.no_stall_inference => (RunningTool, Firm, ToolCallPending),
+            // Auto mode can put a permission prompt up, but only when its classifier falls
+            // back to asking a human, and Claude writes no transcript record while that
+            // prompt is waiting. A stall is therefore a long-running tool far more often
+            // than a question, so keep it running and mark the timing guess as inferred.
+            Last::ToolUse if self.permission == Some(PermissionMode::Auto) && age > o.stall_after.as_secs_f64() => {
+                (RunningTool, Inferred, ToolCallPending)
+            }
             Last::ToolUse if age > o.stall_after.as_secs_f64() => (AwaitingApproval, Inferred, ToolCallStalled),
             Last::ToolUse => (RunningTool, Firm, ToolCallPending),
             Last::Prompt => (Thinking, Firm, PromptSent),
