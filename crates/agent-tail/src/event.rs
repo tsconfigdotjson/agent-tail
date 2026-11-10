@@ -853,7 +853,10 @@ impl Session {
                             self.set_title_from_prompt(first);
                         }
                     }
-                    Harness::Codex | Harness::Pi | Harness::Gemini | Harness::Copilot => {
+                    // Claude Code dropped the generated `ai-title` record in 2.1.322, so
+                    // keep the opening prompt as its fallback. An `ai-title` from an older
+                    // version still wins when it arrives.
+                    Harness::ClaudeCode | Harness::Codex | Harness::Pi | Harness::Gemini | Harness::Copilot => {
                         if let Some(first) = self.prompt(text, t) {
                             self.set_title_from_prompt(first);
                         }
