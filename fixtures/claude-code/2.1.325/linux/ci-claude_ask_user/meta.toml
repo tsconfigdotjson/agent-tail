@@ -1,0 +1,6 @@
+harness = "claude_code"
+version = "2.1.325"
+os = "linux"
+capture = "ci-scripted"
+date = "2026-11-14"
+description = "Nightly harness capture. Ids/temp paths redacted; mock content kept."
