@@ -1,13 +1,13 @@
 {
   "name": "copilot_sigstop_wake_approval",
-  "description": "Copilot CLI is frozen on a real TUI permission request (firm awaiting_approval), then wakes and completes the approved tool's turn.",
+  "description": "Copilot CLI is frozen on a real TUI write-permission request (firm awaiting_approval), then wakes and completes the approved tool's turn.",
   "harness": "copilot",
   "pty": true,
-  "mock": "../../mock-server/scenarios/opencode_tool.json",
+  "mock": "../../mock-server/scenarios/copilot_bash_approval.json",
   "command": [
     "copilot",
     "-i",
-    "run the tool"
+    "run the command"
   ],
   "env": {
     "COPILOT_ALLOW_ALL": "false"

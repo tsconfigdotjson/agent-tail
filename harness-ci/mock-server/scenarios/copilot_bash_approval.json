@@ -1,0 +1,49 @@
+{
+  "name": "copilot_bash_approval",
+  "description": "A bash write that needs manual approval, then an answer after its result.",
+  "steps": [
+    {
+      "expect": {
+        "user_contains": "run the command"
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "tool_use",
+            "name": "bash",
+            "input": {
+              "command": "touch permission-marker.txt",
+              "description": "Create a marker file"
+            }
+          }
+        ],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 20
+        },
+        "fault": {
+          "type": "slow_first_token",
+          "delay_ms": 1000
+        }
+      }
+    },
+    {
+      "expect": {
+        "has_tool_result": true,
+        "tool_result_id": "call_mock_0_0"
+      },
+      "reply": {
+        "content": [
+          {
+            "type": "text",
+            "text": "The marker file was created."
+          }
+        ],
+        "usage": {
+          "input_tokens": 30,
+          "output_tokens": 10
+        }
+      }
+    }
+  ]
+}

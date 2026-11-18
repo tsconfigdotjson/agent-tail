@@ -94,6 +94,8 @@ fn committed_expected_events_match_their_inputs() {
         "copilot/1.0.103/linux/permission-denied",
         "copilot/1.0.103/linux/permission-approved",
         "copilot/1.0.103/linux/permission-user-denied",
+        "copilot/1.0.103/linux/ci-copilot_sigstop_wake_approval",
+        "copilot/1.0.114/linux/ci-copilot_sigstop_wake_approval",
         "copilot/1.0.103/linux/subagent-helper",
         "opencode/1.19.4/linux/error-step-finish",
         "opencode/1.19.4/linux/parallel-parts",

@@ -1,9 +1,10 @@
 # GitHub Copilot CLI
 
 GitHub Copilot CLI is the `@github/copilot` terminal agent. This lane follows **1.0.103**
-on Linux, run offline against the harness mock on 2026-10-25. Facts marked **firm** were
-seen in real event logs; **inferred** facts come from the 1.0.103 binary/help or the prior
-art and are labelled as such.
+and **1.0.114** on Linux, run offline against the harness mock. The original 1.0.103 captures
+are from 2026-10-25; the 1.0.114 approval-wake capture is from 2026-11-18. Facts marked
+**firm** were seen in real event logs; **inferred** facts come from the binary/help or the
+prior art and are labelled as such.
 
 ## Paths and layout
 
@@ -33,7 +34,7 @@ helper transcript directory.
 | `assistant.message` | `data.content` and `data.toolRequests[]` (`toolCallId`, `name`, `arguments`, `toolTitle`, `intentionSummary`) |
 | `tool.execution_start` | `toolCallId`, `toolName`, `arguments` |
 | `tool.execution_complete` | `toolCallId`, `success`, `result`, optional `error` |
-| `permission.requested` | `toolCallId` directly and under `permissionRequest`/`promptRequest`, `permissionMode`, request kind |
+| `permission.requested` | `toolCallId` directly and under `permissionRequest`/`promptRequest`, `permissionMode`, request kind; 1.0.114 also writes `assistedApprovalAssessment`, `permissionRequest.hasParseErrors`, and `commandSegments[].staticTokens` |
 | `permission.completed` | `toolCallId`, `result.kind`, `decisionSource` |
 | `session.usage_record` | per-call `usage` (`inputTokens`, `outputTokens`, cache counts, `apiCallId`) |
 | `session.error` | `errorType`, `message`, `statusCode`; a terminal model/query failure |
@@ -51,6 +52,13 @@ with `--allow-all-tools`, the next records are `tool.execution_start` and later
 `denied-no-approval-rule-and-could-not-request-from-user` and
 `decisionSource: "unattended_fallback"`, then a failed `tool.execution_complete`.
 
+The command also decides whether a request is written at all. In 1.0.103, `sleep 2` produced
+`permission.requested`. In 1.0.114, the same short sleep is auto-approved and goes straight
+from `tool.execution_start` to `tool.execution_complete`, while a write such as
+`touch permission-marker.txt` still produces a manual request. So a missing
+`permission.requested` is real evidence that this tool did not wait for approval; it is not a
+lost event. The approval scenario uses a write so both versions exercise the persisted wait.
+
 **Firm.** The same `assistant.turn_end` appears after each model call, including the model
 call that only requested a tool. The adapter therefore treats a turn end as a completed
 answer only after an assistant message with no tool requests; otherwise the interaction
@@ -61,12 +69,14 @@ continues.
 - **Prompt:** `user.message` is firm `Thinking` / `prompt_sent`; its first line is the
   fallback title.
 - **Tool running:** `assistant.message.toolRequests` creates a pending call. Copilot
-  persists a permission request whenever a tool may wait for a human, so a pending call
-  with no `permission.requested` is firm `RunningTool` / `tool_call_pending`, not the shared
-  20 s approval inference.
+  persists a permission request whenever a tool may wait for a human; a tool it auto-approves
+  has no request. A pending call with no `permission.requested` is therefore firm
+  `RunningTool` / `tool_call_pending`, not the shared 20 s approval inference.
 - **Approval pending:** `permission.requested` is **firm** `AwaitingApproval` /
-  `approval_requested`, joined by `toolCallId`. This matches the observed 1.0.103 behavior. The
-  observed `permissionMode` is `manual`.
+  `approval_requested`, joined by `toolCallId` directly or under
+  `permissionRequest`/`promptRequest`. This matches observed 1.0.103 and 1.0.114 behavior. The
+  observed `permissionMode` is `manual`. New 1.0.114 metadata such as
+  `assistedApprovalAssessment` is ignored; the persisted request remains the signal.
 - **Approval completed:** `permission.completed` clears the firm approval. An approved
   request is followed by the tool run; a denied request is followed by a failed tool result.
   The adapter treats result kinds beginning `approved` as approved and all other kinds as
@@ -127,17 +137,22 @@ The mock's OpenAI **Chat Completions** route is enough. Scenarios:
   error.
 - `copilot_api_error`: a terminal HTTP 500 records `session.error`; the session is firm
   `Errored`, not `Done`, even after the routine shutdown.
+- `copilot_sigstop_wake_approval`: a write-permission card is left up, the whole process group
+  is frozen, then resumed and approved. `permission.requested` is firm `AwaitingApproval`
+  before and during the stop; after wake the approval completes and the turn ends `Done`.
 
 The CI matrix installs pinned **1.0.103** and npm **latest** on Linux and macOS. A latest
 failure is a failing job, not a silent skip. The committed fixtures are under
-`fixtures/copilot/1.0.103/linux/` (`plain-qa`, `tool`, `permission-denied`), captured from
-the real CLI through the mock and redacted by `agent-tail fixture capture`. The
-`permission-approved` and `permission-user-denied` fixtures are **hand-made** from the
-1.0.103 event/result shapes, not captured from a TUI; they are not additional CI
-scenarios. `parallel-tools`, `interrupt` and `api-error` are hand-made coverage for
-multi-call, abort and `session.error` sequences whose event order was observed in real
-1.0.103 logs against the mock. `fixtures/copilot/1.0.103/linux/ci-copilot_hard_kill_mid_tool/`
-is a real kernel SIGKILL capture; its `NOTES.md` lists the flushed and missing rows.
+`fixtures/copilot/1.0.103/linux/` and `fixtures/copilot/1.0.114/linux/`, captured from the
+real CLI through the mock and redacted by `agent-tail fixture capture`. Both versions have
+the same `ci-copilot_sigstop_wake_approval` scenario; the 1.0.114 fixture records the new
+approval fields and the auto-approved-sleep change. The `permission-approved` and
+`permission-user-denied` fixtures are **hand-made** from the 1.0.103 event/result shapes, not
+captured from a TUI; they are not additional CI scenarios. `parallel-tools`, `interrupt` and
+`api-error` are hand-made coverage for multi-call, abort and `session.error` sequences whose
+event order was observed in real 1.0.103 logs against the mock.
+`fixtures/copilot/1.0.103/linux/ci-copilot_hard_kill_mid_tool/` is a real kernel SIGKILL
+capture; its `NOTES.md` lists the flushed and missing rows.
 
 Local green runs (1.0.103, Linux):
 
@@ -149,6 +164,7 @@ cargo run -p harness-driver -- --scenario driver/scenarios/copilot_tool.json
 cargo run -p harness-driver -- --scenario driver/scenarios/copilot_parallel_tools.json
 cargo run -p harness-driver -- --scenario driver/scenarios/copilot_permission_denied.json
 cargo run -p harness-driver -- --scenario driver/scenarios/copilot_api_error.json
+cargo run -p harness-driver -- --scenario driver/scenarios/copilot_sigstop_wake_approval.json
 ```
 
 ## Open questions and limits
@@ -156,13 +172,8 @@ cargo run -p harness-driver -- --scenario driver/scenarios/copilot_api_error.jso
 - The real GitHub Copilot routing service, sign-in flow and premium-request accounting are
   not exercised; the BYOK path is. A GitHub-auth-only behaviour change would not be caught
   by this lane.
-- A real interactive approval (user approves or denies at the TUI) was still not captured.
-  The prompt-mode flow has no interactive user, and no safe non-interactive way was found to
-  drive the TUI's approve/deny prompt; this PR does not add one. The event shape for
-  `permission.requested` is real; the prompt-mode denial is the completed result that was
-  available without a human. The user-approved (`result.kind: "approved"`) and user-denied
-  (`result.kind: "denied-interactively-by-user"`) completion shapes remain exercised only by
-  the hand-made `permission-approved` and `permission-user-denied` fixtures, derived from
-  1.0.103. A live TUI capture is still the remaining gap.
+- The live TUI write-approval wait is now captured for 1.0.103 and 1.0.114 by the
+  SIGSTOP/SIGCONT scenario, including the approved completion. A live TUI ask-user/deny flow
+  is still not captured; the user-denied completion remains a hand-made 1.0.103 fixture.
 - `session-store.db` is not read; the event log is authoritative for both parent and helper
   state.
