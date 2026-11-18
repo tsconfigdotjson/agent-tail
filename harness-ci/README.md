@@ -113,9 +113,11 @@ driver scenario names the screen/activity to wait for, the stopped duration, opt
 mock's open streams and move the reducer's clock (and writes after the wake) forward an hour;
 the fixtures shift post-wake record times by the same hour so the disk capture models the
 clock jump without waiting. Claude Code and Codex cover done, awaiting answer and awaiting
-approval; Copilot covers done and a real TUI approval; OpenCode covers done and the question
-tool; Pi and Gemini cover done. Unreachable states are recorded in each fixture's `NOTES.md`
-rather than invented. See `fixtures/*/*/linux/ci-*_sigstop_wake_*/NOTES.md`.
+approval; Copilot covers done and a real TUI write approval; OpenCode covers done and the
+question tool; Pi and Gemini cover done. Copilot 1.0.114 auto-approves the old `sleep 2`
+probe, so the approval scenario uses a write that still persists `permission.requested` in
+both 1.0.103 and 1.0.114. Unreachable states are recorded in each fixture's `NOTES.md` rather
+than invented. See `fixtures/*/*/linux/ci-*_sigstop_wake_*/NOTES.md`.
 
 Two Codex scenarios avoid host-dependent false failures. `codex_token_count` sends its second
 prompt on the first idle after a delay because a fast turn can finish without leaving the TUI

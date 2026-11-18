@@ -77,6 +77,12 @@ document: the code, [spec/](spec/), and [docs/](docs/) are the source of truth f
   record stays `running_tool` with inferred certainty rather than becoming
   `awaiting_approval`. Default mode keeps the inferred stall, and a harness that persists a
   permission request still reports firm `awaiting_approval` first.
+- **A missing Copilot permission request is still evidence.** Copilot 1.0.114 auto-approves
+  short safe commands such as `sleep 2`: it writes `tool.execution_start` then
+  `tool.execution_complete` with no `permission.requested`. Write commands still persist the
+  manual request, so the approval-wake scenario uses a write instead of the old sleep probe.
+  Both 1.0.103 and 1.0.114 therefore produce a real firm `awaiting_approval`; the adapter does
+  not infer approval from a pending Copilot tool when the request is absent.
 - **Firm turn ends beat timing.** Harness-specific records for normal completion, interruption,
   errors, and helper termination move status before the idle-age rule applies. A usage/rate-limit
   stop is firm `errored` with `stop_reason: "usage_limit"` and `resets_at` when recorded;

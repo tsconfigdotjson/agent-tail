@@ -17,7 +17,7 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | Pi | **CI-verified** | 9 | 12 | `1.4.0` | 9 CI scenario(s); 7 ci-scripted, 0 donated, 5 hand-made fixture(s) |
 | OpenCode | **CI-verified** | 7 | 14 | `1.19.4` | 7 CI scenario(s); 9 ci-scripted, 0 donated, 5 hand-made fixture(s) |
 | Gemini CLI | **CI-verified** | 7 | 8 | `0.65.0` | 7 CI scenario(s); 7 ci-scripted, 0 donated, 1 hand-made fixture(s) |
-| GitHub Copilot CLI | **CI-verified** | 10 | 14 | `1.0.103` | 10 CI scenario(s); 9 ci-scripted, 0 donated, 5 hand-made fixture(s) |
+| GitHub Copilot CLI | **CI-verified** | 10 | 15 | `1.0.103`, `1.0.114` | 10 CI scenario(s); 10 ci-scripted, 0 donated, 5 hand-made fixture(s) |
 
 ## What each harness can read
 
@@ -112,6 +112,7 @@ artifact yet), **spike** (a docs-only investigation; no adapter, fixture or CI r
 | copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/plain-qa` |
 | copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/subagent-helper` |
 | copilot | `1.0.103` | `linux` | `ci-scripted` | `copilot/1.0.103/linux/tool` |
+| copilot | `1.0.114` | `linux` | `ci-scripted` | `copilot/1.0.114/linux/ci-copilot_sigstop_wake_approval` |
 | cursor | `3.27.12` | `macos` | `donated` | `cursor/3.27.12/macos/approval-approved` |
 | cursor | `3.27.12` | `macos` | `donated` | `cursor/3.27.12/macos/approval-denied` |
 | cursor | `3.27.12` | `macos` | `donated` | `cursor/3.27.12/macos/approval-wait` |

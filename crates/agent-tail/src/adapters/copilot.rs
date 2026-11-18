@@ -511,6 +511,47 @@ mod tests {
     }
 
     #[test]
+    fn a_1_0_114_write_permission_is_firm_approval_without_a_top_level_id() {
+        let s = session(&[
+            start(),
+            user("run the command"),
+            event(
+                "assistant.message",
+                json!({"content":"","toolRequests":[{"toolCallId":"c1","name":"bash","arguments":{"command":"touch permission-marker.txt"}}]}),
+            ),
+            event(
+                "permission.requested",
+                json!({
+                    "requestId":"r1",
+                    "permissionRequest":{
+                        "kind":"shell",
+                        "toolCallId":"c1",
+                        "fullCommandText":"touch permission-marker.txt",
+                        "hasParseErrors":false,
+                        "commands":[{"identifier":"touch","readOnly":false}],
+                        "commandSegments":[{"identifier":"touch","fullCommandText":"touch permission-marker.txt","staticTokens":["touch","permission-marker.txt"]}]
+                    },
+                    "promptRequest":{"kind":"commands","toolCallId":"c1","commandIdentifiers":["touch"]},
+                    "assistedApprovalAssessment":{"status":"not-run","reason":"inactive"},
+                    "agentMode":"interactive",
+                    "permissionMode":"manual"
+                }),
+            ),
+        ]);
+        assert!(s.pending_approvals.contains("c1"), "the nested toolCallId joins the request");
+        let st = s.state(
+            crate::time::Timestamp::from_secs_f64(crate::testutil::NOW),
+            &crate::ReducerOptions::default(),
+            crate::Diagnostics::default(),
+        );
+        assert_eq!(
+            (st.activity, st.certainty, st.reason),
+            (crate::Activity::AwaitingApproval, crate::Certainty::Firm, crate::Reason::ApprovalRequested)
+        );
+        assert_eq!(st.permission, Some(crate::PermissionMode::Manual));
+    }
+
+    #[test]
     fn a_completed_permission_clears_the_firm_approval() {
         let s = session(&[
             start(),
