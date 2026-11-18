@@ -2,7 +2,7 @@
 
 This note is based on read-only surveys of 150 main transcripts and 67 subagent transcripts
 (69 `.meta.json`) from Claude Code **2.1.281 to 2.1.309** (24 versions; subagents span
-2.1.283 to 2.1.309), plus offline harness captures through **2.1.322**. Most of the survey
+2.1.283 to 2.1.309), plus offline harness captures through **2.1.327**. Most of the survey
 corpus ran under `--dangerously-skip-permissions`. Everything labelled *inference* still
 needs a harness-CI fixture.
 
@@ -39,7 +39,7 @@ files), sessionKind ("bg" for background sessions)`.
 
 | type | n | notable fields |
 |---|---|---|
-| assistant | 20101 | `message.{id,model,role,stop_reason,stop_sequence,usage,content[]}`, `requestId`, `apiBlockIndex`, `effort`, `perTurnEffort`, `advisorModel`, `thinkingDurationMs`, `thinkingDisplay`, `error`, `isApiErrorMessage`, `isAbortedMidStream`, `truncatedAfterOutput`, `attribution*`; 2.1.322 adds `failedResponseHadNoToolCall` (API-error rows only), `promptCacheRequested` and `toolInputStreamMs` |
+| assistant | 20101 | `message.{id,model,role,stop_reason,stop_sequence,usage,content[]}`, `requestId`, `apiBlockIndex`, `effort`, `perTurnEffort`, `advisorModel`, `thinkingDurationMs`, `thinkingDisplay`, `error`, `isApiErrorMessage`, `isAbortedMidStream`, `truncatedAfterOutput`, `attribution*`; 2.1.322 adds `failedResponseHadNoToolCall` (API-error rows only), `promptCacheRequested` and `toolInputStreamMs`; 2.1.327 adds `apiErrorType` (API-error rows only) and `madeBy` (`model` on ordinary assistant rows) |
 | user | 10700 | `message.content` (str or blocks), `toolUseResult`, `sourceToolAssistantUUID`, `permissionDecision.{decision,source,reasonType,reasonCode,grantScope}`, `permissionMode`, `promptSource`, `promptId`, `origin.{kind,producer,runId}`, `interruptedMessageId`, `toolDenialKind`, `isMeta`, `isCompactSummary`, `queue*`, `sandboxed`, `classifierBoundary` |
 | attachment | 17590 | `attachment.type` (26 kinds, e.g. `total_tokens_reminder`, `deferred_tools_record`, `queued_command`, `hook_cancelled`) |
 | system | 2360 | `subtype` (below), `level`, `content`, `isMeta` |
@@ -145,6 +145,13 @@ API-error rows already classified by `isApiErrorMessage`; `promptCacheRequested`
 `toolInputStreamMs` are request metadata, not status signals, so the adapter does not use
 them.
 
+**Error metadata (2.1.327+):** the synthetic API-error row adds `apiErrorType`. It was
+`overloaded_error` on the 529 row (`error: "server_error"`) and `rate_limit_error` on the
+usage-limit row (`error: "rate_limit"`, `apiErrorStatus: 429`). Ordinary assistant rows add
+`madeBy: "model"`. The adapter already classifies the error rows from `isApiErrorMessage`,
+`error`, `apiErrorStatus` and the limit text, so neither field feeds status; they are in the
+shape baseline and documented only.
+
 **Subagents (firm linkage):**
 1. Parent `assistant` `tool_use` named **`Agent`** (54; `Task` never seen), with input keys
    `description, prompt, subagent_type[, run_in_background, isolation]`. `run_in_background`
@@ -224,7 +231,7 @@ local-only, and liveness has to be checked by pid (*inference from source; one l
 
 ## Versions seen
 2.1.281, .283 to .287, .289 to .296, .299 to .306, .308, .309; harness captures
-through 2.1.310, .311, .312, .314, .319 and .322.
+through 2.1.310, .311, .312, .314, .319, .322 and .327.
 
 ## How agent-tail handles these records
 

@@ -218,7 +218,9 @@
    "attributionSkill",
    "apiErrorIsTransient",
    "apiErrorStatus",
+   "apiErrorType",
    "failedResponseHadNoToolCall",
+   "madeBy",
    "promptCacheRequested",
    "toolInputStreamMs"
   ],
@@ -521,6 +523,7 @@
   "2.1.311",
   "2.1.312",
   "2.1.314",
-  "2.1.322"
+  "2.1.322",
+  "2.1.327"
  ]
 }
